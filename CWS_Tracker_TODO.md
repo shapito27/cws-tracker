@@ -78,7 +78,7 @@
 
 ### 1.1 TypeScript Types & Interfaces (~2h)
 
-- [ ] **1.1.1** Create `src/shared/types/index.ts` - define all TypeScript interfaces:
+- [x] **1.1.1** Create `src/shared/types/index.ts` - define all TypeScript interfaces:
   - `Project`
   - `Extension`
   - `Keyword`
@@ -88,7 +88,7 @@
   - `QueueJob`
   - `ManipulationFlags` (define now even though used in Phase 3 - prevents migration headaches)
   - `TranslationSnapshot`
-- [ ] **1.1.2** Create `src/shared/types/messages.ts` - define message types:
+- [x] **1.1.2** Create `src/shared/types/messages.ts` - define message types:
   - `ScanProgressMessage`
   - `ScanCompleteMessage`
   - `NewEventMessage`
@@ -99,7 +99,7 @@
   - `ResumeScanMessage`
   - `CancelScanMessage`
   - Union type `ServiceWorkerMessage` and `DashboardMessage`
-- [ ] **1.1.3** Create `src/shared/types/settings.ts` - define `Settings` interface matching Section 4.2 of PRD.
+- [x] **1.1.3** Create `src/shared/types/settings.ts` - define `Settings` interface matching Section 4.2 of PRD.
 
 **Tests: None needed (type-only, compiler validates).**
 
