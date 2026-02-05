@@ -2,6 +2,23 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.3.0] - 2026-02-05
+
+### Added
+- Phase 1.2: Dexie.js Database Layer
+  - `CWSDatabase` class extending Dexie with typed tables for all 8 stores
+  - Version 1 schema with compound indexes: `[extensionId+date]`, `[keywordId+extensionId+date]`, `[status+scheduledAt]`
+  - Project CRUD: `getProject`, `getAllProjects`, `saveProject`, `deleteProject`
+  - Extension CRUD: `getExtension`, `saveExtension`, `deleteExtension`, `getOrphanedExtensions`
+  - Keyword methods: `getKeywordsByProject`, `saveKeyword`, `deleteKeyword`
+  - Listing snapshot methods: `getListingSnapshots` (date range), `getLatestListingSnapshot`, `saveListingSnapshot`
+  - Rank snapshot methods: `getRankSnapshots` (date range), `getLatestRankForKeyword`, `saveRankSnapshots` (atomic batch)
+  - Event methods: `getEvents` (date range), `getRecentEvents` (limit), `saveEvent`
+  - Queue methods: `enqueueJobs`, `dequeueNext` (priority + scheduledAt), `updateJobStatus`, `getRunningJobs`, `resetRunningJobs`, `getPendingCount`, `getQueueStats`, `cleanupOldJobs`
+  - Bulk data management: `deleteExtensionData` (transactional), `pruneOldSnapshots`
+  - Singleton `db` export for app-wide use
+  - 69 new tests (schema, CRUD verification, domain queries, edge cases)
+
 ## [0.2.0] - 2026-02-05
 
 ### Added
