@@ -29,13 +29,48 @@ import { ParserError } from './types.js';
 const VERSION = 'listing-v1';
 
 /**
- * Parse a CWS timestamp array [seconds, nanoseconds] into a Date object.
+ * Parse a numeric user count into a display-formatted string.
+ * Handles various input formats: "9,000+", "10,000,000+", "1K+", "0", etc.
+ *
+ * @param text - The user count string to parse
+ * @returns The numeric user count
  */
-function parseTimestamp(ts: unknown): Date {
+export function parseUserCount(text: string): number {
+  if (!text || text.trim() === '') return 0;
+
+  const cleaned = text.trim().replace(/[,+]/g, '');
+
+  // Handle abbreviated formats: "1K+", "5M+", etc.
+  const abbrevMatch = cleaned.match(/^(\d+(?:\.\d+)?)\s*([KkMmBb])$/);
+  if (abbrevMatch) {
+    const num = parseFloat(abbrevMatch[1]);
+    const suffix = abbrevMatch[2].toUpperCase();
+    const multipliers: Record<string, number> = { K: 1_000, M: 1_000_000, B: 1_000_000_000 };
+    return Math.round(num * (multipliers[suffix] ?? 1));
+  }
+
+  const parsed = parseInt(cleaned, 10);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * Format a numeric user count into a display string.
+ * e.g. 16000000 -> "16,000,000+"
+ */
+function formatUserCount(count: number): string {
+  if (count <= 0) return '0';
+  return count.toLocaleString('en-US') + '+';
+}
+
+/**
+ * Parse a CWS timestamp array [seconds, nanoseconds] into a YYYY-MM-DD string.
+ */
+function parseTimestamp(ts: unknown): string {
   if (!Array.isArray(ts) || ts.length < 1 || typeof ts[0] !== 'number') {
     throw new ParserError('Invalid timestamp format', VERSION, 'lastUpdated');
   }
-  return new Date(ts[0] * 1000);
+  const date = new Date(ts[0] * 1000);
+  return date.toISOString().split('T')[0];
 }
 
 /**
@@ -49,6 +84,29 @@ function parseScreenshots(screenshots: unknown): string[] {
       Array.isArray(item) && item.length >= 2 && typeof item[1] === 'string',
     )
     .map((item) => item[1]);
+}
+
+/**
+ * Extract permissions and host_permissions from a manifest JSON string.
+ */
+function parseManifestPermissions(manifestJson: string | null): {
+  permissions: string[];
+  hostPermissions: string[];
+} {
+  if (!manifestJson) return { permissions: [], hostPermissions: [] };
+
+  try {
+    const manifest = JSON.parse(manifestJson);
+    const permissions = Array.isArray(manifest.permissions)
+      ? manifest.permissions.filter((p: unknown): p is string => typeof p === 'string')
+      : [];
+    const hostPermissions = Array.isArray(manifest.host_permissions)
+      ? manifest.host_permissions.filter((p: unknown): p is string => typeof p === 'string')
+      : [];
+    return { permissions, hostPermissions };
+  } catch {
+    return { permissions: [], hostPermissions: [] };
+  }
 }
 
 export const listingParserV1: ListingParser = {
@@ -88,8 +146,8 @@ export const listingParserV1: ListingParser = {
       throw new ParserError('Extension name is missing', VERSION, 'name');
     }
 
-    const rating = card[3];
-    if (typeof rating !== 'number') {
+    const rawRating = card[3];
+    if (typeof rawRating !== 'number') {
       throw new ParserError('Rating is not a number', VERSION, 'rating');
     }
 
@@ -98,32 +156,35 @@ export const listingParserV1: ListingParser = {
       throw new ParserError('Rating count is not a number', VERSION, 'ratingCount');
     }
 
+    // If no ratings, set rating to null
+    const rating = ratingCount === 0 ? null : rawRating;
+
     const shortDescription = typeof card[6] === 'string' ? card[6] : '';
-    const userCount = typeof card[14] === 'number' ? card[14] : 0;
+    const userCountNumeric = typeof card[14] === 'number' ? card[14] : 0;
     const iconUrl = typeof card[1] === 'string' ? card[1] : '';
 
     // Category at card[11] = ["category/subcategory", null, categoryId]
     const categoryArr = card[11];
-    let category: string | null = null;
+    let category = '';
     let categoryId: number | null = null;
     if (Array.isArray(categoryArr) && categoryArr.length >= 1) {
-      category = typeof categoryArr[0] === 'string' ? categoryArr[0] : null;
+      category = typeof categoryArr[0] === 'string' ? categoryArr[0] : '';
       categoryId = typeof categoryArr[2] === 'number' ? categoryArr[2] : null;
     }
 
     const isFeatured = card[12] === 1;
 
     // Full description at data[6]
-    const description = typeof data[6] === 'string' ? data[6] : '';
+    const fullDescription = typeof data[6] === 'string' ? data[6] : '';
 
     // Developer info at data[10]
     const devInfo = data[10];
     let developerEmail: string | null = null;
-    let offeredBy = '';
+    let developerName = '';
     let developerId: string | null = null;
     if (Array.isArray(devInfo)) {
       developerEmail = typeof devInfo[0] === 'string' ? devInfo[0] : null;
-      offeredBy = typeof devInfo[5] === 'string' ? devInfo[5] : '';
+      developerName = typeof devInfo[5] === 'string' ? devInfo[5] : '';
       developerId = typeof devInfo[10] === 'string' ? devInfo[10] : null;
     }
 
@@ -143,7 +204,7 @@ export const listingParserV1: ListingParser = {
     const languages = Array.isArray(data[16])
       ? (data[16] as unknown[]).filter((l): l is string => typeof l === 'string')
       : [];
-    const languageCodes = Array.isArray(data[38])
+    const availableLocales = Array.isArray(data[38])
       ? (data[38] as unknown[]).filter((l): l is string => typeof l === 'string')
       : [];
 
@@ -165,28 +226,39 @@ export const listingParserV1: ListingParser = {
     // Manifest JSON at card[18]
     const manifestJson = typeof card[18] === 'string' ? card[18] : null;
 
+    // Extract permissions from manifest
+    const { permissions, hostPermissions } = parseManifestPermissions(manifestJson);
+
     return {
       extensionId,
       name,
-      description,
       shortDescription,
-      version,
-      offeredBy,
+      fullDescription,
       rating,
       ratingCount,
-      userCount,
-      category,
-      categoryId,
+      reviewCount: ratingCount,
+      userCount: formatUserCount(userCountNumeric),
+      userCountNumeric,
+      version,
       lastUpdated,
       size,
-      languages,
-      languageCodes,
-      iconUrl,
+      permissions,
+      hostPermissions,
+      screenshotCount: screenshotUrls.length,
       screenshotUrls,
+      hasPromoVideo: false,
+      translationCount: availableLocales.length,
+      availableLocales,
+      languages,
+      category,
+      categoryId,
+      developerName,
+      developerVerified: false,
+      badgeFlags: { featured: isFeatured },
+      iconUrl,
       websiteUrl,
       privacyPolicyUrl,
       supportUrl,
-      isFeatured,
       manifestJson,
       developerEmail,
       developerId,

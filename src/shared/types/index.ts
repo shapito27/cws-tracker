@@ -114,30 +114,31 @@ export interface Keyword {
  *
  * Field mapping from parser `ListingData` → `ListingSnapshot`:
  *
- * | ListingData field    | ListingSnapshot field | Transformation                              |
- * |----------------------|-----------------------|---------------------------------------------|
- * | name                 | title                 | direct                                      |
- * | description          | fullDescription       | direct                                      |
- * | shortDescription     | shortDescription      | direct                                      |
- * | offeredBy            | developerName         | direct                                      |
- * | rating               | rating                | 0 with ratingCount 0 → `null`               |
- * | ratingCount          | ratingCount           | direct                                      |
- * | ratingCount          | reviewCount           | CWS does not distinguish; mirrors ratingCount|
- * | userCount (number)   | userCountNumeric      | direct                                      |
- * | —                    | userCount (string)    | format userCountNumeric (e.g. "9,000,000+") |
- * | lastUpdated (Date)   | lastUpdated (string)  | `.toISOString().split('T')[0]` (YYYY-MM-DD) |
- * | size                 | size                  | direct                                      |
- * | languageCodes        | availableLocales      | direct                                      |
- * | languageCodes.length | translationCount      | derived                                     |
- * | screenshotUrls.length| screenshotCount       | derived                                     |
- * | isFeatured           | badgeFlags.featured   | direct                                      |
- * | manifestJson         | permissions           | JSON.parse → manifest.permissions ?? []     |
- * | manifestJson         | hostPermissions       | JSON.parse → manifest.host_permissions ?? [] |
- * | —                    | permissionRiskScore   | calculated by permission-risk utility        |
- * | —                    | hasPromoVideo         | not extractable; defaults to `false`         |
- * | —                    | developerVerified     | not extractable; defaults to `false`         |
- * | —                    | listingQualityScore   | Phase 2 calculation; defaults to `null`      |
- * | category             | category              | direct, `null` → `''`                       |
+ * Most fields map directly (parser now computes derived values):
+ * | ListingData field  | ListingSnapshot field | Transformation                          |
+ * |--------------------|-----------------------|-----------------------------------------|
+ * | name               | title                 | direct                                  |
+ * | fullDescription    | fullDescription       | direct                                  |
+ * | shortDescription   | shortDescription      | direct                                  |
+ * | developerName      | developerName         | direct                                  |
+ * | rating             | rating                | direct (null if no ratings)             |
+ * | ratingCount        | ratingCount           | direct                                  |
+ * | reviewCount        | reviewCount           | direct (mirrors ratingCount)            |
+ * | userCount          | userCount             | direct (formatted string)               |
+ * | userCountNumeric   | userCountNumeric      | direct                                  |
+ * | lastUpdated        | lastUpdated           | direct (YYYY-MM-DD)                     |
+ * | size               | size                  | direct                                  |
+ * | availableLocales   | availableLocales      | direct                                  |
+ * | translationCount   | translationCount      | direct                                  |
+ * | screenshotCount    | screenshotCount       | direct                                  |
+ * | badgeFlags         | badgeFlags            | direct                                  |
+ * | permissions        | permissions           | direct (from manifest)                  |
+ * | hostPermissions    | hostPermissions       | direct (from manifest)                  |
+ * | hasPromoVideo      | hasPromoVideo         | direct (defaults to false)              |
+ * | developerVerified  | developerVerified     | direct (defaults to false)              |
+ * | category           | category              | direct                                  |
+ * | —                  | permissionRiskScore   | calculated by permission-risk utility   |
+ * | —                  | listingQualityScore   | Phase 2 calculation; defaults to `null` |
  */
 export interface ListingSnapshot {
   /** Auto-increment primary key. Omit when creating. */
