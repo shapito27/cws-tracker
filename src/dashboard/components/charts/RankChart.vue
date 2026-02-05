@@ -2,10 +2,17 @@
 import { computed } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
 import type { RankChartSeries } from '../../composables/useRankings';
+import type { EventRecord } from '@/shared/types';
+import { EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   series: RankChartSeries[];
-}>();
+  events?: EventRecord[];
+  visibleEventTypes?: Set<string>;
+}>(), {
+  events: () => [],
+  visibleEventTypes: () => new Set<string>(),
+});
 
 const CHART_COLORS = [
   '#2563eb', // blue-600
@@ -19,6 +26,41 @@ const CHART_COLORS = [
   '#4f46e5', // indigo-600
   '#65a30d', // lime-600
 ];
+
+/** Build ApexCharts xaxis annotations from visible events. */
+const eventAnnotations = computed(() => {
+  if (props.events.length === 0 || props.visibleEventTypes.size === 0) {
+    return [];
+  }
+
+  // Collect all x-axis dates present in the chart data
+  const chartDates = new Set<string>();
+  for (const s of props.series) {
+    for (const d of s.data) {
+      chartDates.add(d.x);
+    }
+  }
+
+  return props.events
+    .filter((e) => props.visibleEventTypes.has(e.type) && chartDates.has(e.date))
+    .map((e) => ({
+      x: e.date,
+      borderColor: EVENT_TYPE_COLORS[e.type],
+      strokeDashArray: 0,
+      label: {
+        text: EVENT_TYPE_LABELS[e.type],
+        borderColor: EVENT_TYPE_COLORS[e.type],
+        style: {
+          color: '#fff',
+          background: EVENT_TYPE_COLORS[e.type],
+          fontSize: '10px',
+          padding: { left: 4, right: 4, top: 2, bottom: 2 },
+        },
+        orientation: 'horizontal' as const,
+        position: 'top' as const,
+      },
+    }));
+});
 
 const chartOptions = computed(() => ({
   chart: {
@@ -51,6 +93,9 @@ const chartOptions = computed(() => ({
       text: 'Position',
       style: { fontSize: '12px', color: '#374151' },
     },
+  },
+  annotations: {
+    xaxis: eventAnnotations.value,
   },
   stroke: {
     curve: 'smooth' as const,
