@@ -1,0 +1,310 @@
+/**
+ * Core TypeScript types and interfaces for CWS Tracker.
+ *
+ * Conventions:
+ * - Auto-increment IDs are `number` (Dexie `++id`), optional when creating.
+ * - Extension IDs are `string` (CWS 32-char ID).
+ * - Indexed date fields use `string` (YYYY-MM-DD) for human-readable sorting.
+ * - Non-indexed timestamps use `Date` objects.
+ */
+
+// Re-export sibling modules
+export type {
+  ScanProgressMessage,
+  ScanCompleteMessage,
+  NewEventMessage,
+  ScanErrorMessage,
+  QueueStatusMessage,
+  TriggerRefreshMessage,
+  PauseScanMessage,
+  ResumeScanMessage,
+  CancelScanMessage,
+  ServiceWorkerMessage,
+  DashboardMessage,
+} from './messages';
+
+export type { Settings, SubscriptionStatus } from './settings';
+
+// ---------------------------------------------------------------------------
+// Enumerations (string literal unions)
+// ---------------------------------------------------------------------------
+
+/** Types of changes detected between listing snapshots. */
+export type EventType =
+  | 'title_change'
+  | 'description_change'
+  | 'version_change'
+  | 'permission_change'
+  | 'rating_milestone'
+  | 'user_milestone'
+  | 'translation_change'
+  | 'screenshot_change'
+  | 'badge_change';
+
+/** Queue job variants. */
+export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit';
+
+/** Lifecycle states of a queue job. */
+export type QueueJobStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+/** Tracking status of an extension. */
+export type ExtensionStatus = 'active' | 'removed' | 'error';
+
+// ---------------------------------------------------------------------------
+// Core data models
+// ---------------------------------------------------------------------------
+
+/** A tracking project grouping one owned extension, competitors, and keywords. */
+export interface Project {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  name: string;
+  /** CWS extension ID of the user's own extension. */
+  ownExtensionId: string;
+  /** CWS extension IDs of competitor extensions. */
+  competitorIds: string[];
+  /** IDs of tracked keywords belonging to this project. */
+  keywordIds: number[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/** A tracked Chrome extension (own or competitor). */
+export interface Extension {
+  /** CWS 32-char extension ID (primary key, not auto-increment). */
+  id: string;
+  /** Display name (populated after first scan). */
+  name: string;
+  /** Extension icon URL for display. */
+  iconUrl: string | null;
+  addedAt: Date;
+  lastScannedAt: Date | null;
+  status: ExtensionStatus;
+  /** Project IDs that reference this extension (for cleanup on delete). */
+  projectRefs: number[];
+}
+
+/** A keyword or phrase tracked for search ranking. */
+export interface Keyword {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  /** The search term or phrase. */
+  text: string;
+  /** Project this keyword belongs to. */
+  projectId: number;
+  createdAt: Date;
+}
+
+/** A point-in-time snapshot of an extension's CWS listing. */
+export interface ListingSnapshot {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  extensionId: string;
+  /** Indexed date: YYYY-MM-DD. */
+  date: string;
+  title: string;
+  shortDescription: string;
+  fullDescription: string;
+  /** Average star rating (0-5). `null` if the extension has no ratings. */
+  rating: number | null;
+  /** Total number of ratings. */
+  ratingCount: number;
+  /** Total number of text reviews. May equal ratingCount on CWS. */
+  reviewCount: number;
+  /** Display-formatted user count (e.g. "9,000+"). */
+  userCount: string;
+  /** Parsed numeric user count. */
+  userCountNumeric: number;
+  version: string;
+  /** Last updated date string from CWS. */
+  lastUpdated: string;
+  /** Extension file size string (e.g. "4.12MiB"). */
+  size: string;
+  /** Declared manifest permissions. */
+  permissions: string[];
+  /** Declared manifest host permissions. */
+  hostPermissions: string[];
+  /** Calculated permission risk score (0-100). */
+  permissionRiskScore: number;
+  /** Badge flags such as "featured". */
+  badgeFlags: Record<string, boolean>;
+  screenshotCount: number;
+  hasPromoVideo: boolean;
+  /** Number of supported locales. */
+  translationCount: number;
+  /** Locale codes (e.g. ["en", "ja", "de"]). */
+  availableLocales: string[];
+  /** CWS category string. */
+  category: string;
+  developerName: string;
+  developerVerified: boolean;
+  /** Composite quality score (0-100). `null` until Phase 2 calculation. */
+  listingQualityScore: number | null;
+  /** Exact timestamp of this scan. */
+  scannedAt: Date;
+}
+
+/** A point-in-time search ranking record for one extension + keyword pair. */
+export interface RankSnapshot {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  keywordId: number;
+  extensionId: string;
+  /** Indexed date: YYYY-MM-DD. */
+  date: string;
+  /**
+   * 1-based rank position. `null` means the extension was not found in the
+   * first page of results (display as "30+").
+   */
+  position: number | null;
+  /** Total number of extensions in search results. */
+  totalResults: number;
+  scannedAt: Date;
+}
+
+/**
+ * A detected change between consecutive listing snapshots.
+ * Named `EventRecord` to avoid collision with the DOM `Event` type.
+ */
+export interface EventRecord {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  extensionId: string;
+  /** Indexed date: YYYY-MM-DD. */
+  date: string;
+  type: EventType;
+  /** The specific field that changed (e.g. "title", "permissions"). */
+  field: string;
+  /** Previous value, stringified. `null` for first-scan events. */
+  oldValue: string | null;
+  /** New value, stringified. */
+  newValue: string | null;
+  /** Human-readable description (e.g. "Title changed from 'X' to 'Y'"). */
+  note: string;
+}
+
+// ---------------------------------------------------------------------------
+// Queue system
+// ---------------------------------------------------------------------------
+
+/** Payload for a listing_scan job. */
+export interface ListingScanPayload {
+  extensionId: string;
+}
+
+/** Payload for a keyword_scan job. */
+export interface KeywordScanPayload {
+  keywordId: number;
+  keyword: string;
+}
+
+/** Payload for a translation_audit job. */
+export interface TranslationAuditPayload {
+  extensionId: string;
+  locale: string;
+}
+
+/** Discriminated union of all possible job payloads. */
+export type QueueJobPayload =
+  | ListingScanPayload
+  | KeywordScanPayload
+  | TranslationAuditPayload;
+
+/** A queued job in IndexedDB. Survives service worker restarts. */
+export interface QueueJob {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  type: QueueJobType;
+  payload: QueueJobPayload;
+  status: QueueJobStatus;
+  /** Lower number = higher priority. */
+  priority: number;
+  retryCount: number;
+  maxRetries: number;
+  /**
+   * When the job should execute. Stored as Date; Dexie indexes Date objects
+   * as numeric timestamps internally.
+   */
+  scheduledAt: Date;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  /** Error message if the job failed. */
+  error: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Translation manipulation detection (Phase 3, defined early for schema)
+// ---------------------------------------------------------------------------
+
+/** Flags for each translation manipulation trick. */
+export interface ManipulationFlags {
+  /** Trick 1: Extension name differs significantly across locales. */
+  differentName: {
+    detected: boolean;
+    /** 0-1 Levenshtein-based similarity (Latin) or brand-name check (non-Latin). */
+    similarity: number;
+    details?: string;
+  };
+  /** Trick 2: Short description differs significantly. */
+  differentShortDesc: {
+    detected: boolean;
+    similarity: number;
+    details?: string;
+  };
+  /** Trick 3: Competitor names found in listing text. */
+  competitorNames: {
+    detected: boolean;
+    /** Competitor names that were matched. */
+    matches: string[];
+  };
+  /** Trick 4: Description length significantly exceeds median across locales. */
+  extendedDescription: {
+    detected: boolean;
+    /** This locale's length / median length across all locales. */
+    ratio: number;
+    details?: string;
+  };
+  /** Trick 5: Keyword list appended at end of description. */
+  keywordsAtEnd: {
+    detected: boolean;
+    /** First 200 chars of detected keyword block. */
+    excerpt?: string;
+  };
+  /** Trick 6: Keyword stuffing inline within description. */
+  keywordsInline: {
+    detected: boolean;
+    excerpt?: string;
+  };
+  /** Trick 7: Description is semantically unrelated to the English version. */
+  differentDescription: {
+    detected: boolean;
+    /** Keyword overlap ratio (Jaccard similarity). */
+    similarity: number;
+  };
+  /** Trick 8: Content left in English for a non-English locale. */
+  untranslatedEnglish: {
+    detected: boolean;
+    /** Proportion of content detected as English (0-1). */
+    englishRatio: number;
+  };
+}
+
+/** A snapshot of a localized listing for translation audit purposes. */
+export interface TranslationSnapshot {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  extensionId: string;
+  /** Locale code (e.g. "es", "zh_CN"). */
+  locale: string;
+  /** Indexed date: YYYY-MM-DD. */
+  date: string;
+  title: string;
+  shortDescription: string;
+  fullDescription: string;
+  /** Character count of fullDescription. */
+  descriptionLength: number;
+  /** Detected language of the content (best-effort heuristic). */
+  detectedLanguage: string | null;
+  manipulationFlags: ManipulationFlags;
+  scannedAt: Date;
+}
