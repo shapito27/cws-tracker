@@ -8,6 +8,7 @@ import RankingsTab from '../components/project/RankingsTab.vue';
 import ExtensionsTab from '../components/project/ExtensionsTab.vue';
 import KeywordsTab from '../components/project/KeywordsTab.vue';
 import EventsTab from '../components/project/EventsTab.vue';
+import ListingCompare from '../components/comparison/ListingCompare.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -15,7 +16,7 @@ const router = useRouter();
 const project = ref<Project | null>(null);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
-const activeTab = ref<'overview' | 'rankings' | 'extensions' | 'keywords' | 'events'>('overview');
+const activeTab = ref<'overview' | 'rankings' | 'extensions' | 'keywords' | 'events' | 'compare'>('overview');
 
 const tabs = [
   { id: 'overview' as const, label: 'Overview' },
@@ -23,6 +24,7 @@ const tabs = [
   { id: 'extensions' as const, label: 'Extensions' },
   { id: 'keywords' as const, label: 'Keywords' },
   { id: 'events' as const, label: 'Events' },
+  { id: 'compare' as const, label: 'Compare' },
 ];
 
 const projectId = computed(() => Number(route.params.id));
@@ -112,6 +114,10 @@ watch(projectId, loadProject);
     />
     <EventsTab
       v-else-if="activeTab === 'events'"
+      :project="project"
+    />
+    <ListingCompare
+      v-else-if="activeTab === 'compare'"
       :project="project"
     />
   </div>
