@@ -100,7 +100,8 @@ For every feature (task group in TODO.md):
 2. **Implement** with tests alongside (types first, then logic, then tests).
 3. **Verify**: `npm test` (all pass, no regressions) + `npx tsc --noEmit` (zero errors).
 4. **Version bump**: increment `manifest.json` version (MINOR for features, PATCH for fixes). Add `CHANGELOG.md` entry.
-5. **Review agent**: run the checklist below. ALL must be "yes" before moving on.
+5. **Update TODO**: mark all completed checkboxes in `CWS_Tracker_TODO.md` as done (`- [x]`). Commit the TODO update.
+6. **Review agent**: run the checklist below. ALL must be "yes" before moving on.
 
 ### Review Agent Checklist
 
