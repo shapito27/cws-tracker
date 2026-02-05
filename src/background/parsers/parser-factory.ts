@@ -27,7 +27,7 @@ const SEARCH_PARSERS: Record<string, SearchParser> = {
  * @throws Error if the requested parser version is not found.
  */
 export function getListingParser(version?: string): ListingParser {
-  const key = version ?? 'listing-v1';
+  const key = version ? `listing-${version}` : 'listing-v1';
   const parser = LISTING_PARSERS[key];
   if (!parser) {
     throw new Error(
@@ -46,7 +46,7 @@ export function getListingParser(version?: string): ListingParser {
  * @throws Error if the requested parser version is not found.
  */
 export function getSearchParser(version?: string): SearchParser {
-  const key = version ?? 'search-v1';
+  const key = version ? `search-${version}` : 'search-v1';
   const parser = SEARCH_PARSERS[key];
   if (!parser) {
     throw new Error(

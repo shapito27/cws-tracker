@@ -17,17 +17,17 @@ describe('parser factory', () => {
     });
 
     it('returns listing-v1 parser when explicitly requested', () => {
-      const parser = getListingParser('listing-v1');
+      const parser = getListingParser('v1');
       expect(parser).toBe(listingParserV1);
     });
 
     it('throws for unknown parser version', () => {
-      expect(() => getListingParser('listing-v999')).toThrow('Unknown listing parser version');
+      expect(() => getListingParser('v999')).toThrow('Unknown listing parser version');
     });
 
     it('error message includes available versions', () => {
       try {
-        getListingParser('listing-v999');
+        getListingParser('v999');
         expect.fail('Should have thrown');
       } catch (e) {
         expect((e as Error).message).toContain('listing-v1');
@@ -43,17 +43,17 @@ describe('parser factory', () => {
     });
 
     it('returns search-v1 parser when explicitly requested', () => {
-      const parser = getSearchParser('search-v1');
+      const parser = getSearchParser('v1');
       expect(parser).toBe(searchParserV1);
     });
 
     it('throws for unknown parser version', () => {
-      expect(() => getSearchParser('search-v999')).toThrow('Unknown search parser version');
+      expect(() => getSearchParser('v999')).toThrow('Unknown search parser version');
     });
 
     it('error message includes available versions', () => {
       try {
-        getSearchParser('search-v999');
+        getSearchParser('v999');
         expect.fail('Should have thrown');
       } catch (e) {
         expect((e as Error).message).toContain('search-v1');
