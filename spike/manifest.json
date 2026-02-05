@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CWS Spike - Response Investigation",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Technical spike to investigate Chrome Web Store response formats",
   "permissions": [
     "storage",
