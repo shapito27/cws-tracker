@@ -22,6 +22,7 @@ export interface ScanStatus {
   lastScanDate: string | null;
   lastJobsCompleted: number;
   lastJobsFailed: number;
+  lastError: string | null;
 }
 
 export function useServiceWorker() {
@@ -36,6 +37,7 @@ export function useServiceWorker() {
     lastScanDate: null,
     lastJobsCompleted: 0,
     lastJobsFailed: 0,
+    lastError: null,
   });
 
   function handleMessage(message: unknown): void {
@@ -51,6 +53,7 @@ export function useServiceWorker() {
           completed: msg.completed,
           total: msg.total,
           currentJob: msg.currentJob,
+          lastError: null,
         };
         break;
       case 'SCAN_COMPLETE':
@@ -64,15 +67,21 @@ export function useServiceWorker() {
           lastScanDate: msg.date,
           lastJobsCompleted: msg.jobsCompleted,
           lastJobsFailed: msg.jobsFailed,
+          lastError: null,
         };
         scanProgress.value = null;
         break;
       case 'QUEUE_STATUS':
         queueStats.value = msg;
         break;
-      case 'NEW_EVENT':
       case 'SCAN_ERROR':
-        // These can be handled by specific page listeners
+        scanStatus.value = {
+          ...scanStatus.value,
+          lastError: msg.error,
+        };
+        break;
+      case 'NEW_EVENT':
+        // Can be handled by specific page listeners
         break;
     }
   }

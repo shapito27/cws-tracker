@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && cp -r ./dist /mnt/c/Users/legio/Desktop/cws-tracker-dist",
+    "build": "vite build && cp -r ./dist/* /mnt/c/Users/legio/Desktop/cws-tracker-dist/",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "vue-tsc --noEmit",
-    "deploy": "cp -r ./dist /mnt/c/Users/legio/Desktop/cws-tracker-dist",
+    "deploy": "cp -r ./dist/* /mnt/c/Users/legio/Desktop/cws-tracker-dist/",
     "build:only": "vite build"
   },
   "devDependencies": {

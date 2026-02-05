@@ -85,6 +85,12 @@ function getLastScanned(): string {
       >
         {{ scanStatus.isRunning ? 'Scan Running...' : 'Scan This Project' }}
       </button>
+      <span v-if="scanStatus.isRunning && scanStatus.total > 0" class="ml-3 text-sm text-gray-500">
+        {{ scanStatus.completed }}/{{ scanStatus.total }} jobs
+      </span>
+      <p v-if="scanStatus.lastError" class="mt-2 text-sm text-red-600">
+        Scan error: {{ scanStatus.lastError }}
+      </p>
     </div>
 
     <!-- Recent events -->
