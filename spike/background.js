@@ -1,17 +1,18 @@
-// CWS Response Format Investigation - Service Worker (v2)
-// Approach: Use tabs + content script to bypass CORS restrictions
-// Finding from v1: Direct fetch() from service worker is blocked by CORS on CWS domains
+// CWS Response Format Investigation - Service Worker (v3)
+// Findings so far:
+//   v1: Direct fetch() from SW blocked by CORS on all CWS domains
+//   v2: Content scripts don't inject on CWS (restricted domain)
+//       chrome.scripting.executeScript: "The extensions gallery cannot be scripted"
+//   v3: Testing offscreen document approach (fetch + XHR + iframe)
 
 const UBLOCK_ORIGIN_ID = 'cjpalhdlnbpafiamejdnhcphjbkeiagm';
 const GOOGLE_TRANSLATE_ID = 'aapbdbdomjkkjkaonfhkkikfgjllcleb';
 const NON_EXISTENT_ID = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1';
 
-// CWS URLs
 const CWS_DETAIL = (id) => `https://chromewebstore.google.com/detail/${id}`;
 const CWS_SEARCH = (query) => `https://chromewebstore.google.com/search/${encodeURIComponent(query)}`;
 const CWS_DETAIL_OLD = (id) => `https://chrome.google.com/webstore/detail/${id}`;
 
-// Results storage
 const results = { tests: [], startTime: null, endTime: null };
 
 async function saveResults() {
@@ -20,133 +21,78 @@ async function saveResults() {
 }
 
 function logTest(testName, data) {
+  // Strip fullBody from logged output to keep console readable
+  const logData = { ...data };
+  if (logData.fullBody) {
+    logData.fullBody = `[${logData.fullBody.length} chars - saved to storage]`;
+  }
+  // Also strip nested fullBody in sub-results
+  const stripBody = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    if (Array.isArray(obj)) { obj.forEach(stripBody); return; }
+    if (obj.fullBody && typeof obj.fullBody === 'string' && obj.fullBody.length > 100) {
+      obj.fullBody = `[${obj.fullBody.length} chars]`;
+    }
+    Object.values(obj).forEach(stripBody);
+  };
+  stripBody(logData);
+
   const testResult = { name: testName, timestamp: new Date().toISOString(), ...data };
   results.tests.push(testResult);
   console.log(`\n=== ${testName} ===`);
-  console.log(testResult);
+  console.log(logData);
   return testResult;
 }
 
 // ============================================================
-// APPROACH A: Tab + Content Script
-// Open a CWS page in a tab, let content script read the DOM
+// OFFSCREEN DOCUMENT MANAGEMENT
 // ============================================================
 
-async function fetchViaTab(url, waitMs = 5000) {
-  console.log(`[Tab Approach] Opening: ${url}`);
-  let tab;
+let offscreenCreated = false;
+
+async function ensureOffscreen() {
+  if (offscreenCreated) return;
   try {
-    tab = await chrome.tabs.create({ url, active: false });
-
-    // Wait for page to load
-    await new Promise((resolve) => {
-      const onUpdated = (tabId, changeInfo) => {
-        if (tabId === tab.id && changeInfo.status === 'complete') {
-          chrome.tabs.onUpdated.removeListener(onUpdated);
-          resolve();
-        }
-      };
-      chrome.tabs.onUpdated.addListener(onUpdated);
-      // Timeout fallback
-      setTimeout(() => {
-        chrome.tabs.onUpdated.removeListener(onUpdated);
-        resolve();
-      }, 15000);
+    await chrome.offscreen.createDocument({
+      url: 'offscreen.html',
+      reasons: ['DOM_SCRAPING'],
+      justification: 'Fetch CWS pages from offscreen document context'
     });
-
-    // Give page extra time for JS rendering
-    await new Promise(r => setTimeout(r, waitMs));
-
-    // Try sending message to content script
-    let contentData = null;
-    try {
-      contentData = await chrome.tabs.sendMessage(tab.id, { type: 'GET_PAGE_HTML' });
-    } catch (e) {
-      console.log('[Tab Approach] Content script message failed:', e.message);
-    }
-
-    // Also try chrome.scripting.executeScript as fallback
-    let scriptData = null;
-    try {
-      const scriptResults = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => ({
-          url: window.location.href,
-          html: document.documentElement.outerHTML,
-          title: document.title,
-          readyState: document.readyState,
-          bodyText: document.body ? document.body.innerText.substring(0, 3000) : '',
-          scriptCount: document.querySelectorAll('script').length,
-          afInitDataCount: Array.from(document.querySelectorAll('script'))
-            .filter(s => s.textContent.includes('AF_initDataCallback')).length,
-          linkCount: document.querySelectorAll('a').length,
-          imgCount: document.querySelectorAll('img').length
-        })
-      });
-      scriptData = scriptResults[0]?.result;
-    } catch (e) {
-      console.log('[Tab Approach] executeScript failed:', e.message);
-    }
-
-    // Try extracting detailed data via content script
-    let extractedData = null;
-    try {
-      extractedData = await chrome.tabs.sendMessage(tab.id, { type: 'EXTRACT_PAGE_DATA' });
-    } catch (e) {
-      console.log('[Tab Approach] Extract message failed:', e.message);
-    }
-
-    return {
-      success: true,
-      contentScriptData: contentData,
-      scriptingData: scriptData,
-      extractedData,
-      approach: 'tab'
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error.message,
-      approach: 'tab'
-    };
-  } finally {
-    if (tab) {
-      try { await chrome.tabs.remove(tab.id); } catch (e) {}
+    offscreenCreated = true;
+    // Give it a moment to load
+    await new Promise(r => setTimeout(r, 500));
+    console.log('[Offscreen] Document created successfully');
+  } catch (e) {
+    if (e.message.includes('already exists')) {
+      offscreenCreated = true;
+    } else {
+      console.error('[Offscreen] Failed to create:', e.message);
+      throw e;
     }
   }
 }
 
 // ============================================================
-// APPROACH B: Direct Fetch Variations
-// Test various fetch options and alternative API endpoints
+// APPROACH C: Offscreen Document
 // ============================================================
 
-async function fetchDirect(url, options = {}) {
-  const startTime = Date.now();
+async function fetchViaOffscreen(url, method = 'fetch') {
+  await ensureOffscreen();
+
+  const messageType = method === 'xhr' ? 'OFFSCREEN_XHR' :
+                      method === 'iframe' ? 'OFFSCREEN_IFRAME' :
+                      'OFFSCREEN_FETCH';
+
   try {
-    const response = await fetch(url, options);
-    const responseTime = Date.now() - startTime;
-    const text = await response.text();
-    return {
-      success: true,
-      url: response.url,
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      responseTime,
-      bodyLength: text.length,
-      bodyPreview: text.substring(0, 2000),
-      fullBody: text,
-      redirected: response.redirected,
-      type: response.type
-    };
-  } catch (error) {
-    return {
-      success: false,
+    const result = await chrome.runtime.sendMessage({
+      type: messageType,
       url,
-      error: error.message,
-      responseTime: Date.now() - startTime
-    };
+      options: {},
+      headers: {}
+    });
+    return result;
+  } catch (error) {
+    return { success: false, approach: `offscreen-${method}`, error: error.message };
   }
 }
 
@@ -154,89 +100,123 @@ async function fetchDirect(url, options = {}) {
 // TEST SUITE
 // ============================================================
 
-// Test A1: Detail page via Tab approach
-async function testDetailViaTab() {
+// --- Offscreen fetch tests ---
+async function testOffscreenFetch() {
   const url = CWS_DETAIL(UBLOCK_ORIGIN_ID);
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A1: Detail Page via Tab (uBlock Origin)', { requestUrl: url, ...result });
+  const result = await fetchViaOffscreen(url, 'fetch');
+  return logTest('C1: Offscreen Fetch - Detail Page', { requestUrl: url, ...result });
 }
 
-// Test A2: Search page via Tab approach
-async function testSearchViaTab() {
+async function testOffscreenXHR() {
+  const url = CWS_DETAIL(UBLOCK_ORIGIN_ID);
+  const result = await fetchViaOffscreen(url, 'xhr');
+  return logTest('C2: Offscreen XHR - Detail Page', { requestUrl: url, ...result });
+}
+
+async function testOffscreenIframe() {
+  const url = CWS_DETAIL(UBLOCK_ORIGIN_ID);
+  const result = await fetchViaOffscreen(url, 'iframe');
+  return logTest('C3: Offscreen Iframe - Detail Page', { requestUrl: url, ...result });
+}
+
+async function testOffscreenSearchFetch() {
   const url = CWS_SEARCH('ad blocker');
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A2: Search Page via Tab', { requestUrl: url, ...result });
+  const result = await fetchViaOffscreen(url, 'fetch');
+  return logTest('C4: Offscreen Fetch - Search Page', { requestUrl: url, ...result });
 }
 
-// Test A3: Detail page with ?hl=ja via Tab
-async function testDetailJaViaTab() {
-  const url = CWS_DETAIL(UBLOCK_ORIGIN_ID) + '?hl=ja';
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A3: Detail Page ?hl=ja via Tab', { requestUrl: url, ...result });
+async function testOffscreenSearchXHR() {
+  const url = CWS_SEARCH('ad blocker');
+  const result = await fetchViaOffscreen(url, 'xhr');
+  return logTest('C5: Offscreen XHR - Search Page', { requestUrl: url, ...result });
 }
 
-// Test A4: Detail page with ?hl=es via Tab
-async function testDetailEsViaTab() {
-  const url = CWS_DETAIL(UBLOCK_ORIGIN_ID) + '?hl=es';
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A4: Detail Page ?hl=es via Tab', { requestUrl: url, ...result });
+// Localization tests via offscreen
+async function testOffscreenLocale(locale) {
+  const url = CWS_DETAIL(UBLOCK_ORIGIN_ID) + `?hl=${locale}`;
+  const fetchResult = await fetchViaOffscreen(url, 'fetch');
+  const xhrResult = await fetchViaOffscreen(url, 'xhr');
+  return logTest(`C6: Offscreen Locale ?hl=${locale}`, {
+    requestUrl: url,
+    fetchResult,
+    xhrResult
+  });
 }
 
-// Test A5: Non-existent extension via Tab
-async function testNonExistentViaTab() {
+// Non-existent extension via offscreen
+async function testOffscreenNonExistent() {
   const url = CWS_DETAIL(NON_EXISTENT_ID);
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A5: Non-Existent Extension via Tab', { requestUrl: url, ...result });
+  const fetchResult = await fetchViaOffscreen(url, 'fetch');
+  const xhrResult = await fetchViaOffscreen(url, 'xhr');
+  return logTest('C7: Offscreen Non-Existent Extension', {
+    requestUrl: url,
+    fetchResult,
+    xhrResult
+  });
 }
 
-// Test A6: Old domain detail page via Tab
-async function testOldDomainViaTab() {
+// Old domain via offscreen
+async function testOffscreenOldDomain() {
   const url = CWS_DETAIL_OLD(UBLOCK_ORIGIN_ID);
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A6: Old Domain Detail Page via Tab', { requestUrl: url, ...result });
+  const fetchResult = await fetchViaOffscreen(url, 'fetch');
+  return logTest('C8: Offscreen Old Domain', { requestUrl: url, fetchResult });
 }
 
-// Test A7: Empty search via Tab
-async function testEmptySearchViaTab() {
-  const url = CWS_SEARCH('xyznonexistentkeyword12345');
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A7: Empty Search Results via Tab', { requestUrl: url, ...result });
-}
-
-// Test A8: Second extension (Google Translate) via Tab
-async function testSecondExtensionViaTab() {
-  const url = CWS_DETAIL(GOOGLE_TRANSLATE_ID);
-  const result = await fetchViaTab(url, 5000);
-  return logTest('A8: Google Translate Detail via Tab', { requestUrl: url, ...result });
-}
-
-// Test B1: Direct fetch (expected CORS failure, but documenting behavior)
+// --- Previous tests (for reference/comparison) ---
 async function testDirectFetch() {
   const url = CWS_DETAIL(UBLOCK_ORIGIN_ID);
-  const result = await fetchDirect(url);
-  return logTest('B1: Direct Fetch (expected CORS fail)', { requestUrl: url, ...result });
-}
-
-// Test B2: Direct fetch with no-cors mode
-async function testNoCors() {
-  const url = CWS_DETAIL(UBLOCK_ORIGIN_ID);
-  const result = await fetchDirect(url, { mode: 'no-cors' });
-  return logTest('B2: Direct Fetch mode:no-cors', { requestUrl: url, ...result });
-}
-
-// Test B3: Try known CWS API-like endpoints
-async function testApiEndpoints() {
-  const endpoints = [
-    `https://chrome.google.com/webstore/ajax/detail?pv=20210820&mce=atf,pii,rtr,rlb,gtc,hcn,svp,wtd,nrp,hap,nma,dpb,ar,utb,hbh&id=${UBLOCK_ORIGIN_ID}&hl=en`,
-    `https://chrome.google.com/webstore/ajax/item?pv=20210820&id=${UBLOCK_ORIGIN_ID}&hl=en`,
-  ];
-  const results = [];
-  for (const url of endpoints) {
-    const result = await fetchDirect(url);
-    results.push({ url, ...result });
-    await new Promise(r => setTimeout(r, 1000));
+  const startTime = Date.now();
+  try {
+    const response = await fetch(url);
+    const text = await response.text();
+    return logTest('B1: Direct SW Fetch (CORS baseline)', {
+      requestUrl: url, success: true, status: response.status,
+      bodyLength: text.length, responseTime: Date.now() - startTime
+    });
+  } catch (error) {
+    return logTest('B1: Direct SW Fetch (CORS baseline)', {
+      requestUrl: url, success: false, error: error.message,
+      responseTime: Date.now() - startTime
+    });
   }
-  return logTest('B3: CWS API Endpoints', { endpoints: results });
+}
+
+// ============================================================
+// Rate limit test via offscreen
+// ============================================================
+async function testRateLimit() {
+  const url = CWS_DETAIL(UBLOCK_ORIGIN_ID);
+  const requests = [];
+
+  console.log('Rate limit test: 5 rapid requests...');
+  for (let i = 0; i < 5; i++) {
+    const result = await fetchViaOffscreen(url, 'fetch');
+    requests.push({
+      requestNumber: i + 1,
+      success: result.success,
+      status: result.status,
+      bodyLength: result.bodyLength,
+      responseTime: result.responseTime,
+      is429: result.status === 429
+    });
+  }
+
+  console.log('Rate limit test: 5 requests with 3s delay...');
+  const delayedRequests = [];
+  for (let i = 0; i < 5; i++) {
+    const result = await fetchViaOffscreen(url, 'fetch');
+    delayedRequests.push({
+      requestNumber: i + 1,
+      success: result.success,
+      status: result.status,
+      bodyLength: result.bodyLength,
+      responseTime: result.responseTime,
+      is429: result.status === 429
+    });
+    if (i < 4) await new Promise(r => setTimeout(r, 3000));
+  }
+
+  return logTest('C9: Rate Limit Test', { rapidRequests: requests, delayedRequests });
 }
 
 // ============================================================
@@ -244,48 +224,59 @@ async function testApiEndpoints() {
 // ============================================================
 
 async function runAllTests() {
-  console.log('Starting CWS Response Format Investigation v2...');
-  console.log('Using Tab + Content Script approach to bypass CORS.\n');
+  console.log('CWS Response Format Investigation v3');
+  console.log('Primary approach: Offscreen document (fetch + XHR + iframe)\n');
 
   results.startTime = new Date().toISOString();
   results.tests = [];
 
   try {
-    // Tab-based tests (main approach)
-    console.log('\n--- Tab-based tests ---');
-    await testDetailViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    await testSearchViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    await testDetailJaViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    await testDetailEsViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    await testNonExistentViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    await testOldDomainViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    await testEmptySearchViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    await testSecondExtensionViaTab();
-    await new Promise(r => setTimeout(r, 2000));
-
-    // Direct fetch tests (documenting CORS behavior)
-    console.log('\n--- Direct fetch tests (CORS documentation) ---');
+    // Baseline: direct fetch still fails
+    console.log('\n--- Baseline ---');
     await testDirectFetch();
     await new Promise(r => setTimeout(r, 1000));
 
-    await testNoCors();
+    // Offscreen document tests
+    console.log('\n--- Offscreen Document Tests ---');
+    await testOffscreenFetch();
     await new Promise(r => setTimeout(r, 1000));
 
-    await testApiEndpoints();
+    await testOffscreenXHR();
+    await new Promise(r => setTimeout(r, 1000));
+
+    await testOffscreenIframe();
+    await new Promise(r => setTimeout(r, 2000));
+
+    // Search tests
+    console.log('\n--- Search Tests ---');
+    await testOffscreenSearchFetch();
+    await new Promise(r => setTimeout(r, 1000));
+
+    await testOffscreenSearchXHR();
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Localization tests
+    console.log('\n--- Locale Tests ---');
+    await testOffscreenLocale('ja');
+    await new Promise(r => setTimeout(r, 1000));
+
+    await testOffscreenLocale('es');
+    await new Promise(r => setTimeout(r, 1000));
+
+    await testOffscreenLocale('zh-CN');
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Error cases
+    console.log('\n--- Error Cases ---');
+    await testOffscreenNonExistent();
+    await new Promise(r => setTimeout(r, 1000));
+
+    await testOffscreenOldDomain();
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Rate limit
+    console.log('\n--- Rate Limit ---');
+    await testRateLimit();
 
   } catch (error) {
     console.error('Test suite error:', error);
@@ -295,68 +286,71 @@ async function runAllTests() {
   results.endTime = new Date().toISOString();
   await saveResults();
 
+  // Print summary
+  console.log('\n=== SUMMARY ===');
+  for (const test of results.tests) {
+    const success = test.success || test.fetchResult?.success || test.xhrResult?.success;
+    const hasBody = (test.bodyLength > 0) || (test.fetchResult?.bodyLength > 0) || (test.xhrResult?.bodyLength > 0);
+    console.log(`${success && hasBody ? 'OK' : 'FAIL'} | ${test.name}`);
+  }
+
   console.log('\n=== ALL TESTS COMPLETE ===');
-  console.log('Results saved to chrome.storage.local');
-  console.log('Run: chrome.storage.local.get("spikeResults", r => console.log(JSON.stringify(r, null, 2)))');
+  console.log('View full results:');
+  console.log('  chrome.storage.local.get("spikeResults", r => console.log(JSON.stringify(r, null, 2)))');
 
   return results;
 }
 
-// Quick test - single detail page via tab
 async function runQuickTest() {
-  console.log('Running quick test (detail page via tab)...');
+  console.log('Quick test: offscreen fetch + XHR for detail page...');
   results.startTime = new Date().toISOString();
   results.tests = [];
 
-  await testDetailViaTab();
+  await testOffscreenFetch();
+  await testOffscreenXHR();
 
   results.endTime = new Date().toISOString();
   await saveResults();
-
-  console.log('\nQuick test complete. Results saved.');
+  console.log('Quick test done.');
   return results;
 }
 
 // ============================================================
-// Message handling
+// Event handlers
 // ============================================================
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'PAGE_DATA_READY') {
-    console.log('[SW] Received page data from content script:', message.data?.url);
-    // Store latest auto-reported data
+    console.log('[SW] Page data from content script:', message.data?.url);
     chrome.storage.local.set({ latestPageData: message.data });
   }
-  return true;
+  return false;
 });
 
 chrome.action.onClicked.addListener(async () => {
-  console.log('Extension icon clicked - starting all tests...');
+  console.log('Starting all tests...');
   await runAllTests();
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('CWS Spike v2 installed.');
-  console.log('Click the extension icon to run all tests, or use console commands.');
-  console.log('FINDING: Direct fetch() blocked by CORS. Using Tab + Content Script approach.');
+  console.log('CWS Spike v3 installed.');
+  console.log('Approach: Offscreen document with fetch/XHR/iframe.');
+  console.log('Run: runQuickTest() or runAllTests()');
 });
 
 // Expose to console
 globalThis.runAllTests = runAllTests;
 globalThis.runQuickTest = runQuickTest;
-globalThis.testDetailViaTab = testDetailViaTab;
-globalThis.testSearchViaTab = testSearchViaTab;
-globalThis.testDetailJaViaTab = testDetailJaViaTab;
-globalThis.testDetailEsViaTab = testDetailEsViaTab;
-globalThis.testNonExistentViaTab = testNonExistentViaTab;
-globalThis.testOldDomainViaTab = testOldDomainViaTab;
-globalThis.testEmptySearchViaTab = testEmptySearchViaTab;
-globalThis.testSecondExtensionViaTab = testSecondExtensionViaTab;
+globalThis.testOffscreenFetch = testOffscreenFetch;
+globalThis.testOffscreenXHR = testOffscreenXHR;
+globalThis.testOffscreenIframe = testOffscreenIframe;
+globalThis.testOffscreenSearchFetch = testOffscreenSearchFetch;
+globalThis.testOffscreenSearchXHR = testOffscreenSearchXHR;
+globalThis.testOffscreenNonExistent = testOffscreenNonExistent;
+globalThis.testOffscreenOldDomain = testOffscreenOldDomain;
+globalThis.testOffscreenLocale = testOffscreenLocale;
 globalThis.testDirectFetch = testDirectFetch;
-globalThis.testNoCors = testNoCors;
-globalThis.testApiEndpoints = testApiEndpoints;
+globalThis.testRateLimit = testRateLimit;
 globalThis.getResults = () => chrome.storage.local.get('spikeResults');
-globalThis.getLatestPageData = () => chrome.storage.local.get('latestPageData');
 
-console.log('CWS Spike v2 service worker loaded.');
-console.log('Commands: runAllTests(), runQuickTest(), testDetailViaTab(), etc.');
+console.log('CWS Spike v3 loaded. Commands: runQuickTest(), runAllTests()');
