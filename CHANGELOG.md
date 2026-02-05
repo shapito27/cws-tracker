@@ -2,6 +2,30 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.11.0] - 2026-02-05
+
+### Added
+- Phase 2.2: Listing Comparison View
+  - `src/shared/utils/comparison.ts`: Comparison utility functions for side-by-side listing analysis
+    - `highlightKeywords(text, keywords)`: Split text into segments with whole-word, case-insensitive keyword highlighting with merged overlapping ranges
+    - `computePermissionDiff(extensionPermissions)`: Diff permissions across 2-4 extensions, identifying shared and unique-per-extension permissions
+    - `computeKeywordDensityMatrix(keywords, snapshots)`: Keyword occurrence counts (title, short desc, full desc) and density per keyword per extension
+    - `fleschReadingEase(text)`: Flesch Reading Ease readability score (0-100) with syllable counting heuristic
+    - `readabilityLabel(score)`: Human-readable labels (Very Easy to Very Difficult)
+    - `computeTextMetrics(text)`: Character count, word count, and readability score in one call
+    - `countSyllables(word)` / `countSentences(text)`: Helper functions for readability calculation
+  - `src/dashboard/components/comparison/ListingCompare.vue`: Full comparison view component
+    - Extension selector: pick 2-4 extensions from project with color-coded indicators
+    - **Title comparison** (2.2.2): Side-by-side with character count and keyword highlighting (yellow marks)
+    - **Short description comparison** (2.2.2): Side-by-side with character count out of 132 limit and keyword highlighting
+    - **Full description comparison** (2.2.3): Word count, character count, Flesch Reading Ease readability score with label, keyword density per tracked keyword, truncated preview
+    - **Permissions comparison** (2.2.4): Risk score horizontal bar chart with color coding (green/yellow/red), shared permissions list, unique permissions per extension with warning indicators
+    - **Metrics comparison** (2.2.5): Horizontal bar charts for rating (out of 5), review count, user count, screenshot count, and translation count with relative scaling
+    - **Keyword density matrix** (2.2.6): Table with rows = tracked keywords, columns = extensions, cells = occurrence count in title/short desc/full desc with green highlighting for non-zero values
+  - Added "Compare" tab to ProjectPage.vue tab navigation
+  - 47 new tests covering keyword highlighting, permission diff, keyword density matrix, syllable/sentence counting, Flesch readability, text metrics, and integration scenarios (compare 2 extensions, self-comparison, missing data)
+  - 655 total tests passing, zero type errors
+
 ## [0.10.0] - 2026-02-05
 
 ### Added
