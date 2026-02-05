@@ -52,25 +52,25 @@
 
 ### 0.4 Test Infrastructure Setup
 
-- [ ] **0.4.1** Initialize the project: `npm create vite@latest cws-tracker -- --template vue-ts`
-- [ ] **0.4.2** Install and configure CRXJS Vite Plugin (`@crxjs/vite-plugin`). Verify dev build + HMR works for popup and dashboard.
-- [ ] **0.4.3** Install and configure Vitest. Create `vitest.config.ts`.
-- [ ] **0.4.4** Install `dexie` and `fake-indexeddb`. Verify Dexie works with fake-indexeddb: open a database, define a table, write and read a record.
-- [ ] **0.4.5** Create `tests/mocks/chrome.ts` - mock module for `chrome.storage.local`, `chrome.alarms`, `chrome.runtime.sendMessage`, `chrome.runtime.onMessage`, `chrome.runtime.onInstalled`. Each mock should record calls and allow assertions.
-- [ ] **0.4.6** Create `tests/fixtures/` directory. Move saved CWS HTML responses here.
-- [ ] **0.4.7** Install Tailwind CSS. Configure `tailwind.config.js`.
-- [ ] **0.4.8** Install Vue Router. Create minimal router setup. (No Pinia - use composables with `ref`/`reactive` for state.)
-- [ ] **0.4.9** Install ApexCharts + vue3-apexcharts. Verify a basic chart renders in dashboard.
-- [ ] **0.4.10** Create the manifest.json source template. Verify CRXJS builds a loadable extension.
-- [ ] **0.4.11** Verify the extension loads in Chrome, popup opens, dashboard page opens.
+- [x] **0.4.1** Initialize the project: `npm create vite@latest cws-tracker -- --template vue-ts`
+- [x] **0.4.2** Install and configure CRXJS Vite Plugin (`@crxjs/vite-plugin`). Verify dev build + HMR works for popup and dashboard.
+- [x] **0.4.3** Install and configure Vitest. Create `vitest.config.ts`.
+- [x] **0.4.4** Install `dexie` and `fake-indexeddb`. Verify Dexie works with fake-indexeddb: open a database, define a table, write and read a record.
+- [x] **0.4.5** Create `tests/mocks/chrome.ts` - mock module for `chrome.storage.local`, `chrome.alarms`, `chrome.runtime.sendMessage`, `chrome.runtime.onMessage`, `chrome.runtime.onInstalled`. Each mock should record calls and allow assertions.
+- [x] **0.4.6** Create `tests/fixtures/` directory. Move saved CWS HTML responses here.
+- [x] **0.4.7** Install Tailwind CSS. Configure `tailwind.config.js`.
+- [x] **0.4.8** Install Vue Router. Create minimal router setup. (No Pinia - use composables with `ref`/`reactive` for state.)
+- [x] **0.4.9** Install ApexCharts + vue3-apexcharts. Verify a basic chart renders in dashboard.
+- [x] **0.4.10** Create the manifest.json source template. Verify CRXJS builds a loadable extension.
+- [x] **0.4.11** Verify the extension loads in Chrome, popup opens, dashboard page opens.
 
 **Phase 0 Exit Criteria:**
 - [x] Parsing strategy confirmed and documented
 - [x] Test fixtures saved
 - [ ] Quality score thresholds calibrated
-- [ ] Project scaffolding complete and building
-- [ ] Test infrastructure working (Vitest + fake-indexeddb + chrome mocks)
-- [ ] Extension loads in Chrome with blank popup + blank dashboard
+- [x] Project scaffolding complete and building
+- [x] Test infrastructure working (Vitest + fake-indexeddb + chrome mocks)
+- [x] Extension loads in Chrome with blank popup + blank dashboard
 
 ---
 
