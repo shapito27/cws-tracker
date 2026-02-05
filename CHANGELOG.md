@@ -2,6 +2,20 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.7.0] - 2026-02-05
+
+### Added
+- Phase 1.9: Popup
+  - `usePopupState()` composable: reactive scan status, rank changes, badge management, and quick actions
+  - `loadRecentRankChanges(limit)`: compares two most recent scan dates, returns top rank changes sorted by magnitude
+  - `updateBadgeCount(count)` / `clearBadge()`: extension icon badge management via `chrome.action` API
+  - `openDashboard()`: opens dashboard in new tab via `chrome.tabs.create`
+  - `requestRefresh()` / `requestPause()` / `requestResume()`: sends messages to service worker (fail silently if no listener)
+  - Full popup UI: scan status indicator (idle/running with progress bar), top 5 rank changes with up/down arrows, "30+" display for position: null, "Open Dashboard" / "Refresh Now" / "Pause/Resume" action buttons
+  - Tier-aware nudge: free tier shows prominent refresh prompt when last scan > 7 days ago or no scan yet
+  - Badge clears automatically when popup opens
+  - 37 new tests (rank changes, badge, actions, message validation), 376 total passing
+
 ## [0.6.0] - 2026-02-05
 
 ### Added
