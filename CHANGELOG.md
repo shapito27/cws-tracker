@@ -5,6 +5,23 @@ All notable changes to CWS Tracker will be documented in this file.
 ## [0.7.0] - 2026-02-05
 
 ### Added
+- Phase 1.8: Dashboard - Project Management
+  - `useProjects` composable: create/delete projects, add/remove competitors with CWS URL and raw ID parsing, extension projectRef tracking, cleanup on delete
+  - `useExtensions` composable: get extensions by project, get latest listing snapshot
+  - `useKeywords` composable: add/remove keywords with duplicate detection (case-insensitive), project keywordIds sync
+  - `useServiceWorker` composable: reactive scan progress/status/queue stats, message listening, requestRefresh/pause/resume/cancel commands
+  - `useRankings` composable: load rank history and transform to ApexCharts series format with date filtering
+  - `parseExtensionId()` utility: extracts 32-char IDs from CWS URLs (old and new format) or raw IDs
+  - App.vue with sidebar navigation (Projects, Settings) and scan progress indicator
+  - HomePage: project card grid, empty state, create project modal with URL/ID input
+  - ProjectPage: tab navigation (Overview, Rankings, Extensions, Keywords, Events) with breadcrumb
+  - Overview Tab: metric cards (extensions, keywords, last scan, status), recent events list, scan trigger
+  - Extensions Tab: extension table with rating/users/version/updated/risk score, add/remove competitor modals
+  - Keywords Tab: keyword table with rank positions per extension (color-coded), add/remove with inline form
+  - Events Tab: chronological event timeline with type/extension filters, color-coded event type badges
+  - Rankings Tab: keyword selector, date range picker (7/30/90/365d), ApexCharts line chart integration
+  - RankChart component: inverted Y-axis (position 1 at top), multi-extension series with colors, null positions as 30+, smooth curves
+  - 41 new tests (useProjects, useKeywords, useRankings), 380 total passing
 - Phase 1.6: Queue System — persistent job queue for CWS data collection
   - **Queue Builder** (`src/background/queue-builder.ts`): `buildDailyScanJobs(projects, extensions, keywords)` creates `listing_scan` (1 per unique extension, deduplicated across projects) and `keyword_scan` (1 per keyword) jobs. Priority ordering: own extension listing (10) < competitor listing (20) < keyword scan (30). Cross-project deduplication for shared competitor extensions.
   - **Queue Processor** (`src/background/queue-processor.ts`): `processNextJob()` dequeues and executes the highest-priority pending job. Listing scans fetch CWS detail pages, parse with versioned parsers, calculate permission risk scores, save snapshots, detect events via snapshot comparison, and update extension metadata. Keyword scans fetch search results and save rank snapshots (position or null) for all tracked extensions in a single transaction. Injectable dependencies for testability.
