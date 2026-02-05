@@ -4,7 +4,8 @@
     "module": "ES2022",
     "moduleResolution": "bundler",
     "strict": true,
-    "types": ["node"],
+    "jsx": "preserve",
+    "types": ["node", "chrome"],
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -19,6 +20,6 @@
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts", "src/env.d.ts"],
   "exclude": ["node_modules", "dist", "proxy"]
 }
