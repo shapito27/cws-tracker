@@ -143,6 +143,35 @@ describe('searchParserV1', () => {
     });
   });
 
+  describe('position numbering', () => {
+    it('positions are 1-based (first result = position 1)', () => {
+      const html = loadFixture('cws-search-results.html');
+      const result = searchParserV1.parse(html);
+      expect(result.results[0].position).toBe(1);
+    });
+
+    it('positions are sequential', () => {
+      const html = loadFixture('cws-search-results.html');
+      const result = searchParserV1.parse(html);
+      for (let i = 0; i < result.results.length; i++) {
+        expect(result.results[i].position).toBe(i + 1);
+      }
+    });
+  });
+
+  describe('extension ID format', () => {
+    it('all extension IDs are correctly extracted (no URL fragments, no whitespace)', () => {
+      const html = loadFixture('cws-search-results.html');
+      const result = searchParserV1.parse(html);
+      result.results.forEach((entry) => {
+        expect(entry.extensionId).toMatch(/^[a-z]{32}$/);
+        expect(entry.extensionId).not.toContain('/');
+        expect(entry.extensionId).not.toContain(' ');
+        expect(entry.extensionId).not.toContain('\n');
+      });
+    });
+  });
+
   describe('edge cases', () => {
     it('throws ParserError for empty HTML', () => {
       expect(() => searchParserV1.parse('')).toThrow(ParserError);
@@ -156,6 +185,11 @@ describe('searchParserV1', () => {
 
     it('throws ParserError for malformed callback data', () => {
       const html = "AF_initDataCallback({key: 'ds:1', hash: '2', data:[broken});";
+      expect(() => searchParserV1.parse(html)).toThrow(ParserError);
+    });
+
+    it('throws ParserError for truncated search response', () => {
+      const html = "AF_initDataCallback({key: 'ds:1', hash: '2', data:[[[";
       expect(() => searchParserV1.parse(html)).toThrow(ParserError);
     });
   });

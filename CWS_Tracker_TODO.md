@@ -206,7 +206,7 @@ These operate on saved HTML/JSON fixtures from Phase 0. Parser interface ensures
 
 #### 1.4.1 Parser Interface & Factory
 
-- [ ] **1.4.1.1** Create `src/background/parsers/types.ts`:
+- [x] **1.4.1.1** Create `src/background/parsers/types.ts`:
 
 ```typescript
 interface ListingData {
@@ -258,44 +258,44 @@ class ParserError extends Error {
 }
 ```
 
-- [ ] **1.4.1.2** Create parser factory that returns the correct parser version based on settings.
+- [x] **1.4.1.2** Create parser factory that returns the correct parser version based on settings.
 
 #### 1.4.2 Listing Parser Implementation
 
-- [ ] **1.4.2.1** Implement `ListingParserV1` based on Phase 0 spike findings. If CWS returns HTML, use DOMParser. If JSON in script tags, use regex + JSON.parse.
-- [ ] **1.4.2.2** Implement `parseUserCount(text: string): number` helper. Handles "9,000+", "10,000,000+", "1K+", "0 users", etc.
-- [ ] **1.4.2.3** Implement extraction for each field. For fields that might be missing, return sensible defaults (null for rating if no reviews, 0 for counts, empty arrays for lists).
-- [ ] **1.4.2.4** Add validation: after parsing, check for required fields (title, extensionId). If missing, throw `ParserError` indicating possible CWS format change.
+- [x] **1.4.2.1** Implement `ListingParserV1` based on Phase 0 spike findings. If CWS returns HTML, use DOMParser. If JSON in script tags, use regex + JSON.parse.
+- [x] **1.4.2.2** Implement `parseUserCount(text: string): number` helper. Handles "9,000+", "10,000,000+", "1K+", "0 users", etc.
+- [x] **1.4.2.3** Implement extraction for each field. For fields that might be missing, return sensible defaults (null for rating if no reviews, 0 for counts, empty arrays for lists).
+- [x] **1.4.2.4** Add validation: after parsing, check for required fields (title, extensionId). If missing, throw `ParserError` indicating possible CWS format change.
 
 **Tests (listing parser) - use fixtures from Phase 0:**
-- [ ] Parse a normal extension listing: all fields extracted correctly
-- [ ] Parse an extension with no reviews: `rating` is null, `ratingCount` is 0
-- [ ] Parse an extension with no screenshots: `screenshotCount` is 0
-- [ ] Parse an extension with no translations: `translationCount` is 0 or 1 (English only)
-- [ ] Parse a 404 response: throws `ParserError` with descriptive message
-- [ ] Parse a truncated/malformed response: throws `ParserError`, doesn't crash
-- [ ] Parse an empty string: throws `ParserError`
-- [ ] `parseUserCount("9,000+")` returns 9000
-- [ ] `parseUserCount("10,000,000+")` returns 10000000
-- [ ] `parseUserCount("0")` returns 0
-- [ ] `parseUserCount("")` returns 0
-- [ ] `parseUserCount("1K+")` returns 1000 (if CWS uses this format)
-- [ ] Parse extension with broad host permissions `<all_urls>`: correctly in `hostPermissions`
-- [ ] Parse extension with Featured badge: `badgeFlags.featured` is true
-- [ ] Parse extension with no badges: all `badgeFlags` are false
+- [x] Parse a normal extension listing: all fields extracted correctly
+- [x] Parse an extension with no reviews: `rating` is null, `ratingCount` is 0
+- [x] Parse an extension with no screenshots: `screenshotCount` is 0
+- [x] Parse an extension with no translations: `translationCount` is 0 or 1 (English only)
+- [x] Parse a 404 response: throws `ParserError` with descriptive message
+- [x] Parse a truncated/malformed response: throws `ParserError`, doesn't crash
+- [x] Parse an empty string: throws `ParserError`
+- [x] `parseUserCount("9,000+")` returns 9000
+- [x] `parseUserCount("10,000,000+")` returns 10000000
+- [x] `parseUserCount("0")` returns 0
+- [x] `parseUserCount("")` returns 0
+- [x] `parseUserCount("1K+")` returns 1000 (if CWS uses this format)
+- [x] Parse extension with broad host permissions `<all_urls>`: correctly in `hostPermissions`
+- [x] Parse extension with Featured badge: `badgeFlags.featured` is true
+- [x] Parse extension with no badges: all `badgeFlags` are false
 
 #### 1.4.3 Search Parser Implementation
 
-- [ ] **1.4.3.1** Implement `SearchParserV1` - extracts ordered list of extension IDs from search results.
-- [ ] **1.4.3.2** Extract total result count if available.
+- [x] **1.4.3.1** Implement `SearchParserV1` - extracts ordered list of extension IDs from search results.
+- [x] **1.4.3.2** Extract total result count if available.
 
 **Tests (search parser):**
-- [ ] Parse search results page: returns correct ordered list of extension IDs
-- [ ] Position is 1-based (first result = position 1)
-- [ ] Parse search with no results: returns empty array, totalResults = 0
-- [ ] Parse search with single result: returns array of 1
-- [ ] Parse truncated search response: throws `ParserError`
-- [ ] Extension IDs are correctly extracted (no URL fragments, no whitespace)
+- [x] Parse search results page: returns correct ordered list of extension IDs
+- [x] Position is 1-based (first result = position 1)
+- [x] Parse search with no results: returns empty array, totalResults = 0
+- [x] Parse search with single result: returns array of 1
+- [x] Parse truncated search response: throws `ParserError`
+- [x] Extension IDs are correctly extracted (no URL fragments, no whitespace)
 
 ---
 

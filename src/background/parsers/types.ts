@@ -8,28 +8,62 @@
 export interface ListingData {
   extensionId: string;
   name: string;
-  description: string;
   shortDescription: string;
-  version: string;
-  offeredBy: string;
-  rating: number;
+  fullDescription: string;
+  /** Average star rating (0-5). `null` if the extension has no ratings. */
+  rating: number | null;
+  /** Total number of star ratings. */
   ratingCount: number;
-  userCount: number;
-  category: string | null;
-  categoryId: number | null;
-  lastUpdated: Date;
+  /** Total number of text reviews. CWS does not distinguish; mirrors ratingCount. */
+  reviewCount: number;
+  /** Display-formatted user count (e.g. "16,000,000+"). */
+  userCount: string;
+  /** Raw numeric user count from CWS data. */
+  userCountNumeric: number;
+  version: string;
+  /** Last updated date as YYYY-MM-DD string. */
+  lastUpdated: string;
   size: string;
-  languages: string[];
-  languageCodes: string[];
-  iconUrl: string;
+  /** Declared manifest permissions. Parsed from manifest JSON. */
+  permissions: string[];
+  /** Declared manifest host permissions. Parsed from manifest JSON. */
+  hostPermissions: string[];
+  screenshotCount: number;
+  /** Screenshot URLs for UI display. */
   screenshotUrls: string[];
+  /** Not currently extractable from CWS data; defaults to false. */
+  hasPromoVideo: boolean;
+  /** Number of supported locales. Derived from availableLocales.length. */
+  translationCount: number;
+  /** Locale codes (e.g. ["en", "ja", "de"]). */
+  availableLocales: string[];
+  /** Human-readable language names (e.g. ["English", "Japanese"]). */
+  languages: string[];
+  /** CWS category string (e.g. "make_chrome_yours/privacy"). */
+  category: string;
+  /** CWS numeric category ID. */
+  categoryId: number | null;
+  /** Publisher display name. */
+  developerName: string;
+  /** Not currently extractable from CWS data; defaults to false. */
+  developerVerified: boolean;
+  /** Badge flags such as "featured". */
+  badgeFlags: Record<string, boolean>;
+  /** Extension icon URL. */
+  iconUrl: string;
+  /** Developer/publisher website URL. */
   websiteUrl: string | null;
+  /** Privacy policy URL. */
   privacyPolicyUrl: string | null;
+  /** Support/issues URL. */
   supportUrl: string | null;
-  isFeatured: boolean;
+  /** Raw manifest.json string. */
   manifestJson: string | null;
+  /** Developer contact email. */
   developerEmail: string | null;
+  /** CWS developer ID. */
   developerId: string | null;
+  /** Minimum Chrome version required. */
   browserMinVersion: string | null;
 }
 
@@ -44,6 +78,7 @@ export interface SearchResultEntry {
   userCount: number;
   category: string | null;
   isFeatured: boolean;
+  /** 1-based position in search results. */
   position: number;
 }
 
