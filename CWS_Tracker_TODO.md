@@ -536,83 +536,83 @@ This is the most complex and critical subsystem. Test exhaustively.
 
 #### 1.8.1 Composables
 
-- [ ] **1.8.1.1** Create `src/dashboard/composables/useProjects.ts`:
+- [x] **1.8.1.1** Create `src/dashboard/composables/useProjects.ts`:
   - `projects` - reactive ref of all projects
   - `loadProjects()` - load from IndexedDB
   - `createProject(name, ownExtensionUrl)` - parse extension ID from URL, create project + extension records
   - `deleteProject(id)` - delete project, handle extension cleanup (check projectRefs)
   - `addCompetitor(projectId, extensionUrl)` - add competitor extension to project
   - `removeCompetitor(projectId, extensionId)` - remove competitor, handle cleanup
-- [ ] **1.8.1.2** Create `src/dashboard/composables/useExtensions.ts`:
+- [x] **1.8.1.2** Create `src/dashboard/composables/useExtensions.ts`:
   - `getExtensionsByProject(projectId)` - returns own + competitors
   - `getLatestSnapshot(extensionId)` - latest listing data
-- [ ] **1.8.1.3** Create `src/dashboard/composables/useKeywords.ts`:
+- [x] **1.8.1.3** Create `src/dashboard/composables/useKeywords.ts`:
   - `keywords` - reactive ref for current project
   - `loadKeywords(projectId)`
   - `addKeyword(projectId, text)` - validate not duplicate in same project
   - `removeKeyword(id)`
-- [ ] **1.8.1.4** Create `src/dashboard/composables/useServiceWorker.ts`:
+- [x] **1.8.1.4** Create `src/dashboard/composables/useServiceWorker.ts`:
   - Listen for messages from service worker
   - Expose reactive `scanProgress`, `lastScanStatus`, `queueStats`
   - Provide methods: `requestRefresh()`, `requestPause()`, `requestResume()`
 
 **Tests (composables):**
-- [ ] `createProject()`: creates project + extension records in DB
-- [ ] `createProject()`: parses extension ID from full CWS URL (`chrome.google.com/webstore/detail/name/EXTENSION_ID`)
-- [ ] `createProject()`: parses extension ID from short URL or raw ID
-- [ ] `createProject()`: rejects invalid URLs/IDs
-- [ ] `addCompetitor()`: adds extension ID to project's competitorIds, creates extension record
-- [ ] `addCompetitor()`: if extension already exists in DB (from another project), adds projectRef
-- [ ] `addCompetitor()`: rejects adding the same competitor twice to one project
-- [ ] `removeCompetitor()`: removes from competitorIds, decrements projectRefs
-- [ ] `removeCompetitor()`: when projectRefs becomes empty, marks for cleanup
-- [ ] `deleteProject()`: removes project, handles all extension cleanup
-- [ ] `addKeyword()`: rejects duplicate keyword text in same project
-- [ ] `addKeyword()`: allows same keyword text in different projects
+- [x] `createProject()`: creates project + extension records in DB
+- [x] `createProject()`: parses extension ID from full CWS URL (`chrome.google.com/webstore/detail/name/EXTENSION_ID`)
+- [x] `createProject()`: parses extension ID from short URL or raw ID
+- [x] `createProject()`: rejects invalid URLs/IDs
+- [x] `addCompetitor()`: adds extension ID to project's competitorIds, creates extension record
+- [x] `addCompetitor()`: if extension already exists in DB (from another project), adds projectRef
+- [x] `addCompetitor()`: rejects adding the same competitor twice to one project
+- [x] `removeCompetitor()`: removes from competitorIds, decrements projectRefs
+- [x] `removeCompetitor()`: when projectRefs becomes empty, marks for cleanup
+- [x] `deleteProject()`: removes project, handles all extension cleanup
+- [x] `addKeyword()`: rejects duplicate keyword text in same project
+- [x] `addKeyword()`: allows same keyword text in different projects
 
 #### 1.8.2 Pages & Components
 
-- [ ] **1.8.2.1** Create `src/dashboard/App.vue` with router-view and navigation sidebar
-- [ ] **1.8.2.2** Create `src/dashboard/router.ts` with routes: `/` (home), `/project/:id` (project detail), `/settings`
-- [ ] **1.8.2.3** Create `src/dashboard/pages/HomePage.vue`:
+- [x] **1.8.2.1** Create `src/dashboard/App.vue` with router-view and navigation sidebar
+- [x] **1.8.2.2** Create `src/dashboard/router.ts` with routes: `/` (home), `/project/:id` (project detail), `/settings`
+- [x] **1.8.2.3** Create `src/dashboard/pages/HomePage.vue`:
   - Project card grid (or empty state if no projects)
   - "Create Project" button/modal
   - Scan status banner (if scan running)
-- [ ] **1.8.2.4** Create project creation modal:
+- [x] **1.8.2.4** Create project creation modal:
   - Input: extension URL or ID
   - Auto-fetch extension name and icon on input (if possible, or after first scan)
   - Input: project name (default to extension name)
   - Submit creates project
-- [ ] **1.8.2.5** Create `src/dashboard/pages/ProjectPage.vue`:
+- [x] **1.8.2.5** Create `src/dashboard/pages/ProjectPage.vue`:
   - Tab navigation: Overview, Rankings, Extensions, Keywords, Events
   - Load project data on mount
-- [ ] **1.8.2.6** Create **Overview Tab**:
+- [x] **1.8.2.6** Create **Overview Tab**:
   - Metric cards: total extensions tracked, total keywords, last scan date, scan status
   - Recent events list (last 10 events across all project extensions)
   - Quick rank change summary
   - Empty state: "No data yet. Run your first scan."
-- [ ] **1.8.2.7** Create **Extensions Tab**:
+- [x] **1.8.2.7** Create **Extensions Tab**:
   - Table: extension name, rating, users, version, last updated, permission risk score, quality score placeholder
   - "Add Competitor" button + modal
   - "Remove" button per competitor (with confirmation)
   - Click row -> expand to show snapshot history
   - Empty state: "Add competitor extensions to start tracking."
-- [ ] **1.8.2.8** Create **Keywords Tab**:
+- [x] **1.8.2.8** Create **Keywords Tab**:
   - Table: keyword text, positions for each tracked extension (latest), change since last scan
   - "Add Keyword" input + button
   - "Remove" button per keyword (with confirmation)
   - Empty state: "Add keywords to track search rankings."
-- [ ] **1.8.2.9** Create **Events Tab**:
+- [x] **1.8.2.9** Create **Events Tab**:
   - Chronological timeline of events
   - Filter by event type, extension
   - Empty state: "No changes detected yet. Events appear after your second scan."
 
 #### 1.8.3 Rankings Tab & Chart
 
-- [ ] **1.8.3.1** Create `src/dashboard/composables/useRankings.ts`:
+- [x] **1.8.3.1** Create `src/dashboard/composables/useRankings.ts`:
   - `loadRankHistory(projectId, keywordId, dateRange)` - load rank snapshots for all project extensions
   - Transform into ApexCharts series format: one series per extension
-- [ ] **1.8.3.2** Create `src/dashboard/components/charts/RankChart.vue`:
+- [x] **1.8.3.2** Create `src/dashboard/components/charts/RankChart.vue`:
   - ApexCharts line chart
   - Y-axis inverted (position 1 at top)
   - X-axis: dates
@@ -621,18 +621,18 @@ This is the most complex and critical subsystem. Test exhaustively.
   - Keyword selector dropdown
   - Date range picker
   - Legend with extension names
-- [ ] **1.8.3.3** Handle chart edge cases:
+- [x] **1.8.3.3** Handle chart edge cases:
   - Single data point: show as dot
   - No data: show empty state
   - All positions null: show "No extensions ranked in top 30 for this keyword"
   - 365+ days of data: ensure performance is acceptable, consider downsampling
 
 **Tests (chart data transformation):**
-- [ ] `loadRankHistory()`: correctly transforms DB records into ApexCharts series
-- [ ] Null positions are represented correctly in the series
-- [ ] Multiple extensions: one series per extension, correct colors
-- [ ] Date range filtering: only includes snapshots within range
-- [ ] Empty result: returns empty series array
+- [x] `loadRankHistory()`: correctly transforms DB records into ApexCharts series
+- [x] Null positions are represented correctly in the series
+- [x] Multiple extensions: one series per extension, correct colors
+- [x] Date range filtering: only includes snapshots within range
+- [x] Empty result: returns empty series array
 
 ---
 
