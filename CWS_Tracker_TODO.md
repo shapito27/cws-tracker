@@ -798,8 +798,8 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 2.6 Database Migration v2 (~1h)
 
-- [ ] **2.6.1** Add `this.version(2).stores({...})` to `CWSDatabase` constructor if new indexes or stores are needed
-- [ ] **2.6.2** Test upgrade from v1 to v2 with populated data
+- [x] **2.6.1** Add `this.version(2).stores({...})` to `CWSDatabase` constructor if new indexes or stores are needed
+- [x] **2.6.2** Test upgrade from v1 to v2 with populated data
 
 ---
 
