@@ -5,12 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && cp -r ./dist ${CWS_DIST_DIR:?}",
+    "build": "vite build && cp -r ./dist/* ${CWS_DIST_DIR:?}/",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "typecheck": "vue-tsc --noEmit",
-    "deploy": "cp -r ./dist ${CWS_DIST_DIR:?}",
+    "deploy": "cp -r ./dist/* ${CWS_DIST_DIR:?}/",
     "build:only": "vite build"
   },
   "devDependencies": {

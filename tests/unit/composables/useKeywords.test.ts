@@ -2,7 +2,7 @@
  * Tests for useKeywords composable.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '@/shared/db/database';
 import { useKeywords } from '@/dashboard/composables/useKeywords';
@@ -141,6 +141,44 @@ describe('useKeywords', () => {
       const { loadKeywords, keywords } = useKeywords();
       await loadKeywords(testProject.id!);
       expect(keywords.value).toHaveLength(0);
+    });
+
+    it('sets keywords to empty array when db throws', async () => {
+      const spy = vi
+        .spyOn(db, 'getKeywordsByProject')
+        .mockRejectedValueOnce(new Error('DB error'));
+      const consoleSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+
+      const { loadKeywords, keywords } = useKeywords();
+      await loadKeywords(testProject.id!);
+
+      expect(keywords.value).toEqual([]);
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to load keywords:',
+        expect.any(Error)
+      );
+
+      spy.mockRestore();
+      consoleSpy.mockRestore();
+    });
+
+    it('sets loading to false even when db throws', async () => {
+      const spy = vi
+        .spyOn(db, 'getKeywordsByProject')
+        .mockRejectedValueOnce(new Error('DB error'));
+      const consoleSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {});
+
+      const { loadKeywords, loading } = useKeywords();
+      await loadKeywords(testProject.id!);
+
+      expect(loading.value).toBe(false);
+
+      spy.mockRestore();
+      consoleSpy.mockRestore();
     });
   });
 });

@@ -183,7 +183,19 @@ export async function triggerManualRefresh(
 
   await db.enqueueJobs(jobs);
 
-  // Start processing immediately
+  // Notify dashboard immediately so UI shows "Scan Running..."
+  try {
+    chrome.runtime.sendMessage({
+      type: 'SCAN_PROGRESS',
+      completed: 0,
+      total: jobs.length,
+      currentJob: 'Queued, waiting to start...',
+    });
+  } catch {
+    // Dashboard may not be open
+  }
+
+  // Start processing
   chrome.alarms.create(ALARM_PROCESS_QUEUE, {
     delayInMinutes: MIN_ALARM_DELAY_MINUTES,
   });
