@@ -367,7 +367,7 @@ This is the most complex and critical subsystem. Test exhaustively.
 
 #### 1.6.1 Queue Builder
 
-- [ ] **1.6.1.1** Create `src/background/queue-builder.ts`:
+- [x] **1.6.1.1** Create `src/background/queue-builder.ts`:
   - `buildDailyScanJobs(projects: Project[], extensions: Extension[]): QueueJob[]`
   - Creates `listing_scan` jobs: 1 per unique extension across all projects
   - Creates `keyword_scan` jobs: 1 per unique keyword across all projects
@@ -376,18 +376,18 @@ This is the most complex and critical subsystem. Test exhaustively.
   - Sets `scheduledAt` to now, `status` to 'pending', `retryCount` to 0
 
 **Tests:**
-- [ ] Single project, 1 extension, 2 keywords: creates 3 jobs (1 listing + 2 keyword)
-- [ ] Single project, 5 extensions (1 own + 4 competitors), 10 keywords: creates 15 jobs
-- [ ] Two projects sharing the same competitor extension: only 1 listing_scan for that extension (deduplication)
-- [ ] Two projects with the same keyword text: creates 2 keyword_scan jobs (no dedup - different keywordIds, see PRD note)
-- [ ] Priority ordering: own extension listing_scan < competitor listing_scan < keyword_scan
-- [ ] Empty project (no extensions, no keywords): creates 0 jobs
-- [ ] Project with extensions but no keywords: creates only listing_scan jobs
-- [ ] All jobs have correct initial status, retryCount, scheduledAt
+- [x] Single project, 1 extension, 2 keywords: creates 3 jobs (1 listing + 2 keyword)
+- [x] Single project, 5 extensions (1 own + 4 competitors), 10 keywords: creates 15 jobs
+- [x] Two projects sharing the same competitor extension: only 1 listing_scan for that extension (deduplication)
+- [x] Two projects with the same keyword text: creates 2 keyword_scan jobs (no dedup - different keywordIds, see PRD note)
+- [x] Priority ordering: own extension listing_scan < competitor listing_scan < keyword_scan
+- [x] Empty project (no extensions, no keywords): creates 0 jobs
+- [x] Project with extensions but no keywords: creates only listing_scan jobs
+- [x] All jobs have correct initial status, retryCount, scheduledAt
 
 #### 1.6.2 Queue Processor
 
-- [ ] **1.6.2.1** Create `src/background/queue-processor.ts`:
+- [x] **1.6.2.1** Create `src/background/queue-processor.ts`:
   - `processNextJob(): Promise<{ hasMore: boolean; delayMs: number }>`
   - Dequeues next pending job from DB
   - If no job, returns `{ hasMore: false, delayMs: 0 }`
@@ -395,22 +395,22 @@ This is the most complex and critical subsystem. Test exhaustively.
   - On success: marks completed, sends progress message
   - On failure: increments retry, calculates backoff, or marks terminal failure
   - Returns `{ hasMore: true, delayMs: calculatedDelay }` for the next alarm
-- [ ] **1.6.2.2** Implement `processListingScan(job)`:
+- [x] **1.6.2.2** Implement `processListingScan(job)`:
   - Fetch CWS detail page for `job.payload.extensionId`
   - Parse response with listing parser
   - Calculate permission risk score
   - Save `listing_snapshot`
   - Compare with previous snapshot, create `events` if changes detected
   - Update `extension.lastScannedAt`
-- [ ] **1.6.2.3** Implement `processKeywordScan(job)`:
+- [x] **1.6.2.3** Implement `processKeywordScan(job)`:
   - Fetch CWS search page for `job.payload.keyword`
   - Parse response with search parser
   - For each tracked extension in the project: create a `rank_snapshot` with position (or null)
   - Save all rank_snapshots in a single transaction
-- [ ] **1.6.2.4** Implement delay calculation:
+- [x] **1.6.2.4** Implement delay calculation:
   - Normal: `queueDelayMs + randomJitter(-jitterMs, +jitterMs)`
   - Retry: `min(baseDelay * 2^retryCount, 600000)` (max 10 min)
-- [ ] **1.6.2.5** Implement error classification:
+- [x] **1.6.2.5** Implement error classification:
   - HTTP 429: retriable (rate limited)
   - HTTP 404: for listing_scan, mark extension as 'removed', job completed (not an error)
   - HTTP 5xx: retriable (server error)
@@ -419,31 +419,31 @@ This is the most complex and critical subsystem. Test exhaustively.
   - Unknown error: retriable
 
 **Tests (queue processor) - mock fetch + parsers:**
-- [ ] Happy path: listing_scan job fetches, parses, saves snapshot, returns hasMore=true
-- [ ] Happy path: keyword_scan job fetches, parses, saves rank_snapshots for all tracked extensions
-- [ ] keyword_scan: extension found at position 5 - rank_snapshot has position=5
-- [ ] keyword_scan: extension NOT found in results - rank_snapshot has position=null
-- [ ] keyword_scan: 3 tracked extensions, 1 found at pos 3, 1 at pos 15, 1 not found - all 3 snapshots saved correctly
-- [ ] HTTP 429: job retried, retryCount incremented, delay is 2x
-- [ ] HTTP 404 on listing_scan: extension marked 'removed', job completed (not failed)
-- [ ] HTTP 500: job retried with backoff
-- [ ] Network error (fetch throws): job retried
-- [ ] ParserError: job retried
-- [ ] Max retries exceeded: job marked 'failed' terminal, error message saved
-- [ ] Backoff delays: retry 1 = 2min, retry 2 = 4min, retry 3 = 8min
-- [ ] Delay never exceeds 10 minutes (600000ms)
-- [ ] No pending jobs: returns hasMore=false
-- [ ] Job with `scheduledAt` in the future: skipped (not yet ready)
-- [ ] Random jitter: delay varies between calls (test with seed or just verify range)
-- [ ] Edge case: job payload is malformed - handled gracefully, marked failed
+- [x] Happy path: listing_scan job fetches, parses, saves snapshot, returns hasMore=true
+- [x] Happy path: keyword_scan job fetches, parses, saves rank_snapshots for all tracked extensions
+- [x] keyword_scan: extension found at position 5 - rank_snapshot has position=5
+- [x] keyword_scan: extension NOT found in results - rank_snapshot has position=null
+- [x] keyword_scan: 3 tracked extensions, 1 found at pos 3, 1 at pos 15, 1 not found - all 3 snapshots saved correctly
+- [x] HTTP 429: job retried, retryCount incremented, delay is 2x
+- [x] HTTP 404 on listing_scan: extension marked 'removed', job completed (not failed)
+- [x] HTTP 500: job retried with backoff
+- [x] Network error (fetch throws): job retried
+- [x] ParserError: job retried
+- [x] Max retries exceeded: job marked 'failed' terminal, error message saved
+- [x] Backoff delays: retry 1 = 2min, retry 2 = 4min, retry 3 = 8min
+- [x] Delay never exceeds 10 minutes (600000ms)
+- [x] No pending jobs: returns hasMore=false
+- [x] Job with `scheduledAt` in the future: skipped (not yet ready)
+- [x] Random jitter: delay varies between calls (test with seed or just verify range)
+- [x] Edge case: job payload is malformed - handled gracefully, marked failed
 
 #### 1.6.3 Event Detection
 
-- [ ] **1.6.3.1** Create `src/background/event-detector.ts`:
+- [x] **1.6.3.1** Create `src/background/event-detector.ts`:
   - `detectChanges(previous: ListingSnapshot | null, current: ListingSnapshot): EventRecord[]`
   - Compare each tracked field between consecutive snapshots
   - Return an array of events (may be 0, 1, or multiple events for a single snapshot comparison)
-- [ ] **1.6.3.2** Implement detection for each event type:
+- [x] **1.6.3.2** Implement detection for each event type:
   - Title change: `previous.title !== current.title`
   - Short description change: `previous.shortDescription !== current.shortDescription`
   - Full description change: `previous.fullDescription !== current.fullDescription`
@@ -454,61 +454,61 @@ This is the most complex and critical subsystem. Test exhaustively.
   - Badge change: compare badge flags objects
   - Rating milestone: floor(previous.rating) !== floor(current.rating)
   - User milestone: crosses 1K, 5K, 10K, 50K, 100K, 500K, 1M thresholds
-- [ ] **1.6.3.3** Generate human-readable `note` for each event: e.g., "Title changed from 'Old Title' to 'New Title'"
+- [x] **1.6.3.3** Generate human-readable `note` for each event: e.g., "Title changed from 'Old Title' to 'New Title'"
 
 **Tests (event detector):**
-- [ ] No previous snapshot (first scan): returns empty array (no events)
-- [ ] Identical snapshots: returns empty array
-- [ ] Title changed: returns 1 title_change event with correct old/new values
-- [ ] Multiple changes simultaneously: returns multiple events (e.g., title + version)
-- [ ] Permission added: event contains the added permission name
-- [ ] Permission removed: event contains the removed permission name
-- [ ] Permissions reordered but same set: no event triggered
-- [ ] Rating 3.9 -> 4.0: triggers rating_milestone
-- [ ] Rating 4.0 -> 4.1: no milestone (same floor)
-- [ ] Rating 4.0 -> null (reviews deleted?): handled gracefully
-- [ ] Users 9500 -> 10000: triggers user_milestone at 10K
-- [ ] Users 10000 -> 10500: no milestone
-- [ ] Users 900 -> 1000: triggers user_milestone at 1K
-- [ ] Badge added: triggers badge_change
-- [ ] Description whitespace-only change: decide - trigger or ignore? (Recommend: ignore whitespace-only changes)
+- [x] No previous snapshot (first scan): returns empty array (no events)
+- [x] Identical snapshots: returns empty array
+- [x] Title changed: returns 1 title_change event with correct old/new values
+- [x] Multiple changes simultaneously: returns multiple events (e.g., title + version)
+- [x] Permission added: event contains the added permission name
+- [x] Permission removed: event contains the removed permission name
+- [x] Permissions reordered but same set: no event triggered
+- [x] Rating 3.9 -> 4.0: triggers rating_milestone
+- [x] Rating 4.0 -> 4.1: no milestone (same floor)
+- [x] Rating 4.0 -> null (reviews deleted?): handled gracefully
+- [x] Users 9500 -> 10000: triggers user_milestone at 10K
+- [x] Users 10000 -> 10500: no milestone
+- [x] Users 900 -> 1000: triggers user_milestone at 1K
+- [x] Badge added: triggers badge_change
+- [x] Description whitespace-only change: decide - trigger or ignore? (Recommend: ignore whitespace-only changes)
 
 #### 1.6.4 Scheduler
 
-- [ ] **1.6.4.1** Create `src/background/scheduler.ts`:
+- [x] **1.6.4.1** Create `src/background/scheduler.ts`:
   - `setupAlarms()` - called on install/startup
   - `handleDailyScanAlarm()` - called when dailyScan alarm fires
   - `handleProcessQueueAlarm()` - called when processQueue alarm fires
   - `triggerManualRefresh(projectId?: string)` - manual scan trigger
   - `pauseScanning()` / `resumeScanning()`
-- [ ] **1.6.4.2** In `handleDailyScanAlarm()`:
+- [x] **1.6.4.2** In `handleDailyScanAlarm()`:
   - Check `dailyScanEnabled` setting, return early if disabled
   - Check `lastDailyScanDate`, return early if already scanned today
   - Run queue cleanup (completed > 7 days, failed > 30 days)
   - Build jobs via queue builder
   - Enqueue jobs
   - Set first `processQueue` alarm with 1 minute delay
-- [ ] **1.6.4.3** In `handleProcessQueueAlarm()`:
+- [x] **1.6.4.3** In `handleProcessQueueAlarm()`:
   - Reset any 'running' jobs to 'pending' (service worker may have restarted)
   - Call `processNextJob()`
   - If `hasMore`, schedule next `processQueue` alarm with returned delay
   - If `!hasMore`, update `lastDailyScanDate`, send `SCAN_COMPLETE` message
-- [ ] **1.6.4.4** In `triggerManualRefresh()`:
+- [x] **1.6.4.4** In `triggerManualRefresh()`:
   - Clear all pending jobs from queue
   - Build new jobs (for specific project or all projects)
   - Enqueue and start processing
 
 **Tests (scheduler) - mock chrome.alarms + DB:**
-- [ ] `setupAlarms()`: creates dailyScan alarm with `delayInMinutes: 1` and `periodInMinutes: 1440`
-- [ ] `handleDailyScanAlarm()`: skips if `dailyScanEnabled` is false
-- [ ] `handleDailyScanAlarm()`: skips if `lastDailyScanDate` is today
-- [ ] `handleDailyScanAlarm()`: builds and enqueues jobs when conditions met
-- [ ] `handleProcessQueueAlarm()`: resets running jobs before processing
-- [ ] `handleProcessQueueAlarm()`: schedules next alarm after successful job
-- [ ] `handleProcessQueueAlarm()`: updates lastDailyScanDate when no more jobs
-- [ ] `triggerManualRefresh()`: clears existing pending jobs before enqueueing new ones
-- [ ] `pauseScanning()`: sets dailyScanEnabled to false
-- [ ] Edge case: alarm fires but DB has no projects - no jobs created, scan completes immediately
+- [x] `setupAlarms()`: creates dailyScan alarm with `delayInMinutes: 1` and `periodInMinutes: 1440`
+- [x] `handleDailyScanAlarm()`: skips if `dailyScanEnabled` is false
+- [x] `handleDailyScanAlarm()`: skips if `lastDailyScanDate` is today
+- [x] `handleDailyScanAlarm()`: builds and enqueues jobs when conditions met
+- [x] `handleProcessQueueAlarm()`: resets running jobs before processing
+- [x] `handleProcessQueueAlarm()`: schedules next alarm after successful job
+- [x] `handleProcessQueueAlarm()`: updates lastDailyScanDate when no more jobs
+- [x] `triggerManualRefresh()`: clears existing pending jobs before enqueueing new ones
+- [x] `pauseScanning()`: sets dailyScanEnabled to false
+- [x] Edge case: alarm fires but DB has no projects - no jobs created, scan completes immediately
 
 ---
 
@@ -536,83 +536,83 @@ This is the most complex and critical subsystem. Test exhaustively.
 
 #### 1.8.1 Composables
 
-- [ ] **1.8.1.1** Create `src/dashboard/composables/useProjects.ts`:
+- [x] **1.8.1.1** Create `src/dashboard/composables/useProjects.ts`:
   - `projects` - reactive ref of all projects
   - `loadProjects()` - load from IndexedDB
   - `createProject(name, ownExtensionUrl)` - parse extension ID from URL, create project + extension records
   - `deleteProject(id)` - delete project, handle extension cleanup (check projectRefs)
   - `addCompetitor(projectId, extensionUrl)` - add competitor extension to project
   - `removeCompetitor(projectId, extensionId)` - remove competitor, handle cleanup
-- [ ] **1.8.1.2** Create `src/dashboard/composables/useExtensions.ts`:
+- [x] **1.8.1.2** Create `src/dashboard/composables/useExtensions.ts`:
   - `getExtensionsByProject(projectId)` - returns own + competitors
   - `getLatestSnapshot(extensionId)` - latest listing data
-- [ ] **1.8.1.3** Create `src/dashboard/composables/useKeywords.ts`:
+- [x] **1.8.1.3** Create `src/dashboard/composables/useKeywords.ts`:
   - `keywords` - reactive ref for current project
   - `loadKeywords(projectId)`
   - `addKeyword(projectId, text)` - validate not duplicate in same project
   - `removeKeyword(id)`
-- [ ] **1.8.1.4** Create `src/dashboard/composables/useServiceWorker.ts`:
+- [x] **1.8.1.4** Create `src/dashboard/composables/useServiceWorker.ts`:
   - Listen for messages from service worker
   - Expose reactive `scanProgress`, `lastScanStatus`, `queueStats`
   - Provide methods: `requestRefresh()`, `requestPause()`, `requestResume()`
 
 **Tests (composables):**
-- [ ] `createProject()`: creates project + extension records in DB
-- [ ] `createProject()`: parses extension ID from full CWS URL (`chrome.google.com/webstore/detail/name/EXTENSION_ID`)
-- [ ] `createProject()`: parses extension ID from short URL or raw ID
-- [ ] `createProject()`: rejects invalid URLs/IDs
-- [ ] `addCompetitor()`: adds extension ID to project's competitorIds, creates extension record
-- [ ] `addCompetitor()`: if extension already exists in DB (from another project), adds projectRef
-- [ ] `addCompetitor()`: rejects adding the same competitor twice to one project
-- [ ] `removeCompetitor()`: removes from competitorIds, decrements projectRefs
-- [ ] `removeCompetitor()`: when projectRefs becomes empty, marks for cleanup
-- [ ] `deleteProject()`: removes project, handles all extension cleanup
-- [ ] `addKeyword()`: rejects duplicate keyword text in same project
-- [ ] `addKeyword()`: allows same keyword text in different projects
+- [x] `createProject()`: creates project + extension records in DB
+- [x] `createProject()`: parses extension ID from full CWS URL (`chrome.google.com/webstore/detail/name/EXTENSION_ID`)
+- [x] `createProject()`: parses extension ID from short URL or raw ID
+- [x] `createProject()`: rejects invalid URLs/IDs
+- [x] `addCompetitor()`: adds extension ID to project's competitorIds, creates extension record
+- [x] `addCompetitor()`: if extension already exists in DB (from another project), adds projectRef
+- [x] `addCompetitor()`: rejects adding the same competitor twice to one project
+- [x] `removeCompetitor()`: removes from competitorIds, decrements projectRefs
+- [x] `removeCompetitor()`: when projectRefs becomes empty, marks for cleanup
+- [x] `deleteProject()`: removes project, handles all extension cleanup
+- [x] `addKeyword()`: rejects duplicate keyword text in same project
+- [x] `addKeyword()`: allows same keyword text in different projects
 
 #### 1.8.2 Pages & Components
 
-- [ ] **1.8.2.1** Create `src/dashboard/App.vue` with router-view and navigation sidebar
-- [ ] **1.8.2.2** Create `src/dashboard/router.ts` with routes: `/` (home), `/project/:id` (project detail), `/settings`
-- [ ] **1.8.2.3** Create `src/dashboard/pages/HomePage.vue`:
+- [x] **1.8.2.1** Create `src/dashboard/App.vue` with router-view and navigation sidebar
+- [x] **1.8.2.2** Create `src/dashboard/router.ts` with routes: `/` (home), `/project/:id` (project detail), `/settings`
+- [x] **1.8.2.3** Create `src/dashboard/pages/HomePage.vue`:
   - Project card grid (or empty state if no projects)
   - "Create Project" button/modal
   - Scan status banner (if scan running)
-- [ ] **1.8.2.4** Create project creation modal:
+- [x] **1.8.2.4** Create project creation modal:
   - Input: extension URL or ID
   - Auto-fetch extension name and icon on input (if possible, or after first scan)
   - Input: project name (default to extension name)
   - Submit creates project
-- [ ] **1.8.2.5** Create `src/dashboard/pages/ProjectPage.vue`:
+- [x] **1.8.2.5** Create `src/dashboard/pages/ProjectPage.vue`:
   - Tab navigation: Overview, Rankings, Extensions, Keywords, Events
   - Load project data on mount
-- [ ] **1.8.2.6** Create **Overview Tab**:
+- [x] **1.8.2.6** Create **Overview Tab**:
   - Metric cards: total extensions tracked, total keywords, last scan date, scan status
   - Recent events list (last 10 events across all project extensions)
   - Quick rank change summary
   - Empty state: "No data yet. Run your first scan."
-- [ ] **1.8.2.7** Create **Extensions Tab**:
+- [x] **1.8.2.7** Create **Extensions Tab**:
   - Table: extension name, rating, users, version, last updated, permission risk score, quality score placeholder
   - "Add Competitor" button + modal
   - "Remove" button per competitor (with confirmation)
   - Click row -> expand to show snapshot history
   - Empty state: "Add competitor extensions to start tracking."
-- [ ] **1.8.2.8** Create **Keywords Tab**:
+- [x] **1.8.2.8** Create **Keywords Tab**:
   - Table: keyword text, positions for each tracked extension (latest), change since last scan
   - "Add Keyword" input + button
   - "Remove" button per keyword (with confirmation)
   - Empty state: "Add keywords to track search rankings."
-- [ ] **1.8.2.9** Create **Events Tab**:
+- [x] **1.8.2.9** Create **Events Tab**:
   - Chronological timeline of events
   - Filter by event type, extension
   - Empty state: "No changes detected yet. Events appear after your second scan."
 
 #### 1.8.3 Rankings Tab & Chart
 
-- [ ] **1.8.3.1** Create `src/dashboard/composables/useRankings.ts`:
+- [x] **1.8.3.1** Create `src/dashboard/composables/useRankings.ts`:
   - `loadRankHistory(projectId, keywordId, dateRange)` - load rank snapshots for all project extensions
   - Transform into ApexCharts series format: one series per extension
-- [ ] **1.8.3.2** Create `src/dashboard/components/charts/RankChart.vue`:
+- [x] **1.8.3.2** Create `src/dashboard/components/charts/RankChart.vue`:
   - ApexCharts line chart
   - Y-axis inverted (position 1 at top)
   - X-axis: dates
@@ -621,18 +621,18 @@ This is the most complex and critical subsystem. Test exhaustively.
   - Keyword selector dropdown
   - Date range picker
   - Legend with extension names
-- [ ] **1.8.3.3** Handle chart edge cases:
+- [x] **1.8.3.3** Handle chart edge cases:
   - Single data point: show as dot
   - No data: show empty state
   - All positions null: show "No extensions ranked in top 30 for this keyword"
   - 365+ days of data: ensure performance is acceptable, consider downsampling
 
 **Tests (chart data transformation):**
-- [ ] `loadRankHistory()`: correctly transforms DB records into ApexCharts series
-- [ ] Null positions are represented correctly in the series
-- [ ] Multiple extensions: one series per extension, correct colors
-- [ ] Date range filtering: only includes snapshots within range
-- [ ] Empty result: returns empty series array
+- [x] `loadRankHistory()`: correctly transforms DB records into ApexCharts series
+- [x] Null positions are represented correctly in the series
+- [x] Multiple extensions: one series per extension, correct colors
+- [x] Date range filtering: only includes snapshots within range
+- [x] Empty result: returns empty series array
 
 ---
 
