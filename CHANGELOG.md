@@ -2,6 +2,28 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.10.0] - 2026-02-05
+
+### Added
+- Phase 0.3: Quality Score Calibration
+  - `QUALITY_SCORE_THRESHOLDS.md`: Calibrated thresholds for all quality score components based on CWS extension analysis across productivity, developer tools, ad blockers, and VPN/security categories. Documents P25/Median/P75/P90 for title length, short description length, full description word count, screenshot count, translation count, rating, review count, and update freshness.
+- Phase 2.1: Listing Quality Score
+  - `src/shared/utils/quality-score.ts`: Composite 0-100 listing quality score calculator with 9 weighted components
+  - **Title optimization (15%)**: Scores based on character length in optimal range (20-60 chars), penalizes empty, too short, or keyword-stuffed titles
+  - **Short description (10%)**: Scores utilization of the 132-char CWS limit, optimal at 80+ chars
+  - **Full description (15%)**: 70% word count scoring (optimal 150-1000 words) + 30% structure detection (paragraphs, bullet points, sections)
+  - **Visual assets (15%)**: 80% screenshot count (optimal 3-5) + 20% promo video bonus
+  - **Ratings & reviews (15%)**: 60% star rating quality (excellent >= 4.5, good >= 4.0) + 40% review quantity (excellent >= 100, good >= 50)
+  - **Translations (10%)**: 60% locale count (excellent >= 20, good >= 10) + 40% major market coverage (16 key locales)
+  - **Update freshness (10%)**: Tiered scoring from fresh (<=30d, 100pts) to abandoned (>365d, 0pts)
+  - **Permissions (5%)**: Inverse of permission risk score (low risk = high quality)
+  - **Developer profile (5%)**: Verified developer = 100, unverified = 40, missing = 0
+  - `QualityThresholds` interface with `DEFAULT_THRESHOLDS` constant for configurable calibration
+  - `QualityScoreResult` with total score, per-component breakdown (score, weight, weightedScore), and actionable recommendations
+  - Recommendations generated for components scoring below 80, with priority levels (high/medium/low) and specific actionable messages (e.g., "Add 2 more screenshots to reach the optimal count of 3-5")
+  - 72 new tests covering all 9 components individually, integration tests for perfect/empty listings, edge cases (null rating, unparseable dates, custom thresholds), recommendation generation and priority
+  - 584 total tests passing, zero type errors
+
 ## [0.9.0] - 2026-02-05
 
 ### Added
