@@ -732,12 +732,12 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 2.3 Event Detection Enhancement (~4h) [depends: Phase 1]
 
-- [ ] **2.3.1** Add event annotations to RankChart:
+- [x] **2.3.1** Add event annotations to RankChart:
   - Vertical annotation lines using ApexCharts `xaxis.annotations`
   - Color-coded by event type
   - Tooltip on hover showing event details
-- [ ] **2.3.2** Add event type filter toggles (checkboxes to show/hide specific event types on chart)
-- [ ] **2.3.3** Implement event color scheme:
+- [x] **2.3.2** Add event type filter toggles (checkboxes to show/hide specific event types on chart)
+- [x] **2.3.3** Implement event color scheme:
   - Red: permission_change
   - Blue: version_change
   - Green: rating_milestone, user_milestone
@@ -745,10 +745,10 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
   - Gray: screenshot_change, translation_change, badge_change
 
 **Tests:**
-- [ ] Annotations appear at correct dates on chart
-- [ ] Toggling filter hides/shows corresponding annotations
-- [ ] Multiple events on same date: all annotations visible (stacked or grouped)
-- [ ] No events: no annotations, no errors
+- [x] Annotations appear at correct dates on chart
+- [x] Toggling filter hides/shows corresponding annotations
+- [x] Multiple events on same date: all annotations visible (stacked or grouped)
+- [x] No events: no annotations, no errors
 
 ### 2.4 Keyword Analysis (~6h) [depends: Phase 1]
 
@@ -1092,14 +1092,14 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 4.5 Settings Page (~3h)
 
-- [ ] **4.5.1** Create `src/dashboard/pages/SettingsPage.vue`:
+- [x] **4.5.1** Create `src/dashboard/pages/SettingsPage.vue`:
   - Section: Scan Settings (queue delay, jitter, daily scan time, enable/disable)
   - Section: API Keys (OpenAI key input with test button, LemonSqueezy license key)
   - Section: Data Management (retention period, storage usage, prune now, backup, restore)
   - Section: Translation Audit (locale selector for default audit locales)
   - Section: About (version, links)
-- [ ] **4.5.2** Validate all settings on change (delay >= 30s, retention >= 7 days, etc.)
-- [ ] **4.5.3** "Test Connection" button for OpenAI (sends a tiny request to verify key)
+- [x] **4.5.2** Validate all settings on change (delay >= 30s, retention >= 7 days, etc.)
+- [x] **4.5.3** "Test Connection" button for OpenAI (sends a tiny request to verify key)
 
 ### 4.6 CWS Listing Preparation (~3h)
 

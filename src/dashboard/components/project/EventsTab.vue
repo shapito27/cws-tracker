@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import type { Project, Extension, EventRecord, EventType } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
+import { ALL_EVENT_TYPES, EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
 
 const props = defineProps<{
   project: Project;
@@ -15,30 +16,6 @@ const extensions = ref<Extension[]>([]);
 const loading = ref(true);
 const filterType = ref<EventType | 'all'>('all');
 const filterExtension = ref<string>('all');
-
-const EVENT_TYPE_LABELS: Record<EventType, string> = {
-  title_change: 'Title Change',
-  description_change: 'Description Change',
-  version_change: 'Version Change',
-  permission_change: 'Permission Change',
-  rating_milestone: 'Rating Milestone',
-  user_milestone: 'User Milestone',
-  translation_change: 'Translation Change',
-  screenshot_change: 'Screenshot Change',
-  badge_change: 'Badge Change',
-};
-
-const eventTypes: EventType[] = [
-  'title_change',
-  'description_change',
-  'version_change',
-  'permission_change',
-  'rating_milestone',
-  'user_milestone',
-  'translation_change',
-  'screenshot_change',
-  'badge_change',
-];
 
 onMounted(async () => {
   extensions.value = await getExtensionsByProject(props.project.id!);
@@ -68,17 +45,6 @@ function getExtensionName(extensionId: string): string {
   return ext?.name || extensionId.slice(0, 12) + '...';
 }
 
-function getEventTypeColor(type: EventType): string {
-  switch (type) {
-    case 'version_change': return 'bg-purple-100 text-purple-800';
-    case 'permission_change': return 'bg-red-100 text-red-800';
-    case 'rating_milestone': return 'bg-yellow-100 text-yellow-800';
-    case 'user_milestone': return 'bg-green-100 text-green-800';
-    case 'title_change':
-    case 'description_change': return 'bg-blue-100 text-blue-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-}
 </script>
 
 <template>
@@ -91,7 +57,7 @@ function getEventTypeColor(type: EventType): string {
           class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
         >
           <option value="all">All event types</option>
-          <option v-for="type in eventTypes" :key="type" :value="type">
+          <option v-for="type in ALL_EVENT_TYPES" :key="type" :value="type">
             {{ EVENT_TYPE_LABELS[type] }}
           </option>
         </select>
@@ -134,7 +100,7 @@ function getEventTypeColor(type: EventType): string {
             <div class="mt-1.5 flex items-center gap-2">
               <span
                 class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="getEventTypeColor(event.type)"
+                :class="getEventTypeBadgeClass(event.type)"
               >
                 {{ EVENT_TYPE_LABELS[event.type] }}
               </span>
