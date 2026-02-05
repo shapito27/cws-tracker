@@ -166,18 +166,15 @@ export function analyzeKeywordGaps(
     const seenInThisCompetitor = new Set<string>();
 
     for (const [word, freq] of extracted) {
+      const existing = competitorKeywordFreqs.get(word) ?? { count: 0, frequency: 0 };
+
       if (!seenInThisCompetitor.has(word)) {
         seenInThisCompetitor.add(word);
-        const existing = competitorKeywordFreqs.get(word) ?? { count: 0, frequency: 0 };
         existing.count++;
-        existing.frequency += freq;
-        competitorKeywordFreqs.set(word, existing);
-      } else {
-        const existing = competitorKeywordFreqs.get(word);
-        if (existing) {
-          existing.frequency += freq;
-        }
       }
+
+      existing.frequency += freq;
+      competitorKeywordFreqs.set(word, existing);
     }
   }
 
