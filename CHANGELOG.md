@@ -2,6 +2,17 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.8.0] - 2026-02-05
+
+### Added
+- Phase 1.7: Service Worker Entry Point
+  - `src/background/index.ts`: Full service worker wiring with `chrome.runtime.onInstalled` (sets up alarms on install/update, triggers initial scan on install), `chrome.alarms.onAlarm` (dispatches `dailyScan` to `handleDailyScanAlarm()` and `processQueue` to `handleProcessQueueAlarm()`), `chrome.runtime.onMessage` (handles `TRIGGER_REFRESH`, `PAUSE_SCAN`, `RESUME_SCAN`, `CANCEL_SCAN` from Dashboard/Popup)
+  - `src/background/messaging.ts`: `sendToUI(message)` wraps `chrome.runtime.sendMessage` with try/catch for silent failure when no Dashboard or Popup is listening
+  - `CANCEL_SCAN` handler: deletes all pending queue jobs and clears the `processQueue` alarm
+  - Unknown alarm names and unknown message types ignored gracefully
+  - Async error handling with `.catch()` for all alarm dispatch calls
+  - 16 new tests (11 service worker entry point, 5 messaging), 500 total passing
+
 ## [0.7.0] - 2026-02-05
 
 ### Added

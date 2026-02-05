@@ -514,21 +514,21 @@ This is the most complex and critical subsystem. Test exhaustively.
 
 ### 1.7 Service Worker Entry Point (~3h) [depends: 1.6]
 
-- [ ] **1.7.1** Create `src/background/index.ts`:
+- [x] **1.7.1** Create `src/background/index.ts`:
   - Register `chrome.runtime.onInstalled` listener -> call `setupAlarms()`, trigger first scan
   - Register `chrome.alarms.onAlarm` listener -> dispatch to `handleDailyScanAlarm()` or `handleProcessQueueAlarm()`
   - Register `chrome.runtime.onMessage` listener -> handle `TRIGGER_REFRESH`, `PAUSE_SCAN`, `RESUME_SCAN`, `CANCEL_SCAN`
-- [ ] **1.7.2** Create `src/background/messaging.ts`:
+- [x] **1.7.2** Create `src/background/messaging.ts`:
   - `sendToUI(message: ServiceWorkerMessage)` - wraps `chrome.runtime.sendMessage` with try/catch (fails silently if no listeners)
 
 **Tests:**
-- [ ] `onInstalled` fires: alarms are set up
-- [ ] `onAlarm('dailyScan')`: dispatches to daily scan handler
-- [ ] `onAlarm('processQueue')`: dispatches to process queue handler
-- [ ] `onMessage('TRIGGER_REFRESH')`: calls triggerManualRefresh
-- [ ] `sendToUI()`: doesn't throw if no dashboard is open
-- [ ] Unknown alarm name: ignored gracefully
-- [ ] Unknown message type: ignored gracefully
+- [x] `onInstalled` fires: alarms are set up
+- [x] `onAlarm('dailyScan')`: dispatches to daily scan handler
+- [x] `onAlarm('processQueue')`: dispatches to process queue handler
+- [x] `onMessage('TRIGGER_REFRESH')`: calls triggerManualRefresh
+- [x] `sendToUI()`: doesn't throw if no dashboard is open
+- [x] Unknown alarm name: ignored gracefully
+- [x] Unknown message type: ignored gracefully
 
 ---
 
