@@ -303,26 +303,26 @@ class ParserError extends Error {
 
 #### 1.5.1 Permission Risk Scoring
 
-- [ ] **1.5.1.1** Create `src/shared/utils/permissions.ts`:
+- [x] **1.5.1.1** Create `src/shared/utils/permissions.ts`:
   - `calculatePermissionRiskScore(permissions: string[], hostPermissions: string[]): number`
   - `getPermissionWarning(permission: string): string | null` - returns the install warning text
   - `categorizePermissions(permissions: string[]): { high: string[], medium: string[], low: string[], none: string[] }`
 
 **Tests:**
-- [ ] No permissions: score = 0
-- [ ] Only `storage` and `alarms`: score = 0
-- [ ] `<all_urls>`: score includes weight 30
-- [ ] `tabs` + `history`: scores are additive
-- [ ] Score never exceeds 100 (clamped)
-- [ ] Broad host permission (`*://*/*`): treated same as `<all_urls>`
-- [ ] Narrow host permission (`https://example.com/*`): low weight
-- [ ] Unknown permission: weight = 0, doesn't crash
-- [ ] `categorizePermissions()`: correctly groups by risk level
-- [ ] Empty arrays: returns score 0, empty categories
+- [x] No permissions: score = 0
+- [x] Only `storage` and `alarms`: score = 0
+- [x] `<all_urls>`: score includes weight 30
+- [x] `tabs` + `history`: scores are additive
+- [x] Score never exceeds 100 (clamped)
+- [x] Broad host permission (`*://*/*`): treated same as `<all_urls>`
+- [x] Narrow host permission (`https://example.com/*`): low weight
+- [x] Unknown permission: weight = 0, doesn't crash
+- [x] `categorizePermissions()`: correctly groups by risk level
+- [x] Empty arrays: returns score 0, empty categories
 
 #### 1.5.2 Text Analysis Utilities
 
-- [ ] **1.5.2.1** Create `src/shared/utils/text-analysis.ts`:
+- [x] **1.5.2.1** Create `src/shared/utils/text-analysis.ts`:
   - `levenshteinDistance(a: string, b: string): number`
   - `levenshteinSimilarity(a: string, b: string): number` - returns 0-1 normalized similarity
   - `countKeywordOccurrences(text: string, keyword: string): number` - case-insensitive, whole-word
@@ -330,34 +330,34 @@ class ParserError extends Error {
   - `keywordDensity(text: string, keyword: string): number` - occurrences / total words
 
 **Tests:**
-- [ ] `levenshteinDistance("kitten", "sitting")` = 3
-- [ ] `levenshteinDistance("", "abc")` = 3
-- [ ] `levenshteinDistance("abc", "abc")` = 0
-- [ ] `levenshteinSimilarity("abc", "abc")` = 1.0
-- [ ] `levenshteinSimilarity("", "")` = 1.0 (edge case: both empty)
-- [ ] `countKeywordOccurrences("ad blocker blocks ads", "ad")` = 1 (whole word only, not "ads")
-- [ ] `countKeywordOccurrences("", "test")` = 0
-- [ ] `countKeywordOccurrences("test test TEST", "test")` = 3 (case insensitive)
-- [ ] `keywordDensity()`: correct ratio for known text
-- [ ] `keywordDensity()` of empty text: returns 0, no division by zero
-- [ ] `extractKeywords()`: returns correct frequency map
-- [ ] `extractKeywords()`: ignores common stop words (the, a, is, etc.)
+- [x] `levenshteinDistance("kitten", "sitting")` = 3
+- [x] `levenshteinDistance("", "abc")` = 3
+- [x] `levenshteinDistance("abc", "abc")` = 0
+- [x] `levenshteinSimilarity("abc", "abc")` = 1.0
+- [x] `levenshteinSimilarity("", "")` = 1.0 (edge case: both empty)
+- [x] `countKeywordOccurrences("ad blocker blocks ads", "ad")` = 1 (whole word only, not "ads")
+- [x] `countKeywordOccurrences("", "test")` = 0
+- [x] `countKeywordOccurrences("test test TEST", "test")` = 3 (case insensitive)
+- [x] `keywordDensity()`: correct ratio for known text
+- [x] `keywordDensity()` of empty text: returns 0, no division by zero
+- [x] `extractKeywords()`: returns correct frequency map
+- [x] `extractKeywords()`: ignores common stop words (the, a, is, etc.)
 
 #### 1.5.3 Date Utilities
 
-- [ ] **1.5.3.1** Create `src/shared/utils/dates.ts`:
+- [x] **1.5.3.1** Create `src/shared/utils/dates.ts`:
   - `today(): string` - returns YYYY-MM-DD
   - `daysAgo(n: number): string` - returns YYYY-MM-DD for n days ago
   - `isToday(dateStr: string): boolean`
   - `daysBetween(dateA: string, dateB: string): number`
 
 **Tests:**
-- [ ] `today()` returns correct format
-- [ ] `daysAgo(0)` equals `today()`
-- [ ] `daysAgo(1)` returns yesterday
-- [ ] `isToday()` returns true for today, false for yesterday
-- [ ] `daysBetween("2026-01-01", "2026-01-10")` = 9
-- [ ] `daysBetween()` works across month/year boundaries
+- [x] `today()` returns correct format
+- [x] `daysAgo(0)` equals `today()`
+- [x] `daysAgo(1)` returns yesterday
+- [x] `isToday()` returns true for today, false for yesterday
+- [x] `daysBetween("2026-01-01", "2026-01-10")` = 9
+- [x] `daysBetween()` works across month/year boundaries
 
 ---
 
