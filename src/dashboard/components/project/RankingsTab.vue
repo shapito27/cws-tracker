@@ -24,6 +24,7 @@ const series = ref<RankChartSeries[]>([]);
 const events = ref<EventRecord[]>([]);
 const loading = ref(true);
 const chartLoading = ref(false);
+const chartError = ref<string | null>(null);
 
 /** Which event types are currently visible as annotations. */
 const visibleEventTypes = ref<Set<string>>(new Set(ALL_EVENT_TYPES));
@@ -57,26 +58,34 @@ watch([selectedKeywordId, dateRange], async () => {
   }
 
   chartLoading.value = true;
-  const days = Number(dateRange.value);
-  const startDate = daysAgo(days);
-  const endDate = today();
+  chartError.value = null;
 
-  // Load rank data and events in parallel
-  const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
+  try {
+    const days = Number(dateRange.value);
+    const startDate = daysAgo(days);
+    const endDate = today();
 
-  const [rankSeries, ...eventArrays] = await Promise.all([
-    loadRankHistory(selectedKeywordId.value, extensions.value, startDate, endDate),
-    ...allExtIds.map((extId) => db.getEvents(extId, startDate, endDate)),
-  ]);
+    // Load rank data and events in parallel
+    const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
 
-  series.value = rankSeries;
+    const [rankSeries, ...eventArrays] = await Promise.all([
+      loadRankHistory(selectedKeywordId.value, extensions.value, startDate, endDate),
+      ...allExtIds.map((extId) => db.getEvents(extId, startDate, endDate)),
+    ]);
 
-  // Merge all events, sorted by date ascending for consistent annotation order
-  const allEvents: EventRecord[] = eventArrays.flat();
-  allEvents.sort((a, b) => a.date.localeCompare(b.date));
-  events.value = allEvents;
+    series.value = rankSeries;
 
-  chartLoading.value = false;
+    // Merge all events, sorted by date ascending for consistent annotation order
+    const allEvents: EventRecord[] = eventArrays.flat();
+    allEvents.sort((a, b) => a.date.localeCompare(b.date));
+    events.value = allEvents;
+  } catch (e) {
+    chartError.value = e instanceof Error ? e.message : 'Failed to load chart data';
+    series.value = [];
+    events.value = [];
+  } finally {
+    chartLoading.value = false;
+  }
 }, { immediate: true });
 </script>
 
@@ -144,6 +153,9 @@ watch([selectedKeywordId, dateRange], async () => {
       <!-- Chart -->
       <div v-if="chartLoading" class="text-center py-12">
         <p class="text-sm text-gray-500">Loading chart data...</p>
+      </div>
+      <div v-else-if="chartError" class="rounded-lg border border-red-200 bg-red-50 p-4">
+        <p class="text-sm text-red-700">{{ chartError }}</p>
       </div>
       <div v-else-if="series.every(s => s.data.length === 0)" class="rounded-lg border border-gray-200 bg-white p-12 text-center">
         <p class="text-sm text-gray-500">

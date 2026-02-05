@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useSettings } from '../composables/useSettings';
 
 const {
@@ -140,18 +140,41 @@ function toggleLocale(code: string): void {
   localTranslationLocales.value = current.join(', ');
 }
 
-function isLocaleSelected(code: string): boolean {
-  const current = localTranslationLocales.value
+function getSelectedLocales(): string[] {
+  return localTranslationLocales.value
     .split(',')
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
-  return current.includes(code);
 }
 
-// Clear messages after a delay
+function isLocaleSelected(code: string): boolean {
+  return getSelectedLocales().includes(code);
+}
+
+function isLastSelectedLocale(code: string): boolean {
+  const current = getSelectedLocales();
+  return current.length === 1 && current.includes(code);
+}
+
+// Clear success messages after a delay, with proper cleanup
+let successTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
 watch([error, successMessage], () => {
+  if (successTimeoutId) {
+    clearTimeout(successTimeoutId);
+    successTimeoutId = null;
+  }
   if (successMessage.value) {
-    setTimeout(() => { successMessage.value = null; }, 3000);
+    successTimeoutId = setTimeout(() => {
+      successMessage.value = null;
+      successTimeoutId = null;
+    }, 3000);
+  }
+});
+
+onUnmounted(() => {
+  if (successTimeoutId) {
+    clearTimeout(successTimeoutId);
   }
 });
 </script>
@@ -432,9 +455,13 @@ watch([error, successMessage], () => {
               v-for="loc in AVAILABLE_LOCALES"
               :key="loc.code"
               class="rounded-full border px-3 py-1 text-xs font-medium transition-colors"
-              :class="isLocaleSelected(loc.code)
-                ? 'border-blue-500 bg-blue-50 text-blue-700'
-                : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'"
+              :class="[
+                isLocaleSelected(loc.code)
+                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                  : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50',
+                isLastSelectedLocale(loc.code) ? 'opacity-50 cursor-not-allowed' : '',
+              ]"
+              :disabled="isLastSelectedLocale(loc.code)"
               @click="toggleLocale(loc.code)"
             >
               {{ loc.code }} - {{ loc.name }}

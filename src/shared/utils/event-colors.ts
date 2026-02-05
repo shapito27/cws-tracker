@@ -49,3 +49,17 @@ export const ALL_EVENT_TYPES: EventType[] = [
   'translation_change',
   'badge_change',
 ];
+
+/** Tailwind badge class mapping consistent with EVENT_TYPE_COLORS hex values. */
+const BADGE_CLASS_MAP: Record<string, string> = {
+  '#DC2626': 'bg-red-100 text-red-800',
+  '#2563EB': 'bg-blue-100 text-blue-800',
+  '#16A34A': 'bg-green-100 text-green-800',
+  '#D97706': 'bg-amber-100 text-amber-800',
+  '#6B7280': 'bg-gray-100 text-gray-800',
+};
+
+/** Get Tailwind CSS badge classes for an event type, consistent with chart annotation colors. */
+export function getEventTypeBadgeClass(type: EventType): string {
+  return BADGE_CLASS_MAP[EVENT_TYPE_COLORS[type]] ?? 'bg-gray-100 text-gray-800';
+}
