@@ -180,23 +180,23 @@ Dexie provides CRUD out of the box (`table.add()`, `.get()`, `.put()`, `.delete(
 
 ### 1.3 Settings Manager (~3h) [depends: 1.1]
 
-- [ ] **1.3.1** Create `src/shared/utils/settings.ts` - `SettingsManager` class wrapping `chrome.storage.local`:
+- [x] **1.3.1** Create `src/shared/utils/settings.ts` - `SettingsManager` class wrapping `chrome.storage.local`:
   - `get(key)` - get single setting
   - `getAll()` - get all settings
   - `set(key, value)` - set single setting
   - `setMultiple(partial)` - set multiple settings
   - `getWithDefaults()` - returns all settings with defaults applied for missing values
-- [ ] **1.3.2** Define `DEFAULT_SETTINGS` constant with all default values from PRD Section 4.2.
-- [ ] **1.3.3** Implement settings validation: `queueDelayMs` must be >= 30000, `dataRetentionDays` must be >= 7, etc.
+- [x] **1.3.2** Define `DEFAULT_SETTINGS` constant with all default values from PRD Section 4.2.
+- [x] **1.3.3** Implement settings validation: `queueDelayMs` must be >= 30000, `dataRetentionDays` must be >= 7, etc.
 
 **Tests (use chrome.storage.local mock):**
-- [ ] `getAll()`: returns defaults when storage is empty
-- [ ] `set()` then `get()`: returns the set value
-- [ ] `setMultiple()`: sets multiple keys atomically
-- [ ] `getWithDefaults()`: merges stored values with defaults (stored values win)
-- [ ] Validation: setting `queueDelayMs` to 5000 throws/rejects
-- [ ] Validation: setting `dataRetentionDays` to 0 throws/rejects
-- [ ] Edge case: `get()` for non-existent key returns default value
+- [x] `getAll()`: returns defaults when storage is empty
+- [x] `set()` then `get()`: returns the set value
+- [x] `setMultiple()`: sets multiple keys atomically
+- [x] `getWithDefaults()`: merges stored values with defaults (stored values win)
+- [x] Validation: setting `queueDelayMs` to 5000 throws/rejects
+- [x] Validation: setting `dataRetentionDays` to 0 throws/rejects
+- [x] Edge case: `get()` for non-existent key returns default value
 
 ---
 
