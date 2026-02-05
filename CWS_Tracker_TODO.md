@@ -703,32 +703,32 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 2.2 Listing Comparison View (~8h) [depends: Phase 1]
 
-- [ ] **2.2.1** Create `src/dashboard/components/comparison/ListingCompare.vue`:
+- [x] **2.2.1** Create `src/dashboard/components/comparison/ListingCompare.vue`:
   - Extension selector (pick 2-4 from project)
   - Side-by-side layout
-- [ ] **2.2.2** Implement text comparison for title, short description:
+- [x] **2.2.2** Implement text comparison for title, short description:
   - Character count
   - Keyword highlighting (tracked keywords highlighted in text)
-- [ ] **2.2.3** Implement full description comparison:
+- [x] **2.2.3** Implement full description comparison:
   - Word count
   - Keyword density per tracked keyword
   - Readability score (Flesch-Kincaid or similar)
-- [ ] **2.2.4** Implement permissions comparison:
+- [x] **2.2.4** Implement permissions comparison:
   - Shared permissions
   - Unique to extension A / unique to extension B
   - Risk score comparison bar
-- [ ] **2.2.5** Implement metrics comparison:
+- [x] **2.2.5** Implement metrics comparison:
   - Bar charts for: rating, review count, user count, screenshot count, translation count
-- [ ] **2.2.6** Implement keyword density matrix:
+- [x] **2.2.6** Implement keyword density matrix:
   - Table: rows = tracked keywords, columns = extensions
   - Cells = occurrence count in title / short desc / full desc
 
 **Tests:**
-- [ ] Comparing 2 extensions: all fields displayed side-by-side
-- [ ] Keyword highlighting: correct words highlighted
-- [ ] Permission diff: correctly identifies shared/unique
-- [ ] Compare extension with itself: all values equal, no diff
-- [ ] Compare with missing data: handles null/empty fields gracefully
+- [x] Comparing 2 extensions: all fields displayed side-by-side
+- [x] Keyword highlighting: correct words highlighted
+- [x] Permission diff: correctly identifies shared/unique
+- [x] Compare extension with itself: all values equal, no diff
+- [x] Compare with missing data: handles null/empty fields gracefully
 
 ### 2.3 Event Detection Enhancement (~4h) [depends: Phase 1]
 
