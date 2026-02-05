@@ -183,6 +183,17 @@ describe('computeTextDiff', () => {
     expect(textOfType(result, 'added')).toContain('new_end');
   });
 
+  it('handles very long identical suffix', () => {
+    const common = 'word '.repeat(50).trim();
+    const oldText = 'old_start ' + common;
+    const newText = 'new_start ' + common;
+    const result = computeTextDiff(oldText, newText);
+    expect(reconstructOld(result)).toBe(oldText);
+    expect(reconstructNew(result)).toBe(newText);
+    expect(textOfType(result, 'removed')).toContain('old_start');
+    expect(textOfType(result, 'added')).toContain('new_start');
+  });
+
   it('handles text with line breaks within words (newline-delimited)', () => {
     const oldText = 'line1\nline2\nline3';
     const newText = 'line1\nchanged\nline3';
