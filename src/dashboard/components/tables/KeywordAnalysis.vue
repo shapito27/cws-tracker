@@ -27,12 +27,14 @@ const frequencyMatrix = ref<KeywordFrequencyRow[]>([]);
 const gapSuggestions = ref<KeywordGapSuggestion[]>([]);
 const difficultyResults = ref<KeywordDifficultyResult[]>([]);
 const loading = ref(true);
+const loadError = ref<string | null>(null);
 const activeSection = ref<'frequency' | 'gaps' | 'difficulty'>('frequency');
 
 const ownExtensionId = computed(() => props.project.ownExtensionId);
 
 async function loadData(): Promise<void> {
   loading.value = true;
+  loadError.value = null;
   try {
     await loadKeywords(props.project.id!);
     extensions.value = await getExtensionsByProject(props.project.id!);
@@ -68,6 +70,7 @@ async function loadData(): Promise<void> {
     }
     difficultyResults.value = estimateKeywordDifficulty(keywordRankings, snapshotMap);
   } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
     console.error('Failed to load keyword analysis data:', e);
   } finally {
     loading.value = false;
@@ -123,6 +126,16 @@ const sections = [
 
     <div v-if="loading" class="text-center py-8">
       <p class="text-sm text-gray-500">Loading keyword analysis...</p>
+    </div>
+
+    <div v-else-if="loadError" class="rounded-lg bg-red-50 border border-red-200 p-6 text-center">
+      <p class="text-sm text-red-700">Failed to load keyword analysis: {{ loadError }}</p>
+      <button
+        class="mt-3 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+        @click="loadData"
+      >
+        Retry
+      </button>
     </div>
 
     <div v-else-if="keywords.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
