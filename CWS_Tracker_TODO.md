@@ -752,26 +752,26 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 2.4 Keyword Analysis (~6h) [depends: Phase 1]
 
-- [ ] **2.4.1** Create `src/dashboard/components/tables/KeywordAnalysis.vue`:
+- [x] **2.4.1** Create `src/dashboard/components/tables/KeywordAnalysis.vue`:
   - Keyword frequency matrix
   - Gap analysis
   - Most used keywords
-- [ ] **2.4.2** Implement keyword frequency matrix:
+- [x] **2.4.2** Implement keyword frequency matrix:
   - For each tracked keyword × extension: count in title, short desc, full desc
   - Highlight cells where user's extension has lower density than competitors
-- [ ] **2.4.3** Implement keyword gap analysis:
+- [x] **2.4.3** Implement keyword gap analysis:
   - Extract top keywords from competitor descriptions
   - Filter out keywords already tracked
   - Suggest keywords the user is missing
-- [ ] **2.4.4** Implement keyword difficulty estimate:
+- [x] **2.4.4** Implement keyword difficulty estimate:
   - For each keyword: average rating, user count, and quality score of top 5 ranking extensions
   - Score: higher average = harder keyword
 
 **Tests:**
-- [ ] Frequency matrix: correct counts for known text
-- [ ] Gap analysis: correctly identifies keywords in competitors but not in user's extension
-- [ ] Difficulty: correctly averages metrics across top rankers
-- [ ] Edge case: keyword not found in any description - frequency is 0
+- [x] Frequency matrix: correct counts for known text
+- [x] Gap analysis: correctly identifies keywords in competitors but not in user's extension
+- [x] Difficulty: correctly averages metrics across top rankers
+- [x] Edge case: keyword not found in any description - frequency is 0
 
 ### 2.5 Change Diff View (~4h) [depends: Phase 1]
 
