@@ -638,21 +638,21 @@ This is the most complex and critical subsystem. Test exhaustively.
 
 ### 1.9 Popup (~4h) [depends: 1.8.1]
 
-- [ ] **1.9.1** Create `src/popup/App.vue`:
+- [x] **1.9.1** Create `src/popup/App.vue`:
   - Scan status indicator (idle/running with progress/last run time)
   - Top 5 rank changes since last scan
   - Quick action buttons: "Open Dashboard", "Refresh Now", "Pause/Resume"
-- [ ] **1.9.2** Implement "Open Dashboard": `chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') })`
-- [ ] **1.9.3** Implement "Refresh Now": send `TRIGGER_REFRESH` message to service worker
-- [ ] **1.9.4** Implement tier-aware behavior: if free tier and last scan > 7 days ago, show nudge
-- [ ] **1.9.5** Implement badge count on extension icon: `chrome.action.setBadgeText({ text: '3' })` for number of notable changes
+- [x] **1.9.2** Implement "Open Dashboard": `chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') })`
+- [x] **1.9.3** Implement "Refresh Now": send `TRIGGER_REFRESH` message to service worker
+- [x] **1.9.4** Implement tier-aware behavior: if free tier and last scan > 7 days ago, show nudge
+- [x] **1.9.5** Implement badge count on extension icon: `chrome.action.setBadgeText({ text: '3' })` for number of notable changes
 
 **Tests:**
-- [ ] Rank changes display correctly (up arrows, down arrows, no change)
-- [ ] "30+" displayed for position: null
-- [ ] No scan data: shows "No scans yet" state
-- [ ] Scan running: shows progress bar
-- [ ] Badge clears after user opens popup
+- [x] Rank changes display correctly (up arrows, down arrows, no change)
+- [x] "30+" displayed for position: null
+- [x] No scan data: shows "No scans yet" state
+- [x] Scan running: shows progress bar
+- [x] Badge clears after user opens popup
 
 ---
 

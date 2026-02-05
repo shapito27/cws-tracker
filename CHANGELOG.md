@@ -5,6 +5,16 @@ All notable changes to CWS Tracker will be documented in this file.
 ## [0.7.0] - 2026-02-05
 
 ### Added
+- Phase 1.9: Popup
+  - `usePopupState()` composable: reactive scan status, rank changes, badge management, and quick actions
+  - `loadRecentRankChanges(limit)`: compares two most recent scan dates, returns top rank changes sorted by magnitude
+  - `updateBadgeCount(count)` / `clearBadge()`: extension icon badge management via `chrome.action` API
+  - `openDashboard()`: opens dashboard in new tab via `chrome.tabs.create`
+  - `requestRefresh()` / `requestPause()` / `requestResume()`: sends messages to service worker (fail silently if no listener)
+  - Full popup UI: scan status indicator (idle/running with progress bar), top 5 rank changes with up/down arrows, "30+" display for position: null, "Open Dashboard" / "Refresh Now" / "Pause/Resume" action buttons
+  - Tier-aware nudge: free tier shows prominent refresh prompt when last scan > 7 days ago or no scan yet
+  - Badge clears automatically when popup opens
+  - 37 new tests (rank changes, badge, actions, message validation)
 - Phase 1.8: Dashboard - Project Management
   - `useProjects` composable: create/delete projects, add/remove competitors with CWS URL and raw ID parsing, extension projectRef tracking, cleanup on delete
   - `useExtensions` composable: get extensions by project, get latest listing snapshot
@@ -21,14 +31,14 @@ All notable changes to CWS Tracker will be documented in this file.
   - Events Tab: chronological event timeline with type/extension filters, color-coded event type badges
   - Rankings Tab: keyword selector, date range picker (7/30/90/365d), ApexCharts line chart integration
   - RankChart component: inverted Y-axis (position 1 at top), multi-extension series with colors, null positions as 30+, smooth curves
-  - 41 new tests (useProjects, useKeywords, useRankings), 380 total passing
+  - 41 new tests (useProjects, useKeywords, useRankings)
 - Phase 1.6: Queue System — persistent job queue for CWS data collection
   - **Queue Builder** (`src/background/queue-builder.ts`): `buildDailyScanJobs(projects, extensions, keywords)` creates `listing_scan` (1 per unique extension, deduplicated across projects) and `keyword_scan` (1 per keyword) jobs. Priority ordering: own extension listing (10) < competitor listing (20) < keyword scan (30). Cross-project deduplication for shared competitor extensions.
   - **Queue Processor** (`src/background/queue-processor.ts`): `processNextJob()` dequeues and executes the highest-priority pending job. Listing scans fetch CWS detail pages, parse with versioned parsers, calculate permission risk scores, save snapshots, detect events via snapshot comparison, and update extension metadata. Keyword scans fetch search results and save rank snapshots (position or null) for all tracked extensions in a single transaction. Injectable dependencies for testability.
   - **Event Detection** (`src/background/event-detector.ts`): `detectChanges(previous, current)` compares consecutive listing snapshots and generates EventRecord entries for title, description, version, permission, translation count, screenshot count, badge, rating milestone (floor change), and user milestone (1K/5K/10K/50K/100K/500K/1M thresholds) changes. Ignores whitespace-only description changes and permission reordering.
   - **Scheduler** (`src/background/scheduler.ts`): `setupAlarms()` creates recurring dailyScan alarm (24h). `handleDailyScanAlarm()` checks conditions (enabled, not scanned today), cleans up old jobs (completed >7d, failed >30d), builds and enqueues jobs. `handleProcessQueueAlarm()` resets interrupted running jobs, processes one job, schedules next alarm with delay. `triggerManualRefresh(projectId?)` clears pending jobs and starts fresh scan. `pauseScanning()`/`resumeScanning()` toggle daily scan setting.
   - Error handling: HTTP 429/5xx/network/parser errors → retriable with exponential backoff (2min, 4min, 8min, max 10min). HTTP 404 on listing → marks extension 'removed', job completed. Max retries (3) exceeded → terminal failure. Delay between jobs: configurable base (60s) +/- random jitter (10s).
-  - 67 new tests (10 queue builder, 23 event detector, 21 queue processor, 13 scheduler), 406 total passing
+  - 67 new tests (10 queue builder, 23 event detector, 21 queue processor, 13 scheduler)
 
 ## [0.6.0] - 2026-02-05
 
