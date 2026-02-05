@@ -2,6 +2,45 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.12.0] - 2026-02-05
+
+### Added
+- Phase 2.3: Event Detection Enhancement
+  - `src/shared/utils/event-colors.ts`: Event type color scheme constants
+    - `EVENT_TYPE_COLORS`: Hex color for each of the 9 event types (red: permission_change, blue: version_change, green: milestones, orange: title/description changes, gray: screenshot/translation/badge changes)
+    - `EVENT_TYPE_LABELS`: Human-readable labels for each event type
+    - `ALL_EVENT_TYPES`: Complete list of event types in display order
+  - Updated `RankChart.vue` (2.3.1): Added event annotation support
+    - New props: `events` (EventRecord[]) and `visibleEventTypes` (Set<string>)
+    - Builds ApexCharts `xaxis.annotations` as color-coded vertical lines at event dates
+    - Labels show event type name with matching background color
+    - Only shows annotations for dates present in chart data
+  - Updated `RankingsTab.vue` (2.3.2): Event type filter toggles
+    - Loads events for all project extensions in parallel with rank data
+    - Toggle pill buttons for each event type, styled with the event's color when active
+    - Toggling a type shows/hides its annotations on the chart
+    - All types visible by default
+  - Refactored `EventsTab.vue` to use shared `EVENT_TYPE_LABELS` and `ALL_EVENT_TYPES` from event-colors utility (DRY)
+  - 23 new tests: 11 event-colors constants, 12 rank chart annotation logic (correct dates, color per type, filter toggle, multiple events same date, empty events, empty series, multi-series dates)
+- Task 4.5: Settings Page
+  - `src/dashboard/composables/useSettings.ts`: Settings management composable
+    - `loadSettings()`: Loads all settings from chrome.storage.local with defaults
+    - `saveSetting(key, value)`: Saves individual setting with validation, returns boolean success
+    - `saveMultipleSettings(partial)`: Batch save with validation
+    - `testOpenAIConnection()`: Tests OpenAI API key by calling /v1/models endpoint, reports success/failure/network error
+    - Reactive state: settings, loading, saving, error, successMessage, testingOpenAI, openAITestResult
+  - `src/dashboard/pages/SettingsPage.vue`: Full settings page replacing placeholder
+    - **Scan Settings section** (4.5.1): Daily auto-scan toggle, scan time picker (HH:MM), request delay slider (30s-5m with display), jitter slider (0-60s)
+    - **API Keys section** (4.5.1, 4.5.3): OpenAI API key input with Save and Test Connection buttons, LemonSqueezy license key input, subscription status badge (Free/Pro/Expired)
+    - **Data Management section** (4.5.1): Data retention slider (7-730 days) with save button
+    - **Proxy Settings section**: Proxy URL and API key inputs with save button
+    - **Translation Audit section** (4.5.1): 20 locale toggle buttons with visual selection state, save button
+    - **About section** (4.5.1): Extension version (from manifest), parser version, last daily scan date
+    - All settings validated on change via SettingsManager (4.5.2): delay >= 30s, retention >= 7 days, scan time HH:MM format, API key sk- prefix, locales non-empty
+    - Success/error toast messages with auto-dismiss
+  - 21 new tests: load defaults, load stored settings, save valid/invalid individual settings (queueDelayMs, dailyScanTime, dataRetentionDays, openaiApiKey, translationLocales), batch save, OpenAI connection test (no key, HTTP 200, HTTP 401, network error)
+- 699 total tests passing, zero type errors
+
 ## [0.11.0] - 2026-02-05
 
 ### Added
