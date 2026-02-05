@@ -303,3 +303,136 @@ Offscreen iframe: "Failed to read ... from accessing a cross-origin frame"
 ```
 
 All tests returned null/empty data. No CWS content was accessible from any extension context.
+
+---
+
+## Phase 0.2: Prototype Parser Results
+
+Parsers implemented in `src/background/parsers/` and tested against all 6 fixtures. **76 tests, all passing.**
+
+### Data Structure Mapping
+
+#### Detail Page (`ds:0` callback)
+
+CWS detail pages use `ds:0` (not `ds:1`) as the main data callback.
+
+**Extension card data** at `data[0]` (20 fields):
+
+| Index | Field | Type | Example |
+|-------|-------|------|---------|
+| 0 | Extension ID | string | `"cjpalhdlnbpafiamejdnhcphjbkeiagm"` |
+| 1 | Icon URL | string | `"https://lh3.googleusercontent.com/..."` |
+| 2 | Name | string | `"uBlock Origin"` |
+| 3 | Rating (avg) | number | `4.697287542998929` |
+| 4 | Rating count | number | `35466` |
+| 5 | Screenshot URL 1 | string | `"https://lh3.googleusercontent.com/..."` |
+| 6 | Short description | string | `"Finally, an efficient blocker..."` |
+| 7 | Website URL | string/null | `null` or `"http://example.com"` |
+| 8-10 | Reserved | null | - |
+| 11 | Category | array | `["make_chrome_yours/privacy", null, 22]` |
+| 12 | Featured flag | number | `1` (1=featured, 0=not) |
+| 13 | Promoted flag | number | `1` |
+| 14 | User count | number | `16000000` |
+| 15 | Reserved | null | - |
+| 16 | Screenshot URL 2 | string | `"https://lh3.googleusercontent.com/..."` |
+| 17 | Timestamp | array | `[1403571155, 736000000]` (seconds, nanos) |
+| 18 | Manifest JSON | string | Full `manifest.json` as JSON string |
+| 19 | Name (repeat) | string | `"uBlock Origin"` |
+
+**Extended data** at `data[1-38]`:
+
+| Index | Field | Type | Example |
+|-------|-------|------|---------|
+| 5 | Screenshots array | array | `[[1, "url"], [1, "url"], ...]` |
+| 6 | Full description | string | Multi-paragraph text |
+| 10 | Developer info | array | `["email", null, null, null, 1, "display name", ..., "devId"]` |
+| 13 | Version | string | `"1.69.0"` |
+| 14 | Last updated | array | `[seconds, nanoseconds]` |
+| 15 | Size | string | `"4.12MiB"` |
+| 16 | Language names | array | `["English", "Deutsch", ...]` (60 items) |
+| 22 | Related extensions | array | 12 extension cards (same 20-field format) |
+| 26 | Support URL | string | `"https://github.com/..."` |
+| 27 | Browser min version | string | `"93.0"` |
+| 33 | Privacy policy URL | string | `"https://github.com/.../Privacy-policy"` |
+| 38 | Language codes | array | `["en", "de", "ja", ...]` (60 items) |
+
+#### Search Results (`ds:1` callback)
+
+Navigation path to results: `data[0][0][0][5][0][0]`
+
+Each result is triple-nested: `item[0][0]` = 20-field extension card (same format as detail `data[0]`).
+
+Pagination at `data[2]`: `[nextPageToken, null, null, totalCount]`
+
+- 10 results per page
+- Position = array index + 1
+- Total count available (e.g., 342 for "ad blocker")
+
+#### 404 Detection
+
+- Only `ds:0` callback present (no `ds:1`)
+- `ds:0` contains category/browse data, NOT extension data
+- `data[0]` does NOT contain a 32-char extension ID at `[0][0]`
+- Parser throws `ParserError` when extension ID is missing
+
+#### Empty Search Detection
+
+- Both `ds:0` and `ds:1` present
+- Results array at `data[0][0][0][5][0][0]` is empty (`[]`)
+- `data[2][3]` = `0` (total count)
+
+### Fields Successfully Extracted
+
+All fields specified in the PRD are extractable:
+
+| Field | Detail Page | Search Results |
+|-------|:-----------:|:--------------:|
+| Extension ID | ✅ | ✅ |
+| Name | ✅ | ✅ |
+| Short description | ✅ | ✅ |
+| Full description | ✅ | - |
+| Version | ✅ | - |
+| Developer name | ✅ | - |
+| Developer email | ✅ | - |
+| Rating (average) | ✅ | ✅ |
+| Rating count | ✅ | ✅ |
+| User count | ✅ | ✅ |
+| Category | ✅ | ✅ |
+| Last updated | ✅ | - |
+| Size | ✅ | - |
+| Languages (names) | ✅ | - |
+| Language codes | ✅ | - |
+| Icon URL | ✅ | ✅ |
+| Screenshot URLs | ✅ | - |
+| Website URL | ✅ | - |
+| Privacy policy URL | ✅ | - |
+| Support URL | ✅ | - |
+| Featured flag | ✅ | ✅ |
+| Manifest JSON | ✅ | - |
+| Browser min version | ✅ | - |
+| Search position | - | ✅ |
+| Total result count | - | ✅ |
+| Next page token | - | ✅ |
+
+### Fields NOT Reliably Extractable
+
+| Field | Issue |
+|-------|-------|
+| Daily active users | Not in CWS data - only total install count shown |
+| Permissions (structured) | Available as raw manifest JSON string - must JSON.parse and extract |
+| Individual review text | Not in the detail page data - requires separate review page |
+| Install/uninstall trend | Not available - only current total user count |
+| Developer response to reviews | Not in detail page data |
+| Price/payment info | Not observed in test data (may appear for paid extensions) |
+
+### Locale Consistency
+
+Array indices are **identical** across all tested locales (en, ja, es):
+- `data[0][0]` = extension ID (same)
+- `data[0][2]` = name (same, brand names not translated)
+- `data[0][3]` = rating (same)
+- `data[0][6]` = short description (translated)
+- `data[6]` = full description (translated)
+- All other structural fields identical
+
+**Conclusion:** One parser version handles all locales.
