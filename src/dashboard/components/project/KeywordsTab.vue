@@ -4,7 +4,6 @@ import type { Project, Extension, RankSnapshot } from '@/shared/types';
 import { useKeywords } from '../../composables/useKeywords';
 import { useExtensions } from '../../composables/useExtensions';
 import { db } from '@/shared/db/database';
-import { today } from '@/shared/utils/dates';
 
 const props = defineProps<{
   project: Project;

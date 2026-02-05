@@ -14,6 +14,9 @@ export function useKeywords() {
     loading.value = true;
     try {
       keywords.value = await db.getKeywordsByProject(projectId);
+    } catch (e) {
+      console.error('Failed to load keywords:', e);
+      keywords.value = [];
     } finally {
       loading.value = false;
     }
