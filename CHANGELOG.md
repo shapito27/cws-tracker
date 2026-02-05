@@ -30,6 +30,19 @@ All notable changes to CWS Tracker will be documented in this file.
     - Other event types: shows generic old/new value display with colored backgrounds
   - 23 new diff tests: identical strings, completely different strings, single word change, empty inputs (both/old/new), multi-paragraph text, word additions/removals, segment merging, whitespace preservation, special characters, long identical prefix, newline handling, reconstruction invariant
   - 722 total tests passing, zero type errors
+- Phase 2.4: Keyword Analysis
+  - `src/shared/utils/keyword-analysis.ts`: Keyword analysis utility functions
+    - `buildKeywordFrequencyMatrix(keywords, snapshots)`: Builds a matrix showing how often each tracked keyword appears in each extension's title, short description, and full description
+    - `hasLowerDensity(row, ownExtensionId)`: Checks if the user's extension has lower keyword density than any competitor for a given keyword
+    - `analyzeKeywordGaps(ownSnapshot, competitorSnapshots, trackedKeywords, maxResults?)`: Identifies keywords competitors use that the user's extension doesn't, with filtering of already-tracked and already-used keywords, sorted by competitor count and frequency
+    - `estimateKeywordDifficulty(keywordRankings, snapshots, topN?)`: Estimates keyword difficulty based on average rating (40%), user count log-scaled (40%), and quality score (20%) of top-ranking extensions, producing a 0-100 difficulty score per keyword
+  - `src/dashboard/components/tables/KeywordAnalysis.vue`: Keyword analysis component with three sections:
+    - **Frequency Matrix** (2.4.2): Table with rows = tracked keywords, columns = extensions (sub-columns: Title/Short/Full), cells = occurrence counts with green highlighting for non-zero, yellow row highlight when user's extension has lower density than competitors
+    - **Gap Analysis** (2.4.3): Table of suggested keywords from competitor descriptions not used by the user's extension, showing competitor count and total frequency, sorted by relevance
+    - **Difficulty** (2.4.4): Table of tracked keywords with difficulty score (0-100, color-coded Easy/Medium/Hard), average rating, average user count, average quality score, and sample size from top-ranking extensions
+  - Added "Analysis" tab to ProjectPage.vue tab navigation
+  - 27 new tests: 6 frequency matrix (counts, multiple keywords/extensions, empty snapshots, edge cases), 4 hasLowerDensity, 7 gap analysis (competitor identification, tracked keyword filtering, own keyword filtering, sorting, maxResults, null own snapshot), 10 difficulty estimation (zero difficulty, null positions, metric averaging, topN limit, missing snapshots, null rating/quality, popular vs niche comparison, multiple keywords, score clamping)
+  - 732 total tests passing, zero type errors
 
 ## [0.12.0] - 2026-02-05
 
