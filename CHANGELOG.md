@@ -2,6 +2,22 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.14.0] - 2026-02-05
+
+### Added
+- Phase 2.6: Database Migration v2 Assessment
+  - Verified no v2 database migration is needed: all Phase 2 features (quality score, comparison view, keyword analysis, diff view, event annotations) compute data on-the-fly from existing v1 schema
+  - `listingQualityScore` field was forward-declared in v1 types to avoid migration
+  - No new stores, indexes, or schema changes required
+  - `tests/unit/db/migration-v2.test.ts`: 13 new verification tests confirming v1 schema supports all Phase 2 query patterns
+    - Quality score queries: `listingQualityScore` field stored and retrievable, `getLatestListingSnapshot` returns all fields needed for calculation
+    - Comparison view queries: multiple extension snapshots retrievable in parallel, permissions/descriptions available without new indexes
+    - Event annotation queries: `getEvents` returns events with dates/types/notes for chart annotations, multi-extension parallel loading
+    - Keyword analysis queries: listing snapshots provide text data for frequency matrix, rank snapshots provide position data for difficulty estimation
+    - Diff view queries: events store old/new values for text diff, permission change events store JSON arrays
+    - Schema validation: all 8 v1 stores present, version is 1, populated data fully usable for all Phase 2 features
+  - 763 total tests passing, zero type errors
+
 ## [0.13.0] - 2026-02-05
 
 ### Added
