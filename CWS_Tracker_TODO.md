@@ -660,14 +660,14 @@ This is the most complex and critical subsystem. Test exhaustively.
 
 End-to-end flows tested with mock fetch responses (no real CWS requests).
 
-- [ ] **1.10.1** Full scan cycle: create project -> add extension -> add keywords -> trigger scan -> verify listing_snapshot saved -> verify rank_snapshots saved -> verify events detected
-- [ ] **1.10.2** Second scan cycle: trigger another scan -> verify new snapshots -> verify change events detected
-- [ ] **1.10.3** Queue resilience: simulate service worker restart mid-scan -> verify running jobs reset to pending -> verify scan resumes
-- [ ] **1.10.4** Error handling: simulate fetch failures -> verify retry with backoff -> verify terminal failure after max retries
-- [ ] **1.10.5** Extension removal: simulate 404 response -> verify extension marked 'removed' -> verify data preserved
-- [ ] **1.10.6** Data retention: insert old snapshots -> run pruning -> verify old data deleted, recent preserved
-- [ ] **1.10.7** Multiple projects: scan with 2 projects sharing a competitor -> verify only 1 listing_scan for shared extension
-- [ ] **1.10.8** Manual refresh while scan running: trigger refresh -> verify old pending jobs cleared, new jobs enqueued
+- [x] **1.10.1** Full scan cycle: create project -> add extension -> add keywords -> trigger scan -> verify listing_snapshot saved -> verify rank_snapshots saved -> verify events detected
+- [x] **1.10.2** Second scan cycle: trigger another scan -> verify new snapshots -> verify change events detected
+- [x] **1.10.3** Queue resilience: simulate service worker restart mid-scan -> verify running jobs reset to pending -> verify scan resumes
+- [x] **1.10.4** Error handling: simulate fetch failures -> verify retry with backoff -> verify terminal failure after max retries
+- [x] **1.10.5** Extension removal: simulate 404 response -> verify extension marked 'removed' -> verify data preserved
+- [x] **1.10.6** Data retention: insert old snapshots -> run pruning -> verify old data deleted, recent preserved
+- [x] **1.10.7** Multiple projects: scan with 2 projects sharing a competitor -> verify only 1 listing_scan for shared extension
+- [x] **1.10.8** Manual refresh while scan running: trigger refresh -> verify old pending jobs cleared, new jobs enqueued
 
 ---
 
