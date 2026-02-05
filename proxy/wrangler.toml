@@ -5,7 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
-
+API_KEYS = "5537f42036dcc594fe5d0d7a40fbc066326df6d063c1ad7295057a74156c15fe"
 # Rate limit: using Cloudflare's built-in rate limiting
 # Configure via dashboard or add rules here
 
