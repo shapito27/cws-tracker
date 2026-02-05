@@ -2,6 +2,21 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.9.0] - 2026-02-05
+
+### Added
+- Phase 1.10: Integration Testing
+  - `tests/integration/scan-cycle.test.ts`: 12 end-to-end integration tests covering the complete scan pipeline with mock fetch responses
+  - **1.10.1** Full scan cycle: create project, add extensions/keywords, trigger scan, verify listing_snapshots saved, rank_snapshots saved, no events on first scan
+  - **1.10.2** Second scan cycle: trigger second scan with changed data, verify new snapshots saved, change events detected (title_change, version_change, user_milestone)
+  - **1.10.3** Queue resilience: simulate service worker restart mid-scan, verify running jobs reset to pending, scan resumes and completes
+  - **1.10.4** Error handling: simulate fetch failures with retry and exponential backoff, verify terminal failure after max retries (3), SCAN_ERROR messages sent
+  - **1.10.5** Extension removal: simulate 404 response, verify extension marked 'removed', job completed (not failed), historical data preserved
+  - **1.10.6** Data retention: insert old snapshots, run pruning, verify old data deleted and recent data preserved; cleanup old completed/failed jobs
+  - **1.10.7** Multiple projects: 2 projects sharing a competitor, verify only 1 listing_scan for shared extension (deduplication), all jobs complete
+  - **1.10.8** Manual refresh: trigger refresh while scan running, verify old pending jobs cleared and new fresh jobs enqueued; project-specific refresh
+  - 12 new tests, 512 total passing
+
 ## [0.8.0] - 2026-02-05
 
 ### Added
