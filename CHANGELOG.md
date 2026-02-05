@@ -2,6 +2,17 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.2.0] - 2026-02-05
+
+### Added
+- Phase 1.1: TypeScript types and interfaces
+  - Core data models: Project, Extension, Keyword, ListingSnapshot, RankSnapshot, EventRecord, QueueJob, TranslationSnapshot
+  - ManipulationFlags interface for translation audit detection (8 trick types)
+  - Service Worker ↔ Dashboard message types with discriminated unions
+  - Settings interface for chrome.storage.local configuration
+  - Queue job payload types (ListingScanPayload, KeywordScanPayload, TranslationAuditPayload)
+  - String literal union types for EventType, QueueJobType, QueueJobStatus, ExtensionStatus, SubscriptionStatus
+
 ## [0.1.0] - 2026-02-05
 
 ### Added
