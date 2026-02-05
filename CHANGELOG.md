@@ -2,6 +2,17 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.5.0] - 2026-02-05
+
+### Changed
+- Phase 1.4: CWS Parsers formalized with full ListingData interface and factory
+  - `ListingData` interface updated to align with `ListingSnapshot`: added `fullDescription`, `rating` nullable for no-review extensions, `userCount` (formatted string) + `userCountNumeric`, `lastUpdated` as YYYY-MM-DD string, `permissions`/`hostPermissions` (extracted from manifest JSON), `screenshotCount`, `translationCount`, `availableLocales`, `developerName`, `developerVerified`, `badgeFlags`, `hasPromoVideo`, `reviewCount`
+  - `parseUserCount()` helper: converts display strings ("9,000+", "1K+", "5M+") to numeric values
+  - `parseManifestPermissions()`: extracts `permissions` and `host_permissions` arrays from manifest JSON
+  - Parser factory (`getListingParser()`, `getSearchParser()`): selects correct parser version by string, with `getAvailableListingParsers()`/`getAvailableSearchParsers()` discovery
+  - Updated `ListingSnapshot` field mapping table in types/index.ts to reflect direct field alignment
+  - 40 new tests (parseUserCount, permissions extraction, badge flags, factory, edge cases), 253 total passing
+
 ## [0.4.0] - 2026-02-05
 
 ### Added
