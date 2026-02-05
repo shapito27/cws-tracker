@@ -34,6 +34,7 @@ import type {
   EventRecord,
   Extension,
   Keyword,
+  Settings,
 } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -61,6 +62,57 @@ const MAX_BACKOFF_MS = 600_000;
 
 /** Base delay for retry backoff (2 minutes). */
 const RETRY_BASE_DELAY_MS = 120_000;
+
+// ---------------------------------------------------------------------------
+// CWS Fetch (proxy-aware)
+// ---------------------------------------------------------------------------
+
+interface CWSFetchResult {
+  html: string;
+  cwsStatus: number;
+}
+
+/**
+ * Fetch a CWS page, routing through the proxy when configured.
+ *
+ * When `settings.proxyUrl` is set, requests go to the proxy which returns
+ * JSON `{ html, status, url, fetchedAt }`. The proxy handles CORS for
+ * `chrome-extension://` origins.
+ *
+ * When no proxy is configured, falls back to direct fetch (works in tests
+ * via mocked `fetchPage`, but blocked by Chrome CORS in production).
+ */
+async function fetchCWSPage(
+  type: 'detail' | 'search',
+  params: { id?: string; q?: string },
+  settings: Settings,
+  fetchPage: (url: string) => Promise<Response>
+): Promise<CWSFetchResult> {
+  if (settings.proxyUrl) {
+    const proxyUrl = new URL(`/${type}`, settings.proxyUrl);
+    if (params.id) proxyUrl.searchParams.set('id', params.id);
+    if (params.q) proxyUrl.searchParams.set('q', params.q);
+    if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
+
+    const response = await fetchPage(proxyUrl.toString());
+    if (!response.ok) {
+      throw new HttpError(response.status, response.statusText);
+    }
+    const data = await response.json() as { html: string; status: number };
+    return { html: data.html, cwsStatus: data.status };
+  }
+
+  // Direct fetch fallback (works in tests via mocked fetchPage, blocked by CORS in Chrome)
+  const baseUrl = type === 'detail' ? CWS_DETAIL_URL : CWS_SEARCH_URL;
+  const path = type === 'detail' ? params.id! : encodeURIComponent(params.q!);
+  const response = await fetchPage(`${baseUrl}${path}`);
+  // Only read body for successful responses or 404 (which listing_scan handles gracefully).
+  // For other errors, avoid consuming the body — throw immediately.
+  if (!response.ok && response.status !== 404) {
+    throw new HttpError(response.status, response.statusText);
+  }
+  return { html: await response.text(), cwsStatus: response.status };
+}
 
 // ---------------------------------------------------------------------------
 // Dependencies (injectable for testing)
@@ -162,20 +214,19 @@ async function processListingScan(
   const settings = await deps.settings.getWithDefaults();
   const parser = getListingParser(settings.parserVersion);
 
-  // Fetch the CWS detail page
-  const url = `${CWS_DETAIL_URL}${extensionId}`;
-  const response = await deps.fetchPage(url);
+  const { html, cwsStatus } = await fetchCWSPage(
+    'detail', { id: extensionId }, settings, deps.fetchPage
+  );
 
-  if (!response.ok) {
-    if (response.status === 404) {
-      // Extension removed from CWS - mark as removed, job completes successfully
-      await markExtensionRemoved(extensionId);
-      return;
-    }
-    throw new HttpError(response.status, response.statusText);
+  if (cwsStatus === 404) {
+    // Extension removed from CWS - mark as removed, job completes successfully
+    await markExtensionRemoved(extensionId);
+    return;
+  }
+  if (cwsStatus >= 400) {
+    throw new HttpError(cwsStatus, `CWS returned HTTP ${cwsStatus}`);
   }
 
-  const html = await response.text();
   const listingData = parser.parse(html);
 
   // Calculate permission risk score
@@ -230,15 +281,14 @@ async function processKeywordScan(
   const settings = await deps.settings.getWithDefaults();
   const parser = getSearchParser(settings.parserVersion);
 
-  // Fetch CWS search results
-  const url = `${CWS_SEARCH_URL}${encodeURIComponent(keyword)}`;
-  const response = await deps.fetchPage(url);
+  const { html, cwsStatus } = await fetchCWSPage(
+    'search', { q: keyword }, settings, deps.fetchPage
+  );
 
-  if (!response.ok) {
-    throw new HttpError(response.status, response.statusText);
+  if (cwsStatus >= 400) {
+    throw new HttpError(cwsStatus, `CWS returned HTTP ${cwsStatus}`);
   }
 
-  const html = await response.text();
   const searchData = parser.parse(html);
 
   // Find the keyword record to get its projectId
