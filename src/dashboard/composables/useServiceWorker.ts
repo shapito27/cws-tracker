@@ -1,0 +1,146 @@
+/**
+ * Composable for communicating with the service worker.
+ *
+ * Listens for messages from the SW and exposes reactive state
+ * for scan progress, status, and queue stats. Provides methods
+ * to send commands (refresh, pause, resume, cancel) to the SW.
+ */
+
+import { ref, onMounted, onUnmounted } from 'vue';
+import type {
+  ServiceWorkerMessage,
+  ScanProgressMessage,
+  ScanCompleteMessage,
+  QueueStatusMessage,
+} from '@/shared/types';
+
+export interface ScanStatus {
+  isRunning: boolean;
+  completed: number;
+  total: number;
+  currentJob: string;
+  lastScanDate: string | null;
+  lastJobsCompleted: number;
+  lastJobsFailed: number;
+}
+
+export function useServiceWorker() {
+  const scanProgress = ref<ScanProgressMessage | null>(null);
+  const lastScanStatus = ref<ScanCompleteMessage | null>(null);
+  const queueStats = ref<QueueStatusMessage | null>(null);
+  const scanStatus = ref<ScanStatus>({
+    isRunning: false,
+    completed: 0,
+    total: 0,
+    currentJob: '',
+    lastScanDate: null,
+    lastJobsCompleted: 0,
+    lastJobsFailed: 0,
+  });
+
+  function handleMessage(message: unknown): void {
+    const msg = message as ServiceWorkerMessage;
+    if (!msg || typeof msg !== 'object' || !('type' in msg)) return;
+
+    switch (msg.type) {
+      case 'SCAN_PROGRESS':
+        scanProgress.value = msg;
+        scanStatus.value = {
+          ...scanStatus.value,
+          isRunning: true,
+          completed: msg.completed,
+          total: msg.total,
+          currentJob: msg.currentJob,
+        };
+        break;
+      case 'SCAN_COMPLETE':
+        lastScanStatus.value = msg;
+        scanStatus.value = {
+          ...scanStatus.value,
+          isRunning: false,
+          completed: 0,
+          total: 0,
+          currentJob: '',
+          lastScanDate: msg.date,
+          lastJobsCompleted: msg.jobsCompleted,
+          lastJobsFailed: msg.jobsFailed,
+        };
+        scanProgress.value = null;
+        break;
+      case 'QUEUE_STATUS':
+        queueStats.value = msg;
+        break;
+      case 'NEW_EVENT':
+      case 'SCAN_ERROR':
+        // These can be handled by specific page listeners
+        break;
+    }
+  }
+
+  let listenerRegistered = false;
+
+  function startListening(): void {
+    if (listenerRegistered) return;
+    try {
+      chrome.runtime.onMessage.addListener(handleMessage);
+      listenerRegistered = true;
+    } catch {
+      // chrome API may not be available in tests
+    }
+  }
+
+  function stopListening(): void {
+    if (!listenerRegistered) return;
+    try {
+      chrome.runtime.onMessage.removeListener(handleMessage);
+      listenerRegistered = false;
+    } catch {
+      // chrome API may not be available in tests
+    }
+  }
+
+  onMounted(startListening);
+  onUnmounted(stopListening);
+
+  async function sendToServiceWorker(message: unknown): Promise<void> {
+    try {
+      await chrome.runtime.sendMessage(message);
+    } catch {
+      // SW may not be active - fail silently per architecture rules
+    }
+  }
+
+  async function requestRefresh(projectId?: number): Promise<void> {
+    await sendToServiceWorker({
+      type: 'TRIGGER_REFRESH',
+      ...(projectId !== undefined ? { projectId } : {}),
+    });
+  }
+
+  async function requestPause(): Promise<void> {
+    await sendToServiceWorker({ type: 'PAUSE_SCAN' });
+  }
+
+  async function requestResume(): Promise<void> {
+    await sendToServiceWorker({ type: 'RESUME_SCAN' });
+  }
+
+  async function requestCancel(): Promise<void> {
+    await sendToServiceWorker({ type: 'CANCEL_SCAN' });
+  }
+
+  return {
+    scanProgress,
+    lastScanStatus,
+    queueStats,
+    scanStatus,
+    requestRefresh,
+    requestPause,
+    requestResume,
+    requestCancel,
+    // Exposed for testing
+    handleMessage,
+    startListening,
+    stopListening,
+  };
+}
