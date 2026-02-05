@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import type { Project, Extension, EventRecord, EventType } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
-import { ALL_EVENT_TYPES, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
+import { ALL_EVENT_TYPES, EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
 
 const props = defineProps<{
   project: Project;
@@ -45,17 +45,6 @@ function getExtensionName(extensionId: string): string {
   return ext?.name || extensionId.slice(0, 12) + '...';
 }
 
-function getEventTypeColor(type: EventType): string {
-  switch (type) {
-    case 'version_change': return 'bg-purple-100 text-purple-800';
-    case 'permission_change': return 'bg-red-100 text-red-800';
-    case 'rating_milestone': return 'bg-yellow-100 text-yellow-800';
-    case 'user_milestone': return 'bg-green-100 text-green-800';
-    case 'title_change':
-    case 'description_change': return 'bg-blue-100 text-blue-800';
-    default: return 'bg-gray-100 text-gray-800';
-  }
-}
 </script>
 
 <template>
@@ -111,7 +100,7 @@ function getEventTypeColor(type: EventType): string {
             <div class="mt-1.5 flex items-center gap-2">
               <span
                 class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="getEventTypeColor(event.type)"
+                :class="getEventTypeBadgeClass(event.type)"
               >
                 {{ EVENT_TYPE_LABELS[event.type] }}
               </span>

@@ -6,6 +6,7 @@ import {
   EVENT_TYPE_COLORS,
   EVENT_TYPE_LABELS,
   ALL_EVENT_TYPES,
+  getEventTypeBadgeClass,
 } from '@/shared/utils/event-colors';
 import type { EventType } from '@/shared/types';
 
@@ -85,6 +86,40 @@ describe('event-colors', () => {
     it('should have no duplicates', () => {
       const unique = new Set(ALL_EVENT_TYPES);
       expect(unique.size).toBe(ALL_EVENT_TYPES.length);
+    });
+  });
+
+  describe('getEventTypeBadgeClass', () => {
+    it('should return red badge classes for permission_change', () => {
+      expect(getEventTypeBadgeClass('permission_change')).toBe('bg-red-100 text-red-800');
+    });
+
+    it('should return blue badge classes for version_change', () => {
+      expect(getEventTypeBadgeClass('version_change')).toBe('bg-blue-100 text-blue-800');
+    });
+
+    it('should return green badge classes for milestones', () => {
+      expect(getEventTypeBadgeClass('rating_milestone')).toBe('bg-green-100 text-green-800');
+      expect(getEventTypeBadgeClass('user_milestone')).toBe('bg-green-100 text-green-800');
+    });
+
+    it('should return amber badge classes for title and description changes', () => {
+      expect(getEventTypeBadgeClass('title_change')).toBe('bg-amber-100 text-amber-800');
+      expect(getEventTypeBadgeClass('description_change')).toBe('bg-amber-100 text-amber-800');
+    });
+
+    it('should return gray badge classes for screenshot, translation, and badge changes', () => {
+      expect(getEventTypeBadgeClass('screenshot_change')).toBe('bg-gray-100 text-gray-800');
+      expect(getEventTypeBadgeClass('translation_change')).toBe('bg-gray-100 text-gray-800');
+      expect(getEventTypeBadgeClass('badge_change')).toBe('bg-gray-100 text-gray-800');
+    });
+
+    it('should return a badge class for every event type', () => {
+      for (const type of ALL_EVENT_TYPES) {
+        const result = getEventTypeBadgeClass(type);
+        expect(result).toContain('bg-');
+        expect(result).toContain('text-');
+      }
     });
   });
 });
