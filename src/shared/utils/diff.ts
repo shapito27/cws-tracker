@@ -35,6 +35,9 @@ function tokenize(text: string): string[] {
 /**
  * Compute the longest common subsequence table for two token arrays.
  *
+ * Complexity: O(m * n) time and space, where m and n are token counts.
+ * Suitable for typical extension descriptions (~500-2500 tokens).
+ *
  * Returns a 2D table where lcs[i][j] is the LCS length of
  * tokens1[0..i-1] and tokens2[0..j-1].
  */
