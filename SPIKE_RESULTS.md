@@ -152,6 +152,26 @@ The change does NOT affect:
 - Queue system logic
 - Event detection
 
+### Proxy Implementation
+
+Implemented in `proxy/` directory as a Cloudflare Worker. See `proxy/README.md` for deployment instructions.
+
+**Endpoints:**
+- `GET /detail?id={extensionId}&hl={locale}` - Fetch extension detail page
+- `GET /search?q={query}&hl={locale}` - Fetch search results page
+- `GET /health` - Health check (no auth)
+
+**Features:**
+- API key authentication (X-API-Key header or ?key= parameter)
+- CORS restricted to `chrome-extension://` origins + localhost
+- In-memory rate limiting (30 req/min per API key)
+- Cloudflare Cache API (5-minute TTL for successful responses)
+- Input validation (32-char lowercase extension IDs, query length limits)
+- Timeout handling (15s CWS fetch timeout → 504)
+- Error classification (400 bad input, 401/403 auth, 429 rate limit, 502 CWS down, 504 timeout)
+
+**Tests:** 22 passing (auth, CORS, validation, routing, error handling)
+
 ---
 
 ## CWS Response Format Analysis
