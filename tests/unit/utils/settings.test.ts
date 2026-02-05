@@ -196,6 +196,87 @@ describe('Validation', () => {
     ).rejects.toThrow(SettingsValidationError);
   });
 
+  it('rejects empty translationLocales array', async () => {
+    await expect(settings.set('translationLocales', [])).rejects.toThrow(
+      'translationLocales must not be empty'
+    );
+  });
+
+  it('rejects translationLocales with non-string elements', async () => {
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      settings.set('translationLocales', ['en', 42 as any])
+    ).rejects.toThrow('translationLocales must contain only non-empty strings');
+  });
+
+  it('rejects translationLocales with empty string element', async () => {
+    await expect(
+      settings.set('translationLocales', ['en', ''])
+    ).rejects.toThrow('translationLocales must contain only non-empty strings');
+  });
+
+  it('rejects invalid subscriptionStatus', async () => {
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      settings.set('subscriptionStatus', 'premium' as any)
+    ).rejects.toThrow(SettingsValidationError);
+    await expect(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      settings.set('subscriptionStatus', 'premium' as any)
+    ).rejects.toThrow('subscriptionStatus must be one of');
+  });
+
+  it('accepts valid subscriptionStatus values', async () => {
+    await expect(settings.set('subscriptionStatus', 'free')).resolves.toBeUndefined();
+    await expect(settings.set('subscriptionStatus', 'pro')).resolves.toBeUndefined();
+    await expect(settings.set('subscriptionStatus', 'expired')).resolves.toBeUndefined();
+  });
+
+  it('rejects empty parserVersion', async () => {
+    await expect(settings.set('parserVersion', '')).rejects.toThrow(
+      'parserVersion must be a non-empty string'
+    );
+  });
+
+  it('accepts valid parserVersion', async () => {
+    await expect(settings.set('parserVersion', 'v2')).resolves.toBeUndefined();
+    expect(await settings.get('parserVersion')).toBe('v2');
+  });
+
+  it('rejects malformed proxyUrl', async () => {
+    await expect(settings.set('proxyUrl', 'not-a-url')).rejects.toThrow(
+      'proxyUrl must be a valid URL'
+    );
+  });
+
+  it('accepts valid proxyUrl', async () => {
+    await expect(
+      settings.set('proxyUrl', 'https://proxy.example.com/api')
+    ).resolves.toBeUndefined();
+    expect(await settings.get('proxyUrl')).toBe('https://proxy.example.com/api');
+  });
+
+  it('accepts empty proxyUrl (means disabled)', async () => {
+    await expect(settings.set('proxyUrl', '')).resolves.toBeUndefined();
+  });
+
+  it('rejects openaiApiKey without sk- prefix', async () => {
+    await expect(settings.set('openaiApiKey', 'bad-key')).rejects.toThrow(
+      'openaiApiKey must start with "sk-"'
+    );
+  });
+
+  it('accepts openaiApiKey with sk- prefix', async () => {
+    await expect(
+      settings.set('openaiApiKey', 'sk-abc123def456')
+    ).resolves.toBeUndefined();
+    expect(await settings.get('openaiApiKey')).toBe('sk-abc123def456');
+  });
+
+  it('accepts null openaiApiKey (clearing the key)', async () => {
+    await expect(settings.set('openaiApiKey', null)).resolves.toBeUndefined();
+  });
+
   it('validates all keys in setMultiple', async () => {
     await expect(
       settings.setMultiple({

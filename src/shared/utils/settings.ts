@@ -5,7 +5,7 @@
  * chrome.storage.local take precedence over defaults.
  */
 
-import type { Settings } from '../types/settings';
+import type { Settings, SubscriptionStatus } from '../types/settings';
 
 // ---------------------------------------------------------------------------
 // Defaults (values from PRD Section 4.2 / 5.3.6)
@@ -45,6 +45,8 @@ const MIN_QUEUE_DELAY_MS = 30_000;
 const MIN_DATA_RETENTION_DAYS = 7;
 /** Pattern for HH:MM 24-hour time. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Valid subscription statuses at runtime. */
+const VALID_SUBSCRIPTION_STATUSES: SubscriptionStatus[] = ['free', 'pro', 'expired'];
 
 export class SettingsValidationError extends Error {
   constructor(message: string) {
@@ -93,6 +95,44 @@ function validatePartial(partial: Partial<Settings>): void {
   if ('translationLocales' in partial) {
     if (!Array.isArray(partial.translationLocales)) {
       throw new SettingsValidationError('translationLocales must be an array');
+    }
+    if (partial.translationLocales.length === 0) {
+      throw new SettingsValidationError('translationLocales must not be empty');
+    }
+    if (!partial.translationLocales.every((loc) => typeof loc === 'string' && loc.length > 0)) {
+      throw new SettingsValidationError('translationLocales must contain only non-empty strings');
+    }
+  }
+
+  if ('subscriptionStatus' in partial) {
+    if (!VALID_SUBSCRIPTION_STATUSES.includes(partial.subscriptionStatus as SubscriptionStatus)) {
+      throw new SettingsValidationError(
+        `subscriptionStatus must be one of ${VALID_SUBSCRIPTION_STATUSES.join(', ')}, got "${partial.subscriptionStatus}"`
+      );
+    }
+  }
+
+  if ('parserVersion' in partial) {
+    if (typeof partial.parserVersion !== 'string' || partial.parserVersion.length === 0) {
+      throw new SettingsValidationError('parserVersion must be a non-empty string');
+    }
+  }
+
+  if ('proxyUrl' in partial && partial.proxyUrl) {
+    try {
+      new URL(partial.proxyUrl);
+    } catch {
+      throw new SettingsValidationError(
+        `proxyUrl must be a valid URL, got "${partial.proxyUrl}"`
+      );
+    }
+  }
+
+  if ('openaiApiKey' in partial && partial.openaiApiKey !== null) {
+    if (typeof partial.openaiApiKey !== 'string' || !partial.openaiApiKey.startsWith('sk-')) {
+      throw new SettingsValidationError(
+        'openaiApiKey must start with "sk-" (OpenAI API key format)'
+      );
     }
   }
 }
