@@ -1,0 +1,13 @@
+name = "cws-tracker-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+
+# Rate limit: using Cloudflare's built-in rate limiting
+# Configure via dashboard or add rules here
+
+[dev]
+port = 8787
