@@ -44,11 +44,11 @@
 
 ### 0.3 Quality Score Calibration
 
-- [ ] **0.3.1** Select 30 extensions across 3-4 categories (e.g., productivity, developer tools, ad blockers, VPN). Mix of top-ranked and mid-ranked.
-- [ ] **0.3.2** For each extension, record: title length (chars), short description length (chars), full description word count, screenshot count, translation count, rating, review count, user count, last updated date.
-- [ ] **0.3.3** Calculate median, P25, P75, and P90 for each metric.
-- [ ] **0.3.4** Define quality score thresholds based on actual data. Document in `QUALITY_SCORE_THRESHOLDS.md`.
-- [ ] **0.3.5** Verify CWS short description max character limit (check CWS developer docs and actual listings).
+- [x] **0.3.1** Select 30 extensions across 3-4 categories (e.g., productivity, developer tools, ad blockers, VPN). Mix of top-ranked and mid-ranked.
+- [x] **0.3.2** For each extension, record: title length (chars), short description length (chars), full description word count, screenshot count, translation count, rating, review count, user count, last updated date.
+- [x] **0.3.3** Calculate median, P25, P75, and P90 for each metric.
+- [x] **0.3.4** Define quality score thresholds based on actual data. Document in `QUALITY_SCORE_THRESHOLDS.md`.
+- [x] **0.3.5** Verify CWS short description max character limit (check CWS developer docs and actual listings).
 
 ### 0.4 Test Infrastructure Setup
 
@@ -67,7 +67,7 @@
 **Phase 0 Exit Criteria:**
 - [x] Parsing strategy confirmed and documented
 - [x] Test fixtures saved
-- [ ] Quality score thresholds calibrated
+- [x] Quality score thresholds calibrated
 - [x] Project scaffolding complete and building
 - [x] Test infrastructure working (Vitest + fake-indexeddb + chrome mocks)
 - [x] Extension loads in Chrome with blank popup + blank dashboard
@@ -675,10 +675,10 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 2.1 Listing Quality Score (~6h) [depends: 0.3, Phase 1]
 
-- [ ] **2.1.1** Create `src/shared/utils/quality-score.ts`:
+- [x] **2.1.1** Create `src/shared/utils/quality-score.ts`:
   - `calculateQualityScore(snapshot: ListingSnapshot, thresholds: QualityThresholds): QualityScoreResult`
   - `QualityScoreResult` includes: total score (0-100), component scores (0-100 each), component weights, recommendations[]
-- [ ] **2.1.2** Implement each scoring component using calibrated thresholds from Phase 0:
+- [x] **2.1.2** Implement each scoring component using calibrated thresholds from Phase 0:
   - Title optimization (15%)
   - Short description (10%)
   - Full description (15%)
@@ -688,18 +688,18 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
   - Update freshness (10%)
   - Permissions (5%)
   - Developer profile (5%)
-- [ ] **2.1.3** Generate actionable recommendations for low-scoring components: e.g., "Add 3 more screenshots to reach optimal count" or "Your description is 150 words - consider expanding to 400+"
+- [x] **2.1.3** Generate actionable recommendations for low-scoring components: e.g., "Add 3 more screenshots to reach optimal count" or "Your description is 150 words - consider expanding to 400+"
 
 **Tests:**
-- [ ] Perfect listing (all optimal values): score near 100
-- [ ] Empty listing (all zeros/nulls): score near 0
-- [ ] Component weights sum to 100%
-- [ ] Each component individually scores 0-100
-- [ ] Total score is weighted average of components
-- [ ] Recommendations generated for components scoring < 50
-- [ ] No recommendations for components scoring > 80
-- [ ] Edge case: rating is null (no reviews) - rating component scores 0, doesn't crash
-- [ ] Edge case: lastUpdated is unparseable - update freshness scores 0
+- [x] Perfect listing (all optimal values): score near 100
+- [x] Empty listing (all zeros/nulls): score near 0
+- [x] Component weights sum to 100%
+- [x] Each component individually scores 0-100
+- [x] Total score is weighted average of components
+- [x] Recommendations generated for components scoring < 50
+- [x] No recommendations for components scoring > 80
+- [x] Edge case: rating is null (no reviews) - rating component scores 0, doesn't crash
+- [x] Edge case: lastUpdated is unparseable - update freshness scores 0
 
 ### 2.2 Listing Comparison View (~8h) [depends: Phase 1]
 
