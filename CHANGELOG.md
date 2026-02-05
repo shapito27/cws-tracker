@@ -2,6 +2,20 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.6.0] - 2026-02-05
+
+### Added
+- Phase 1.5: Utility Functions
+  - `calculatePermissionRiskScore(permissions, hostPermissions)`: 0-100 risk score using PRD-defined weights (all_urls: 30, history: 25, tabs: 20, bookmarks/webRequest/cookies: 15, activeTab: 5, storage/alarms/notifications: 0). Broad host permissions treated as all_urls, narrow hosts get low weight (5). Score clamped to 100.
+  - `getPermissionWarning(permission)`: returns install warning text for a permission, or null
+  - `categorizePermissions(permissions)`: groups permissions by risk level (high/medium/low/none)
+  - `levenshteinDistance(a, b)` and `levenshteinSimilarity(a, b)`: edit distance and 0-1 normalized similarity
+  - `countKeywordOccurrences(text, keyword)`: whole-word, case-insensitive occurrence count
+  - `keywordDensity(text, keyword)`: keyword occurrences divided by total word count
+  - `extractKeywords(text, minLength?)`: extract word frequencies excluding English stop words
+  - `today()`, `daysAgo(n)`, `isToday(dateStr)`, `daysBetween(dateA, dateB)`: YYYY-MM-DD date helpers
+  - 86 new tests (30 permissions, 36 text-analysis, 20 dates), 339 total passing
+
 ## [0.5.0] - 2026-02-05
 
 ### Changed
