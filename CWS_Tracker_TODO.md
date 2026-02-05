@@ -111,92 +111,92 @@ This is the foundation. Everything else depends on it. Build it carefully and te
 
 #### 1.2.1 Schema & Database Class
 
-- [ ] **1.2.1.1** Install Dexie: `npm install dexie`
-- [ ] **1.2.1.2** Create `src/shared/db/database.ts` - `CWSDatabase` class extending `Dexie`:
+- [x] **1.2.1.1** Install Dexie: `npm install dexie`
+- [x] **1.2.1.2** Create `src/shared/db/database.ts` - `CWSDatabase` class extending `Dexie`:
   - Typed table properties: `projects!: Table<Project>`, `extensions!: Table<Extension>`, etc.
   - Version 1 schema in constructor via `this.version(1).stores({...})` defining all stores with their indexed fields
   - Stores: `projects`, `extensions`, `keywords`, `listing_snapshots`, `rank_snapshots`, `events`, `translation_snapshots`, `queue`
   - Compound indexes use `[field1+field2]` Dexie syntax (e.g., `[extensionId+date]`)
   - Auto-increment primary keys use `++id` prefix
-- [ ] **1.2.1.3** Export a singleton `db` instance for import across the app
+- [x] **1.2.1.3** Export a singleton `db` instance for import across the app
 
 **Tests (schema) - use fake-indexeddb:**
-- [ ] DB opens successfully, all tables accessible
-- [ ] Verify each table exists with correct primary key
-- [ ] Verify compound indexes work (e.g., query `listing_snapshots` by `[extensionId+date]`)
-- [ ] Future migration (simulate): v1 -> v2 adds new index, existing data preserved
-- [ ] Edge case: v1 -> v3 upgrade applies both v2 and v3 changes
+- [x] DB opens successfully, all tables accessible
+- [x] Verify each table exists with correct primary key
+- [x] Verify compound indexes work (e.g., query `listing_snapshots` by `[extensionId+date]`)
+- [x] Future migration (simulate): v1 -> v2 adds new index, existing data preserved
+- [x] Edge case: v1 -> v3 upgrade applies both v2 and v3 changes
 
 #### 1.2.2 CRUD & Query Verification
 
 Dexie provides CRUD out of the box (`table.add()`, `.get()`, `.put()`, `.delete()`, `.toArray()`, `.where()`, `.between()`). No wrapper methods needed - just verify Dexie's API works correctly with our schema and types.
 
 **Tests (CRUD via Dexie API) - use fake-indexeddb:**
-- [ ] `table.add()`: insert a record, verify via `table.get()`
-- [ ] `table.add()`: inserting duplicate key throws `ConstraintError`
-- [ ] `table.get()`: returns `undefined` for non-existent key
-- [ ] `table.put()`: updates existing record (upsert)
-- [ ] `table.delete()`: removes record
-- [ ] `table.delete()`: deleting non-existent key does not throw
-- [ ] `table.toArray()`: returns all records
-- [ ] `table.toArray()`: returns empty array for empty table
-- [ ] `table.where(index).equals(value)`: returns correct records
-- [ ] `table.where(index).between(lower, upper)`: range query works with compound index
-- [ ] `table.where(index).between()`: returns empty array when no records in range
-- [ ] `table.count()`: returns correct count
-- [ ] `table.clear()`: removes all records
-- [ ] `db.transaction('rw', [table1, table2], async () => {...})`: commits on success
-- [ ] `db.transaction()`: aborts on error, no partial writes
-- [ ] Concurrent reads from different tables don't deadlock
+- [x] `table.add()`: insert a record, verify via `table.get()`
+- [x] `table.add()`: inserting duplicate key throws `ConstraintError`
+- [x] `table.get()`: returns `undefined` for non-existent key
+- [x] `table.put()`: updates existing record (upsert)
+- [x] `table.delete()`: removes record
+- [x] `table.delete()`: deleting non-existent key does not throw
+- [x] `table.toArray()`: returns all records
+- [x] `table.toArray()`: returns empty array for empty table
+- [x] `table.where(index).equals(value)`: returns correct records
+- [x] `table.where(index).between(lower, upper)`: range query works with compound index
+- [x] `table.where(index).between()`: returns empty array when no records in range
+- [x] `table.count()`: returns correct count
+- [x] `table.clear()`: removes all records
+- [x] `db.transaction('rw', [table1, table2], async () => {...})`: commits on success
+- [x] `db.transaction()`: aborts on error, no partial writes
+- [x] Concurrent reads from different tables don't deadlock
 
 #### 1.2.3 Domain-Specific Query Methods
 
-- [ ] **1.2.3.1** `getProject(id)`, `getAllProjects()`, `saveProject(project)`, `deleteProject(id)`
-- [ ] **1.2.3.2** `getExtension(id)`, `saveExtension(extension)`, `deleteExtension(id)`, `getOrphanedExtensions()` (where projectRefs is empty)
-- [ ] **1.2.3.3** `getKeywordsByProject(projectId)`, `saveKeyword(keyword)`, `deleteKeyword(id)`
-- [ ] **1.2.3.4** `getListingSnapshots(extensionId, startDate, endDate)`, `getLatestListingSnapshot(extensionId)`, `saveListingSnapshot(snapshot)`
-- [ ] **1.2.3.5** `getRankSnapshots(keywordId, extensionId, startDate, endDate)`, `getLatestRankForKeyword(keywordId)`, `saveRankSnapshots(snapshots[])` - note: saves multiple in one transaction (one search yields multiple rank records)
-- [ ] **1.2.3.6** `getEvents(extensionId, startDate, endDate)`, `getRecentEvents(limit)`, `saveEvent(event)`
-- [ ] **1.2.3.7** Queue methods: `enqueueJobs(jobs[])`, `dequeueNext()` (highest priority pending job), `updateJobStatus(id, status, error?)`, `getRunningJobs()`, `resetRunningJobs()`, `getPendingCount()`, `getQueueStats()` (counts by status), `cleanupOldJobs(completedBeforeDate, failedBeforeDate)`
-- [ ] **1.2.3.8** `deleteExtensionData(extensionId)` - deletes all listing_snapshots, rank_snapshots, events, translation_snapshots for an extension in a single `db.transaction()`
-- [ ] **1.2.3.9** `pruneOldSnapshots(beforeDate)` - data retention cleanup
+- [x] **1.2.3.1** `getProject(id)`, `getAllProjects()`, `saveProject(project)`, `deleteProject(id)`
+- [x] **1.2.3.2** `getExtension(id)`, `saveExtension(extension)`, `deleteExtension(id)`, `getOrphanedExtensions()` (where projectRefs is empty)
+- [x] **1.2.3.3** `getKeywordsByProject(projectId)`, `saveKeyword(keyword)`, `deleteKeyword(id)`
+- [x] **1.2.3.4** `getListingSnapshots(extensionId, startDate, endDate)`, `getLatestListingSnapshot(extensionId)`, `saveListingSnapshot(snapshot)`
+- [x] **1.2.3.5** `getRankSnapshots(keywordId, extensionId, startDate, endDate)`, `getLatestRankForKeyword(keywordId)`, `saveRankSnapshots(snapshots[])` - note: saves multiple in one transaction (one search yields multiple rank records)
+- [x] **1.2.3.6** `getEvents(extensionId, startDate, endDate)`, `getRecentEvents(limit)`, `saveEvent(event)`
+- [x] **1.2.3.7** Queue methods: `enqueueJobs(jobs[])`, `dequeueNext()` (highest priority pending job), `updateJobStatus(id, status, error?)`, `getRunningJobs()`, `resetRunningJobs()`, `getPendingCount()`, `getQueueStats()` (counts by status), `cleanupOldJobs(completedBeforeDate, failedBeforeDate)`
+- [x] **1.2.3.8** `deleteExtensionData(extensionId)` - deletes all listing_snapshots, rank_snapshots, events, translation_snapshots for an extension in a single `db.transaction()`
+- [x] **1.2.3.9** `pruneOldSnapshots(beforeDate)` - data retention cleanup
 
 **Tests (domain queries):**
-- [ ] `getListingSnapshots()`: returns snapshots in date range, excludes out-of-range
-- [ ] `getLatestListingSnapshot()`: returns most recent snapshot, returns `undefined` if none
-- [ ] `saveRankSnapshots()`: saves multiple records atomically
-- [ ] `dequeueNext()`: returns highest priority (lowest number) pending job
-- [ ] `dequeueNext()`: returns `null` when no pending jobs
-- [ ] `dequeueNext()`: skips jobs where `scheduledAt` is in the future
-- [ ] `resetRunningJobs()`: sets all 'running' jobs back to 'pending'
-- [ ] `cleanupOldJobs()`: deletes completed jobs older than threshold, keeps recent ones
-- [ ] `cleanupOldJobs()`: deletes failed terminal jobs older than threshold
-- [ ] `deleteExtensionData()`: removes all related data across all tables in one transaction
-- [ ] `pruneOldSnapshots()`: removes snapshots older than date, keeps newer ones
-- [ ] Edge case: queries on empty tables return empty arrays, not errors
-- [ ] Edge case: date range where start === end returns records from that exact date
+- [x] `getListingSnapshots()`: returns snapshots in date range, excludes out-of-range
+- [x] `getLatestListingSnapshot()`: returns most recent snapshot, returns `undefined` if none
+- [x] `saveRankSnapshots()`: saves multiple records atomically
+- [x] `dequeueNext()`: returns highest priority (lowest number) pending job
+- [x] `dequeueNext()`: returns `null` when no pending jobs
+- [x] `dequeueNext()`: skips jobs where `scheduledAt` is in the future
+- [x] `resetRunningJobs()`: sets all 'running' jobs back to 'pending'
+- [x] `cleanupOldJobs()`: deletes completed jobs older than threshold, keeps recent ones
+- [x] `cleanupOldJobs()`: deletes failed terminal jobs older than threshold
+- [x] `deleteExtensionData()`: removes all related data across all tables in one transaction
+- [x] `pruneOldSnapshots()`: removes snapshots older than date, keeps newer ones
+- [x] Edge case: queries on empty tables return empty arrays, not errors
+- [x] Edge case: date range where start === end returns records from that exact date
 
 ---
 
 ### 1.3 Settings Manager (~3h) [depends: 1.1]
 
-- [ ] **1.3.1** Create `src/shared/utils/settings.ts` - `SettingsManager` class wrapping `chrome.storage.local`:
+- [x] **1.3.1** Create `src/shared/utils/settings.ts` - `SettingsManager` class wrapping `chrome.storage.local`:
   - `get(key)` - get single setting
   - `getAll()` - get all settings
   - `set(key, value)` - set single setting
   - `setMultiple(partial)` - set multiple settings
   - `getWithDefaults()` - returns all settings with defaults applied for missing values
-- [ ] **1.3.2** Define `DEFAULT_SETTINGS` constant with all default values from PRD Section 4.2.
-- [ ] **1.3.3** Implement settings validation: `queueDelayMs` must be >= 30000, `dataRetentionDays` must be >= 7, etc.
+- [x] **1.3.2** Define `DEFAULT_SETTINGS` constant with all default values from PRD Section 4.2.
+- [x] **1.3.3** Implement settings validation: `queueDelayMs` must be >= 30000, `dataRetentionDays` must be >= 7, etc.
 
 **Tests (use chrome.storage.local mock):**
-- [ ] `getAll()`: returns defaults when storage is empty
-- [ ] `set()` then `get()`: returns the set value
-- [ ] `setMultiple()`: sets multiple keys atomically
-- [ ] `getWithDefaults()`: merges stored values with defaults (stored values win)
-- [ ] Validation: setting `queueDelayMs` to 5000 throws/rejects
-- [ ] Validation: setting `dataRetentionDays` to 0 throws/rejects
-- [ ] Edge case: `get()` for non-existent key returns default value
+- [x] `getAll()`: returns defaults when storage is empty
+- [x] `set()` then `get()`: returns the set value
+- [x] `setMultiple()`: sets multiple keys atomically
+- [x] `getWithDefaults()`: merges stored values with defaults (stored values win)
+- [x] Validation: setting `queueDelayMs` to 5000 throws/rejects
+- [x] Validation: setting `dataRetentionDays` to 0 throws/rejects
+- [x] Edge case: `get()` for non-existent key returns default value
 
 ---
 
