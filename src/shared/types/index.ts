@@ -54,7 +54,11 @@ export type ExtensionStatus = 'active' | 'removed' | 'error';
 // Core data models
 // ---------------------------------------------------------------------------
 
-/** A tracking project grouping one owned extension, competitors, and keywords. */
+/**
+ * A tracking project grouping one owned extension, competitors, and keywords.
+ *
+ * Dexie indexes: `++id`
+ */
 export interface Project {
   /** Auto-increment primary key. Omit when creating. */
   id?: number;
@@ -69,13 +73,17 @@ export interface Project {
   updatedAt: Date;
 }
 
-/** A tracked Chrome extension (own or competitor). */
+/**
+ * A tracked Chrome extension (own or competitor).
+ *
+ * Dexie indexes: `id` (CWS extension ID, not auto-increment)
+ */
 export interface Extension {
   /** CWS 32-char extension ID (primary key, not auto-increment). */
   id: string;
   /** Display name (populated after first scan). */
   name: string;
-  /** Extension icon URL for display. */
+  /** Extension icon URL for display. Not in PRD; added for dashboard UI needs. */
   iconUrl: string | null;
   addedAt: Date;
   lastScannedAt: Date | null;
@@ -84,7 +92,11 @@ export interface Extension {
   projectRefs: number[];
 }
 
-/** A keyword or phrase tracked for search ranking. */
+/**
+ * A keyword or phrase tracked for search ranking.
+ *
+ * Dexie indexes: `++id`, `projectId`
+ */
 export interface Keyword {
   /** Auto-increment primary key. Omit when creating. */
   id?: number;
@@ -95,7 +107,38 @@ export interface Keyword {
   createdAt: Date;
 }
 
-/** A point-in-time snapshot of an extension's CWS listing. */
+/**
+ * A point-in-time snapshot of an extension's CWS listing.
+ *
+ * Dexie indexes: `[extensionId+date]`, `extensionId`
+ *
+ * Field mapping from parser `ListingData` → `ListingSnapshot`:
+ *
+ * | ListingData field    | ListingSnapshot field | Transformation                              |
+ * |----------------------|-----------------------|---------------------------------------------|
+ * | name                 | title                 | direct                                      |
+ * | description          | fullDescription       | direct                                      |
+ * | shortDescription     | shortDescription      | direct                                      |
+ * | offeredBy            | developerName         | direct                                      |
+ * | rating               | rating                | 0 with ratingCount 0 → `null`               |
+ * | ratingCount          | ratingCount           | direct                                      |
+ * | ratingCount          | reviewCount           | CWS does not distinguish; mirrors ratingCount|
+ * | userCount (number)   | userCountNumeric      | direct                                      |
+ * | —                    | userCount (string)    | format userCountNumeric (e.g. "9,000,000+") |
+ * | lastUpdated (Date)   | lastUpdated (string)  | `.toISOString().split('T')[0]` (YYYY-MM-DD) |
+ * | size                 | size                  | direct                                      |
+ * | languageCodes        | availableLocales      | direct                                      |
+ * | languageCodes.length | translationCount      | derived                                     |
+ * | screenshotUrls.length| screenshotCount       | derived                                     |
+ * | isFeatured           | badgeFlags.featured   | direct                                      |
+ * | manifestJson         | permissions           | JSON.parse → manifest.permissions ?? []     |
+ * | manifestJson         | hostPermissions       | JSON.parse → manifest.host_permissions ?? [] |
+ * | —                    | permissionRiskScore   | calculated by permission-risk utility        |
+ * | —                    | hasPromoVideo         | not extractable; defaults to `false`         |
+ * | —                    | developerVerified     | not extractable; defaults to `false`         |
+ * | —                    | listingQualityScore   | Phase 2 calculation; defaults to `null`      |
+ * | category             | category              | direct, `null` → `''`                       |
+ */
 export interface ListingSnapshot {
   /** Auto-increment primary key. Omit when creating. */
   id?: number;
@@ -109,34 +152,37 @@ export interface ListingSnapshot {
   rating: number | null;
   /** Total number of ratings. */
   ratingCount: number;
-  /** Total number of text reviews. May equal ratingCount on CWS. */
+  /** Total number of text reviews. CWS does not distinguish from ratingCount. */
   reviewCount: number;
-  /** Display-formatted user count (e.g. "9,000+"). */
+  /** Display-formatted user count (e.g. "9,000,000+"). Derived from userCountNumeric. */
   userCount: string;
-  /** Parsed numeric user count. */
+  /** Parsed numeric user count from CWS data. */
   userCountNumeric: number;
   version: string;
-  /** Last updated date string from CWS. */
+  /** Last updated date from CWS, stored as YYYY-MM-DD (parser returns Date). */
   lastUpdated: string;
   /** Extension file size string (e.g. "4.12MiB"). */
   size: string;
-  /** Declared manifest permissions. */
+  /** Declared manifest permissions. Parsed from ListingData.manifestJson. */
   permissions: string[];
-  /** Declared manifest host permissions. */
+  /** Declared manifest host permissions. Parsed from ListingData.manifestJson. */
   hostPermissions: string[];
   /** Calculated permission risk score (0-100). */
   permissionRiskScore: number;
   /** Badge flags such as "featured". */
   badgeFlags: Record<string, boolean>;
   screenshotCount: number;
+  /** Not currently extractable from CWS data; defaults to false. */
   hasPromoVideo: boolean;
-  /** Number of supported locales. */
+  /** Number of supported locales. Derived from availableLocales.length. */
   translationCount: number;
-  /** Locale codes (e.g. ["en", "ja", "de"]). */
+  /** Locale codes (e.g. ["en", "ja", "de"]). Mapped from ListingData.languageCodes. */
   availableLocales: string[];
   /** CWS category string. */
   category: string;
+  /** Publisher name. Mapped from ListingData.offeredBy. */
   developerName: string;
+  /** Not currently extractable from CWS data; defaults to false. */
   developerVerified: boolean;
   /** Composite quality score (0-100). `null` until Phase 2 calculation. */
   listingQualityScore: number | null;
@@ -144,7 +190,11 @@ export interface ListingSnapshot {
   scannedAt: Date;
 }
 
-/** A point-in-time search ranking record for one extension + keyword pair. */
+/**
+ * A point-in-time search ranking record for one extension + keyword pair.
+ *
+ * Dexie indexes: `++id`, `[keywordId+extensionId+date]`, `[extensionId+date]`
+ */
 export interface RankSnapshot {
   /** Auto-increment primary key. Omit when creating. */
   id?: number;
@@ -165,6 +215,8 @@ export interface RankSnapshot {
 /**
  * A detected change between consecutive listing snapshots.
  * Named `EventRecord` to avoid collision with the DOM `Event` type.
+ *
+ * Dexie indexes: `++id`, `[extensionId+date]`
  */
 export interface EventRecord {
   /** Auto-increment primary key. Omit when creating. */
@@ -210,7 +262,11 @@ export type QueueJobPayload =
   | KeywordScanPayload
   | TranslationAuditPayload;
 
-/** A queued job in IndexedDB. Survives service worker restarts. */
+/**
+ * A queued job in IndexedDB. Survives service worker restarts.
+ *
+ * Dexie indexes: `++id`, `[status+scheduledAt]`, `status`
+ */
 export interface QueueJob {
   /** Auto-increment primary key. Omit when creating. */
   id?: number;
@@ -289,7 +345,11 @@ export interface ManipulationFlags {
   };
 }
 
-/** A snapshot of a localized listing for translation audit purposes. */
+/**
+ * A snapshot of a localized listing for translation audit purposes.
+ *
+ * Dexie indexes: `++id`, `[extensionId+date]`
+ */
 export interface TranslationSnapshot {
   /** Auto-increment primary key. Omit when creating. */
   id?: number;
