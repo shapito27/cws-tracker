@@ -58,7 +58,7 @@
 - [x] **0.4.4** Install `dexie` and `fake-indexeddb`. Verify Dexie works with fake-indexeddb: open a database, define a table, write and read a record.
 - [x] **0.4.5** Create `tests/mocks/chrome.ts` - mock module for `chrome.storage.local`, `chrome.alarms`, `chrome.runtime.sendMessage`, `chrome.runtime.onMessage`, `chrome.runtime.onInstalled`. Each mock should record calls and allow assertions.
 - [x] **0.4.6** Create `tests/fixtures/` directory. Move saved CWS HTML responses here.
-- [x] **0.4.7** Install Tailwind CSS. Configure `tailwind.config.js`.
+- [x] **0.4.7** Install Tailwind CSS v4. Configure via `@tailwindcss/vite` plugin and CSS imports.
 - [x] **0.4.8** Install Vue Router. Create minimal router setup. (No Pinia - use composables with `ref`/`reactive` for state.)
 - [x] **0.4.9** Install ApexCharts + vue3-apexcharts. Verify a basic chart renders in dashboard.
 - [x] **0.4.10** Create the manifest.json source template. Verify CRXJS builds a loadable extension.
