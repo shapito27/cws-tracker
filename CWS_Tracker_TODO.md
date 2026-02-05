@@ -21,26 +21,26 @@
 
 ### 0.1 CWS Response Format Investigation
 
-- [ ] **0.1.1** Create a minimal MV3 extension with just a service worker and `host_permissions` for `chrome.google.com/webstore/*`
-- [ ] **0.1.2** From the service worker, `fetch()` a CWS extension detail page (use a known extension like uBlock Origin). Save the raw response to inspect.
-- [ ] **0.1.3** Inspect the response: Is it server-rendered HTML? Is data in `<script>` tags as JSON? Is it an empty shell requiring JS execution?
-- [ ] **0.1.4** From the service worker, `fetch()` a CWS search results page (`chrome.google.com/webstore/search/ad%20blocker`). Save the raw response.
-- [ ] **0.1.5** Inspect the search response: same questions as above.
-- [ ] **0.1.6** Test with different `Accept-Language` headers (en-US, ja, es). Does the response structure change? Does content language change?
-- [ ] **0.1.7** Test with `?hl=ja` parameter on a detail page. Is the localized content returned?
-- [ ] **0.1.8** Test fetching a non-existent extension ID. What HTTP status and body are returned?
-- [ ] **0.1.9** Test fetching with rapid requests (5 requests, 10s apart). Does CWS return 429 or block?
-- [ ] **0.1.10** Document findings in a `SPIKE_RESULTS.md` file: response format per page type, parsing strategy decision, locale behavior, rate limit observations.
-- [ ] **0.1.11** Save 5+ real CWS response files as test fixtures: detail page (en), detail page (ja), detail page (404), search results page, search results page (no results). These become the foundation for all parser tests.
+- [x] **0.1.1** Create a minimal MV3 extension with just a service worker and `host_permissions` for `chrome.google.com/webstore/*`
+- [x] **0.1.2** From the service worker, `fetch()` a CWS extension detail page (use a known extension like uBlock Origin). Save the raw response to inspect.
+- [x] **0.1.3** Inspect the response: Is it server-rendered HTML? Is data in `<script>` tags as JSON? Is it an empty shell requiring JS execution?
+- [x] **0.1.4** From the service worker, `fetch()` a CWS search results page (`chrome.google.com/webstore/search/ad%20blocker`). Save the raw response.
+- [x] **0.1.5** Inspect the search response: same questions as above.
+- [x] **0.1.6** Test with different `Accept-Language` headers (en-US, ja, es). Does the response structure change? Does content language change?
+- [x] **0.1.7** Test with `?hl=ja` parameter on a detail page. Is the localized content returned?
+- [x] **0.1.8** Test fetching a non-existent extension ID. What HTTP status and body are returned?
+- [x] **0.1.9** Test fetching with rapid requests (5 requests, 10s apart). Does CWS return 429 or block?
+- [x] **0.1.10** Document findings in a `SPIKE_RESULTS.md` file: response format per page type, parsing strategy decision, locale behavior, rate limit observations.
+- [x] **0.1.11** Save 5+ real CWS response files as test fixtures: detail page (en), detail page (ja), detail page (404), search results page, search results page (no results). These become the foundation for all parser tests.
 
 **Decision Gate:** If CWS requires JS execution to render (Scenario C), STOP and revise architecture to content-script approach before proceeding.
 
 ### 0.2 Prototype Parsers
 
-- [ ] **0.2.1** Write a minimal listing parser function that extracts title from a saved CWS response fixture. Validate the approach works.
-- [ ] **0.2.2** Extend to extract all listing fields (description, rating, users, etc.). Note any fields that are difficult or impossible to extract.
-- [ ] **0.2.3** Write a minimal search parser that extracts extension IDs and their order from a search results fixture.
-- [ ] **0.2.4** Document any fields that cannot be reliably extracted. Update PRD if features depend on unobtainable data.
+- [x] **0.2.1** Write a minimal listing parser function that extracts title from a saved CWS response fixture. Validate the approach works.
+- [x] **0.2.2** Extend to extract all listing fields (description, rating, users, etc.). Note any fields that are difficult or impossible to extract.
+- [x] **0.2.3** Write a minimal search parser that extracts extension IDs and their order from a search results fixture.
+- [x] **0.2.4** Document any fields that cannot be reliably extracted. Update PRD if features depend on unobtainable data.
 
 ### 0.3 Quality Score Calibration
 
@@ -65,8 +65,8 @@
 - [ ] **0.4.11** Verify the extension loads in Chrome, popup opens, dashboard page opens.
 
 **Phase 0 Exit Criteria:**
-- [ ] Parsing strategy confirmed and documented
-- [ ] Test fixtures saved
+- [x] Parsing strategy confirmed and documented
+- [x] Test fixtures saved
 - [ ] Quality score thresholds calibrated
 - [ ] Project scaffolding complete and building
 - [ ] Test infrastructure working (Vitest + fake-indexeddb + chrome mocks)
