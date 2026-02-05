@@ -9,6 +9,7 @@ import ExtensionsTab from '../components/project/ExtensionsTab.vue';
 import KeywordsTab from '../components/project/KeywordsTab.vue';
 import EventsTab from '../components/project/EventsTab.vue';
 import ListingCompare from '../components/comparison/ListingCompare.vue';
+import KeywordAnalysis from '../components/tables/KeywordAnalysis.vue';
 
 const route = useRoute();
 const router = useRouter();
@@ -16,7 +17,7 @@ const router = useRouter();
 const project = ref<Project | null>(null);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
-const activeTab = ref<'overview' | 'rankings' | 'extensions' | 'keywords' | 'events' | 'compare'>('overview');
+const activeTab = ref<'overview' | 'rankings' | 'extensions' | 'keywords' | 'events' | 'compare' | 'analysis'>('overview');
 
 const tabs = [
   { id: 'overview' as const, label: 'Overview' },
@@ -25,6 +26,7 @@ const tabs = [
   { id: 'keywords' as const, label: 'Keywords' },
   { id: 'events' as const, label: 'Events' },
   { id: 'compare' as const, label: 'Compare' },
+  { id: 'analysis' as const, label: 'Analysis' },
 ];
 
 const projectId = computed(() => Number(route.params.id));
@@ -118,6 +120,10 @@ watch(projectId, loadProject);
     />
     <ListingCompare
       v-else-if="activeTab === 'compare'"
+      :project="project"
+    />
+    <KeywordAnalysis
+      v-else-if="activeTab === 'analysis'"
       :project="project"
     />
   </div>
