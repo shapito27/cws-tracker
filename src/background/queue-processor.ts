@@ -1,0 +1,456 @@
+/**
+ * Queue Processor (Phase 1.6.2).
+ *
+ * Dequeues and executes the next pending job from IndexedDB.
+ * - listing_scan: fetch CWS detail page, parse, save snapshot, detect events.
+ * - keyword_scan: fetch CWS search page, parse, save rank snapshots for all tracked extensions.
+ *
+ * Error handling:
+ * - HTTP 429: retriable (rate limited)
+ * - HTTP 404 (listing_scan): mark extension as 'removed', job completed
+ * - HTTP 5xx: retriable
+ * - Network error: retriable
+ * - ParserError: retriable
+ * - Max retries exceeded: terminal failure
+ *
+ * Delay calculation:
+ * - Normal: queueDelayMs + randomJitter(-jitterMs, +jitterMs)
+ * - Retry: min(baseDelay * 2^retryCount, 600000) with max 10 min cap
+ */
+
+import { db } from '@/shared/db/database';
+import { SettingsManager } from '@/shared/utils/settings';
+import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
+import { today } from '@/shared/utils/dates';
+import { detectChanges } from '@/background/event-detector';
+import { getListingParser, getSearchParser, ParserError } from '@/background/parsers/index';
+import type { ListingData, SearchData } from '@/background/parsers/types';
+import type {
+  QueueJob,
+  ListingScanPayload,
+  KeywordScanPayload,
+  ListingSnapshot,
+  RankSnapshot,
+  EventRecord,
+  Extension,
+  Keyword,
+} from '@/shared/types';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface ProcessResult {
+  /** Whether there are more jobs to process after this one. */
+  hasMore: boolean;
+  /** Suggested delay in milliseconds before the next job. 0 if no more jobs. */
+  delayMs: number;
+}
+
+/** Error classification for retry logic. */
+export type ErrorKind = 'retriable' | 'terminal';
+
+/** CWS base URL for fetching extension detail pages. */
+const CWS_DETAIL_URL = 'https://chromewebstore.google.com/detail/';
+
+/** CWS base URL for search. */
+const CWS_SEARCH_URL = 'https://chromewebstore.google.com/search/';
+
+/** Maximum backoff delay (10 minutes). */
+const MAX_BACKOFF_MS = 600_000;
+
+/** Base delay for retry backoff (2 minutes). */
+const RETRY_BASE_DELAY_MS = 120_000;
+
+// ---------------------------------------------------------------------------
+// Dependencies (injectable for testing)
+// ---------------------------------------------------------------------------
+
+export interface ProcessorDeps {
+  fetchPage: (url: string) => Promise<Response>;
+  sendMessage: (message: unknown) => void;
+  settings: SettingsManager;
+}
+
+const defaultDeps: ProcessorDeps = {
+  fetchPage: (url: string) => fetch(url),
+  sendMessage: (message: unknown) => {
+    try {
+      chrome.runtime.sendMessage(message);
+    } catch {
+      // Dashboard may not be open - silently ignore
+    }
+  },
+  settings: new SettingsManager(),
+};
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Process the next pending job from the queue.
+ *
+ * @returns ProcessResult indicating if there are more jobs and suggested delay.
+ */
+export async function processNextJob(
+  deps: ProcessorDeps = defaultDeps
+): Promise<ProcessResult> {
+  const job = await db.dequeueNext();
+
+  if (job === null) {
+    return { hasMore: false, delayMs: 0 };
+  }
+
+  try {
+    await executeJob(job, deps);
+    await db.updateJobStatus(job.id!, 'completed');
+
+    // Send progress message
+    const stats = await db.getQueueStats();
+    deps.sendMessage({
+      type: 'SCAN_PROGRESS',
+      completed: stats.completed,
+      total: stats.completed + stats.pending + stats.running,
+      currentJob: getJobDescription(job),
+    });
+
+    const delayMs = await calculateNormalDelay(deps.settings);
+    const hasPending = (await db.getPendingCount()) > 0;
+    return { hasMore: hasPending, delayMs };
+  } catch (error) {
+    return handleJobError(job, error, deps);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Job Execution
+// ---------------------------------------------------------------------------
+
+async function executeJob(
+  job: QueueJob,
+  deps: ProcessorDeps
+): Promise<void> {
+  switch (job.type) {
+    case 'listing_scan':
+      await processListingScan(job, deps);
+      break;
+    case 'keyword_scan':
+      await processKeywordScan(job, deps);
+      break;
+    default:
+      throw new Error(`Unsupported job type: ${job.type}`);
+  }
+}
+
+/**
+ * Process a listing_scan job:
+ * 1. Fetch CWS detail page
+ * 2. Parse with listing parser
+ * 3. Calculate permission risk score
+ * 4. Save listing snapshot
+ * 5. Compare with previous snapshot, create events if changes detected
+ * 6. Update extension metadata
+ */
+async function processListingScan(
+  job: QueueJob,
+  deps: ProcessorDeps
+): Promise<void> {
+  const payload = job.payload as ListingScanPayload;
+  const { extensionId } = payload;
+
+  const settings = await deps.settings.getWithDefaults();
+  const parser = getListingParser(settings.parserVersion);
+
+  // Fetch the CWS detail page
+  const url = `${CWS_DETAIL_URL}${extensionId}`;
+  const response = await deps.fetchPage(url);
+
+  if (!response.ok) {
+    if (response.status === 404) {
+      // Extension removed from CWS - mark as removed, job completes successfully
+      await markExtensionRemoved(extensionId);
+      return;
+    }
+    throw new HttpError(response.status, response.statusText);
+  }
+
+  const html = await response.text();
+  const listingData = parser.parse(html);
+
+  // Calculate permission risk score
+  const permissionRiskScore = calculatePermissionRiskScore(
+    listingData.permissions,
+    listingData.hostPermissions
+  );
+
+  // Build snapshot
+  const dateStr = today();
+  const snapshot: ListingSnapshot = mapListingDataToSnapshot(
+    listingData,
+    extensionId,
+    dateStr,
+    permissionRiskScore
+  );
+
+  // Get previous snapshot for event detection
+  const previousSnapshot = await db.getLatestListingSnapshot(extensionId);
+
+  // Save snapshot
+  await db.saveListingSnapshot(snapshot);
+
+  // Detect and save events
+  const events = detectChanges(previousSnapshot ?? null, snapshot);
+  for (const event of events) {
+    const savedId = await db.saveEvent(event);
+    deps.sendMessage({
+      type: 'NEW_EVENT',
+      event: { ...event, id: savedId },
+    });
+  }
+
+  // Update extension metadata
+  await updateExtensionMetadata(extensionId, listingData);
+}
+
+/**
+ * Process a keyword_scan job:
+ * 1. Fetch CWS search page
+ * 2. Parse search results
+ * 3. For each tracked extension in the project, record rank position
+ * 4. Save all rank snapshots in a single transaction
+ */
+async function processKeywordScan(
+  job: QueueJob,
+  deps: ProcessorDeps
+): Promise<void> {
+  const payload = job.payload as KeywordScanPayload;
+  const { keywordId, keyword } = payload;
+
+  const settings = await deps.settings.getWithDefaults();
+  const parser = getSearchParser(settings.parserVersion);
+
+  // Fetch CWS search results
+  const url = `${CWS_SEARCH_URL}${encodeURIComponent(keyword)}`;
+  const response = await deps.fetchPage(url);
+
+  if (!response.ok) {
+    throw new HttpError(response.status, response.statusText);
+  }
+
+  const html = await response.text();
+  const searchData = parser.parse(html);
+
+  // Find the keyword record to get its projectId
+  const keywordRecord = await db.keywords.get(keywordId);
+  if (!keywordRecord) {
+    throw new Error(`Keyword ${keywordId} not found in database`);
+  }
+
+  // Get the project to find all tracked extensions
+  const project = await db.getProject(keywordRecord.projectId);
+  if (!project) {
+    throw new Error(`Project ${keywordRecord.projectId} not found in database`);
+  }
+
+  // All tracked extension IDs for this project
+  const trackedExtIds = [project.ownExtensionId, ...project.competitorIds];
+  const dateStr = today();
+
+  // Build rank snapshots for each tracked extension
+  const rankSnapshots: RankSnapshot[] = trackedExtIds.map((extensionId) => {
+    const searchEntry = searchData.results.find((r) => r.extensionId === extensionId);
+    return {
+      keywordId,
+      extensionId,
+      date: dateStr,
+      position: searchEntry ? searchEntry.position : null,
+      totalResults: searchData.totalCount,
+      scannedAt: new Date(),
+    };
+  });
+
+  // Save all rank snapshots atomically
+  await db.saveRankSnapshots(rankSnapshots);
+}
+
+// ---------------------------------------------------------------------------
+// Error Handling
+// ---------------------------------------------------------------------------
+
+export class HttpError extends Error {
+  constructor(
+    public readonly statusCode: number,
+    statusText: string
+  ) {
+    super(`HTTP ${statusCode}: ${statusText}`);
+    this.name = 'HttpError';
+  }
+}
+
+/**
+ * Classify an error as retriable or terminal.
+ */
+export function classifyError(error: unknown): ErrorKind {
+  if (error instanceof HttpError) {
+    if (error.statusCode === 429) return 'retriable';
+    if (error.statusCode >= 500) return 'retriable';
+    // Other HTTP errors (400, 403, etc.) - still retriable to be safe
+    return 'retriable';
+  }
+  if (error instanceof ParserError) return 'retriable';
+  if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('network'))) {
+    return 'retriable';
+  }
+  // Unknown errors are retriable
+  return 'retriable';
+}
+
+/**
+ * Handle a job error: retry or mark terminal failure.
+ */
+async function handleJobError(
+  job: QueueJob,
+  error: unknown,
+  deps: ProcessorDeps
+): Promise<ProcessResult> {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const kind = classifyError(error);
+
+  if (kind === 'retriable' && job.retryCount < job.maxRetries) {
+    // Retry: set back to pending with incremented retry count and backoff
+    const newRetryCount = job.retryCount + 1;
+    const backoffMs = calculateRetryDelay(newRetryCount);
+    const nextScheduledAt = new Date(Date.now() + backoffMs);
+
+    await db.queue.update(job.id!, {
+      status: 'pending' as const,
+      retryCount: newRetryCount,
+      scheduledAt: nextScheduledAt,
+      startedAt: null,
+      error: errorMessage,
+    });
+
+    deps.sendMessage({
+      type: 'SCAN_ERROR',
+      jobId: job.id!,
+      error: errorMessage,
+      retriesLeft: job.maxRetries - newRetryCount,
+    });
+
+    const delayMs = await calculateNormalDelay(deps.settings);
+    const hasPending = (await db.getPendingCount()) > 0;
+    return { hasMore: hasPending, delayMs };
+  }
+
+  // Terminal failure
+  await db.updateJobStatus(job.id!, 'failed', errorMessage);
+
+  deps.sendMessage({
+    type: 'SCAN_ERROR',
+    jobId: job.id!,
+    error: errorMessage,
+    retriesLeft: 0,
+  });
+
+  const delayMs = await calculateNormalDelay(deps.settings);
+  const hasPending = (await db.getPendingCount()) > 0;
+  return { hasMore: hasPending, delayMs };
+}
+
+// ---------------------------------------------------------------------------
+// Delay Calculation
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculate the normal delay between jobs (base + random jitter).
+ */
+async function calculateNormalDelay(settings: SettingsManager): Promise<number> {
+  const config = await settings.getWithDefaults();
+  const jitter = (Math.random() * 2 - 1) * config.queueJitterMs;
+  return Math.max(0, config.queueDelayMs + jitter);
+}
+
+/**
+ * Calculate retry backoff delay: min(baseDelay * 2^retryCount, MAX_BACKOFF_MS).
+ * Retry 1 = 2 min, Retry 2 = 4 min, Retry 3 = 8 min (per PRD 6.2).
+ */
+export function calculateRetryDelay(retryCount: number): number {
+  const delay = RETRY_BASE_DELAY_MS * Math.pow(2, retryCount - 1);
+  return Math.min(delay, MAX_BACKOFF_MS);
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function mapListingDataToSnapshot(
+  data: ListingData,
+  extensionId: string,
+  date: string,
+  permissionRiskScore: number
+): ListingSnapshot {
+  return {
+    extensionId,
+    date,
+    title: data.name,
+    shortDescription: data.shortDescription,
+    fullDescription: data.fullDescription,
+    rating: data.rating,
+    ratingCount: data.ratingCount,
+    reviewCount: data.reviewCount,
+    userCount: data.userCount,
+    userCountNumeric: data.userCountNumeric,
+    version: data.version,
+    lastUpdated: data.lastUpdated,
+    size: data.size,
+    permissions: data.permissions,
+    hostPermissions: data.hostPermissions,
+    permissionRiskScore,
+    badgeFlags: data.badgeFlags,
+    screenshotCount: data.screenshotCount,
+    hasPromoVideo: data.hasPromoVideo,
+    translationCount: data.translationCount,
+    availableLocales: data.availableLocales,
+    category: data.category,
+    developerName: data.developerName,
+    developerVerified: data.developerVerified,
+    listingQualityScore: null,
+    scannedAt: new Date(),
+  };
+}
+
+async function markExtensionRemoved(extensionId: string): Promise<void> {
+  const ext = await db.getExtension(extensionId);
+  if (ext) {
+    await db.saveExtension({ ...ext, status: 'removed' });
+  }
+}
+
+async function updateExtensionMetadata(
+  extensionId: string,
+  listingData: ListingData
+): Promise<void> {
+  const ext = await db.getExtension(extensionId);
+  if (ext) {
+    await db.saveExtension({
+      ...ext,
+      name: listingData.name,
+      iconUrl: listingData.iconUrl,
+      lastScannedAt: new Date(),
+      status: 'active',
+    });
+  }
+}
+
+function getJobDescription(job: QueueJob): string {
+  if (job.type === 'listing_scan') {
+    const payload = job.payload as ListingScanPayload;
+    return `Scanning extension ${payload.extensionId.slice(0, 8)}...`;
+  }
+  if (job.type === 'keyword_scan') {
+    const payload = job.payload as KeywordScanPayload;
+    return `Searching "${payload.keyword}"`;
+  }
+  return `Processing ${job.type}`;
+}
