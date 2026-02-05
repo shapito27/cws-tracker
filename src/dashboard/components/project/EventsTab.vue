@@ -4,6 +4,8 @@ import type { Project, Extension, EventRecord, EventType } from '@/shared/types'
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { ALL_EVENT_TYPES, EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
+import DiffView from '../comparison/DiffView.vue';
+import PermissionsDiff from '../comparison/PermissionsDiff.vue';
 
 const props = defineProps<{
   project: Project;
@@ -16,6 +18,7 @@ const extensions = ref<Extension[]>([]);
 const loading = ref(true);
 const filterType = ref<EventType | 'all'>('all');
 const filterExtension = ref<string>('all');
+const expandedEventIds = ref<Set<number>>(new Set());
 
 onMounted(async () => {
   extensions.value = await getExtensionsByProject(props.project.id!);
@@ -43,6 +46,45 @@ const filteredEvents = computed(() => {
 function getExtensionName(extensionId: string): string {
   const ext = extensions.value.find((e) => e.id === extensionId);
   return ext?.name || extensionId.slice(0, 12) + '...';
+}
+
+function toggleExpand(eventId: number): void {
+  const newSet = new Set(expandedEventIds.value);
+  if (newSet.has(eventId)) {
+    newSet.delete(eventId);
+  } else {
+    newSet.add(eventId);
+  }
+  expandedEventIds.value = newSet;
+}
+
+function isExpanded(eventId: number): boolean {
+  return expandedEventIds.value.has(eventId);
+}
+
+function hasDiffData(event: EventRecord): boolean {
+  return event.oldValue !== null && event.newValue !== null;
+}
+
+function isPermissionEvent(event: EventRecord): boolean {
+  return event.type === 'permission_change';
+}
+
+function isTextDiffEvent(event: EventRecord): boolean {
+  return (
+    event.type === 'title_change' ||
+    event.type === 'description_change'
+  );
+}
+
+function parsePermissions(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 </script>
@@ -92,11 +134,27 @@ function getExtensionName(extensionId: string): string {
       <div
         v-for="event in filteredEvents"
         :key="event.id"
-        class="rounded-lg border border-gray-200 bg-white px-4 py-3"
+        class="rounded-lg border border-gray-200 bg-white"
       >
-        <div class="flex items-start justify-between gap-4">
+        <!-- Event header (clickable if has diff data) -->
+        <div
+          class="flex items-start justify-between gap-4 px-4 py-3"
+          :class="hasDiffData(event) ? 'cursor-pointer hover:bg-gray-50' : ''"
+          @click="hasDiffData(event) && event.id !== undefined ? toggleExpand(event.id) : undefined"
+        >
           <div class="flex-1">
-            <p class="text-sm text-gray-900">{{ event.note }}</p>
+            <div class="flex items-center gap-2">
+              <p class="text-sm text-gray-900">{{ event.note }}</p>
+              <button
+                v-if="hasDiffData(event)"
+                class="shrink-0 text-gray-400 hover:text-gray-600 transition-transform"
+                :class="event.id !== undefined && isExpanded(event.id) ? 'rotate-90' : ''"
+              >
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            </div>
             <div class="mt-1.5 flex items-center gap-2">
               <span
                 class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
@@ -110,6 +168,38 @@ function getExtensionName(extensionId: string): string {
             </div>
           </div>
           <span class="shrink-0 text-xs text-gray-500">{{ event.date }}</span>
+        </div>
+
+        <!-- Expanded diff detail -->
+        <div
+          v-if="event.id !== undefined && isExpanded(event.id) && hasDiffData(event)"
+          class="border-t border-gray-200 px-4 py-3"
+        >
+          <!-- Permission diff -->
+          <PermissionsDiff
+            v-if="isPermissionEvent(event)"
+            :old-permissions="parsePermissions(event.oldValue)"
+            :new-permissions="parsePermissions(event.newValue)"
+          />
+
+          <!-- Text diff for title/description changes -->
+          <DiffView
+            v-else-if="isTextDiffEvent(event)"
+            :old-text="event.oldValue ?? ''"
+            :new-text="event.newValue ?? ''"
+          />
+
+          <!-- Generic old/new display for other event types -->
+          <div v-else class="space-y-2">
+            <div class="rounded-md bg-red-50 px-3 py-2">
+              <p class="text-xs font-medium text-red-700 mb-0.5">Previous</p>
+              <p class="text-sm text-red-900">{{ event.oldValue }}</p>
+            </div>
+            <div class="rounded-md bg-green-50 px-3 py-2">
+              <p class="text-xs font-medium text-green-700 mb-0.5">Current</p>
+              <p class="text-sm text-green-900">{{ event.newValue }}</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
