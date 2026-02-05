@@ -161,9 +161,15 @@ export class CWSDatabase extends Dexie {
   async getLatestRankForKeyword(
     keywordId: number
   ): Promise<RankSnapshot[]> {
-    // Filter by keywordId, then find the latest date among results
+    // Prefix query on compound index [keywordId+extensionId+date].
+    // Use '' as lower bound and '\uffff' as upper bound for string fields
+    // since Dexie.minKey/maxKey are not supported by fake-indexeddb in compounds.
     const all = await this.rank_snapshots
-      .filter((s) => s.keywordId === keywordId)
+      .where('[keywordId+extensionId+date]')
+      .between(
+        [keywordId, '', ''],
+        [keywordId, '\uffff', '\uffff']
+      )
       .toArray();
 
     if (all.length === 0) return [];
@@ -232,8 +238,9 @@ export class CWSDatabase extends Dexie {
       });
 
       const job = pending[0];
-      await this.queue.update(job.id!, { status: 'running' as QueueJobStatus, startedAt: new Date() });
-      return { ...job, status: 'running' as QueueJobStatus, startedAt: new Date() };
+      const startedAt = new Date();
+      await this.queue.update(job.id!, { status: 'running' as QueueJobStatus, startedAt });
+      return { ...job, status: 'running' as QueueJobStatus, startedAt };
     });
   }
 
