@@ -775,26 +775,26 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 2.5 Change Diff View (~4h) [depends: Phase 1]
 
-- [ ] **2.5.1** Create `src/shared/utils/diff.ts`:
+- [x] **2.5.1** Create `src/shared/utils/diff.ts`:
   - `computeTextDiff(oldText: string, newText: string): DiffSegment[]`
   - Each segment: `{ type: 'equal' | 'added' | 'removed', text: string }`
   - Use a word-level diff algorithm (not character-level)
-- [ ] **2.5.2** Create `src/dashboard/components/comparison/DiffView.vue`:
+- [x] **2.5.2** Create `src/dashboard/components/comparison/DiffView.vue`:
   - Renders diff segments with color coding (green=added, red=removed, black=equal)
   - Used in event detail expansion
-- [ ] **2.5.3** Create `src/dashboard/components/comparison/PermissionsDiff.vue`:
+- [x] **2.5.3** Create `src/dashboard/components/comparison/PermissionsDiff.vue`:
   - Shows added permissions (green) with their risk warnings
   - Shows removed permissions (red)
   - Shows unchanged permissions (gray)
 
 **Tests (diff):**
-- [ ] Identical strings: all segments are 'equal'
-- [ ] Completely different strings: old is 'removed', new is 'added'
-- [ ] Single word change: correctly shows surrounding context as 'equal'
-- [ ] Empty old + non-empty new: all 'added'
-- [ ] Non-empty old + empty new: all 'removed'
-- [ ] Both empty: empty segments array
-- [ ] Multi-paragraph text: handles newlines correctly
+- [x] Identical strings: all segments are 'equal'
+- [x] Completely different strings: old is 'removed', new is 'added'
+- [x] Single word change: correctly shows surrounding context as 'equal'
+- [x] Empty old + non-empty new: all 'added'
+- [x] Non-empty old + empty new: all 'removed'
+- [x] Both empty: empty segments array
+- [x] Multi-paragraph text: handles newlines correctly
 
 ### 2.6 Database Migration v2 (~1h)
 
