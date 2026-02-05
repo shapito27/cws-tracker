@@ -2,6 +2,17 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.4.0] - 2026-02-05
+
+### Added
+- Phase 1.3: Settings Manager
+  - `SettingsManager` class wrapping `chrome.storage.local` with `get`, `set`, `setMultiple`, `getAll`, `getWithDefaults`
+  - `DEFAULT_SETTINGS` constant with all defaults from PRD Section 4.2 / 5.3.6
+  - Settings validation: `queueDelayMs` >= 30000, `dataRetentionDays` >= 7, `queueJitterMs` >= 0, `dailyScanTime` HH:MM format, `translationLocales` array check
+  - `SettingsValidationError` for clear error reporting
+  - 15 default translation locales (en, es, fr, de, pt_BR, ja, zh_CN, ko, ru, ar, hi, it, nl, pl, tr)
+  - 25 new tests covering defaults, get/set, setMultiple, validation edge cases
+
 ## [0.3.0] - 2026-02-05
 
 ### Added
