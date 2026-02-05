@@ -15,20 +15,25 @@ export function useExtensions() {
   async function getExtensionsByProject(
     projectId: number
   ): Promise<Extension[]> {
-    const project = await db.getProject(projectId);
-    if (!project) return [];
+    try {
+      const project = await db.getProject(projectId);
+      if (!project) return [];
 
-    const allIds = [project.ownExtensionId, ...project.competitorIds];
-    const extensions: Extension[] = [];
+      const allIds = [project.ownExtensionId, ...project.competitorIds];
+      const extensions: Extension[] = [];
 
-    for (const id of allIds) {
-      const ext = await db.getExtension(id);
-      if (ext) {
-        extensions.push(ext);
+      for (const id of allIds) {
+        const ext = await db.getExtension(id);
+        if (ext) {
+          extensions.push(ext);
+        }
       }
-    }
 
-    return extensions;
+      return extensions;
+    } catch (e) {
+      console.error('Failed to get extensions for project:', e);
+      return [];
+    }
   }
 
   /**
@@ -53,7 +58,12 @@ export function useExtensions() {
   async function getLatestSnapshot(
     extensionId: string
   ): Promise<ListingSnapshot | undefined> {
-    return db.getLatestListingSnapshot(extensionId);
+    try {
+      return await db.getLatestListingSnapshot(extensionId);
+    } catch (e) {
+      console.error('Failed to get latest snapshot:', e);
+      return undefined;
+    }
   }
 
   return {

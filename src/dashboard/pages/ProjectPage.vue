@@ -14,6 +14,7 @@ const router = useRouter();
 
 const project = ref<Project | null>(null);
 const loading = ref(true);
+const loadError = ref<string | null>(null);
 const activeTab = ref<'overview' | 'rankings' | 'extensions' | 'keywords' | 'events'>('overview');
 
 const tabs = [
@@ -28,13 +29,19 @@ const projectId = computed(() => Number(route.params.id));
 
 async function loadProject(): Promise<void> {
   loading.value = true;
-  const p = await db.getProject(projectId.value);
-  if (!p) {
-    router.replace({ name: 'home' });
-    return;
+  loadError.value = null;
+  try {
+    const p = await db.getProject(projectId.value);
+    if (!p) {
+      router.replace({ name: 'home' });
+      return;
+    }
+    project.value = p;
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    loading.value = false;
   }
-  project.value = p;
-  loading.value = false;
 }
 
 onMounted(loadProject);
@@ -45,6 +52,16 @@ watch(projectId, loadProject);
 <template>
   <div v-if="loading" class="text-center py-12">
     <p class="text-sm text-gray-500">Loading project...</p>
+  </div>
+
+  <div v-else-if="loadError" class="rounded-lg bg-red-50 border border-red-200 p-6 text-center">
+    <p class="text-sm text-red-700">Failed to load project: {{ loadError }}</p>
+    <button
+      class="mt-3 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700"
+      @click="loadProject"
+    >
+      Retry
+    </button>
   </div>
 
   <div v-else-if="project">

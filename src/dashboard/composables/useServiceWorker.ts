@@ -39,8 +39,8 @@ export function useServiceWorker() {
   });
 
   function handleMessage(message: unknown): void {
+    if (!message || typeof message !== 'object' || !('type' in message)) return;
     const msg = message as ServiceWorkerMessage;
-    if (!msg || typeof msg !== 'object' || !('type' in msg)) return;
 
     switch (msg.type) {
       case 'SCAN_PROGRESS':
