@@ -5,6 +5,31 @@ All notable changes to CWS Tracker will be documented in this file.
 ## [0.13.0] - 2026-02-05
 
 ### Added
+- Phase 2.5: Change Diff View
+  - `src/shared/utils/diff.ts`: Word-level text diff algorithm
+    - `computeTextDiff(oldText, newText)`: Computes word-level diff using LCS (Longest Common Subsequence) algorithm
+    - `DiffSegment` interface with `type: 'equal' | 'added' | 'removed'` and `text` fields
+    - Tokenizes text preserving whitespace, merges consecutive same-type segments
+    - Reconstruction invariant: removed + equal = old text, added + equal = new text
+    - Handles edge cases: both empty (empty array), one empty (all added/removed), identical (all equal)
+  - `src/dashboard/components/comparison/DiffView.vue` (2.5.2): Text diff display component
+    - Props: `oldText` and `newText`
+    - Color-coded rendering: green background for added text, red background with strikethrough for removed text, normal text for equal segments
+    - "No differences found" message when texts are identical
+  - `src/dashboard/components/comparison/PermissionsDiff.vue` (2.5.3): Permission change display component
+    - Props: `oldPermissions` and `newPermissions` string arrays
+    - Added permissions shown in green with `+` prefix and install warning text
+    - Removed permissions shown in red with `-` prefix and install warning text
+    - Unchanged permissions shown in gray badges
+    - Uses `getPermissionWarning()` from permissions utility
+  - Updated `EventsTab.vue`: Expandable event detail with diff views
+    - Click-to-expand on events that have old/new values
+    - Chevron indicator rotates when expanded
+    - Permission change events: shows `PermissionsDiff` component (parses JSON arrays)
+    - Title/description change events: shows `DiffView` component with word-level diff
+    - Other event types: shows generic old/new value display with colored backgrounds
+  - 23 new diff tests: identical strings, completely different strings, single word change, empty inputs (both/old/new), multi-paragraph text, word additions/removals, segment merging, whitespace preservation, special characters, long identical prefix, newline handling, reconstruction invariant
+  - 722 total tests passing, zero type errors
 - Phase 2.4: Keyword Analysis
   - `src/shared/utils/keyword-analysis.ts`: Keyword analysis utility functions
     - `buildKeywordFrequencyMatrix(keywords, snapshots)`: Builds a matrix showing how often each tracked keyword appears in each extension's title, short description, and full description
