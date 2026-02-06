@@ -7,15 +7,31 @@ import { useRankings } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import { ALL_EVENT_TYPES, EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
 import RankChart from '../charts/RankChart.vue';
+import RankHeatmap from '../charts/RankHeatmap.vue';
+import KeywordCoverageChart from '../charts/KeywordCoverageChart.vue';
+import KeywordScatterPlot from '../charts/KeywordScatterPlot.vue';
 import AuditTool from '../ai/AuditTool.vue';
-import type { RankChartSeries } from '../../composables/useRankings';
+import type {
+  RankChartSeries,
+  RankDelta,
+  HeatmapCell,
+  CoverageData,
+  ScatterPoint,
+} from '../../composables/useRankings';
 
 const props = defineProps<{
   project: Project;
 }>();
 
 const { getExtensionsByProject } = useExtensions();
-const { loadRankHistory } = useRankings();
+const {
+  loadRankHistory,
+  loadAllKeywordLatestRanks,
+  loadRankDeltas,
+  buildHeatmapData,
+  buildCoverageData,
+  buildScatterData,
+} = useRankings();
 
 const extensions = ref<Extension[]>([]);
 const keywords = ref<Keyword[]>([]);
@@ -27,6 +43,12 @@ const loading = ref(true);
 const chartLoading = ref(false);
 const chartError = ref<string | null>(null);
 const latestRanks = ref<RankSnapshot[]>([]);
+
+// New visualization data
+const heatmapCells = ref<HeatmapCell[]>([]);
+const coverageData = ref<CoverageData[]>([]);
+const scatterData = ref<ScatterPoint[]>([]);
+const rankDeltas = ref<Map<string, RankDelta>>(new Map());
 
 // Audit tool state
 const showAudit = ref(false);
@@ -69,6 +91,29 @@ function isCompetitorHigher(competitorId: string): boolean {
   return compPos < ownPos;
 }
 
+function getDeltaDisplay(extId: string): string {
+  const d = rankDeltas.value.get(extId);
+  if (!d || d.delta === null) return '';
+  if (d.delta === 0) return '0';
+  return d.delta > 0 ? `+${d.delta}` : String(d.delta);
+}
+
+function getDeltaClasses(extId: string): string {
+  const d = rankDeltas.value.get(extId);
+  if (!d || d.delta === null) return 'text-gray-400';
+  if (d.delta > 0) return 'text-green-600';
+  if (d.delta < 0) return 'text-red-600';
+  return 'text-gray-400';
+}
+
+function getDeltaArrow(extId: string): string {
+  const d = rankDeltas.value.get(extId);
+  if (!d || d.delta === null) return '';
+  if (d.delta > 0) return '\u25B2'; // ▲
+  if (d.delta < 0) return '\u25BC'; // ▼
+  return '\u2013'; // –
+}
+
 function toggleEventType(type: string): void {
   const next = new Set(visibleEventTypes.value);
   if (next.has(type)) {
@@ -87,8 +132,28 @@ onMounted(async () => {
     selectedKeywordId.value = keywords.value[0].id;
   }
 
+  // Load cross-keyword data for heatmap, coverage, and scatter
+  await loadCrossKeywordData();
+
   loading.value = false;
 });
+
+async function loadCrossKeywordData(): Promise<void> {
+  if (keywords.value.length === 0 || extensions.value.length === 0) return;
+
+  try {
+    const allRanks = await loadAllKeywordLatestRanks(keywords.value);
+    const cells = buildHeatmapData(allRanks);
+    heatmapCells.value = cells;
+    coverageData.value = buildCoverageData(cells, extensions.value);
+    scatterData.value = buildScatterData(allRanks, keywords.value, props.project.ownExtensionId);
+  } catch (err) {
+    console.error('Failed to load cross-keyword visualization data:', err);
+    heatmapCells.value = [];
+    coverageData.value = [];
+    scatterData.value = [];
+  }
+}
 
 watch([selectedKeywordId, dateRange], async () => {
   if (selectedKeywordId.value === null) {
@@ -118,6 +183,8 @@ watch([selectedKeywordId, dateRange], async () => {
     // Load latest rank positions for the summary table
     if (selectedKeywordId.value !== null) {
       latestRanks.value = await db.getLatestRankForKeyword(selectedKeywordId.value);
+      // Load deltas for the selected keyword
+      rankDeltas.value = await loadRankDeltas(selectedKeywordId.value, extensions.value);
     }
 
     // Merge all events, sorted by date ascending for consistent annotation order
@@ -222,6 +289,7 @@ watch([selectedKeywordId, dateRange], async () => {
               <tr class="border-b border-gray-200 text-left text-xs font-medium text-gray-500">
                 <th class="py-2 pr-4">Extension</th>
                 <th class="py-2 pr-4">Position</th>
+                <th class="py-2 pr-4">Change</th>
                 <th class="py-2"></th>
               </tr>
             </thead>
@@ -240,6 +308,17 @@ watch([selectedKeywordId, dateRange], async () => {
                 <td class="py-2 pr-4 font-mono text-gray-800">
                   {{ getPosition(ext.id) }}
                 </td>
+                <td class="py-2 pr-4">
+                  <span
+                    v-if="getDeltaDisplay(ext.id)"
+                    class="inline-flex items-center gap-0.5 font-mono text-xs font-medium"
+                    :class="getDeltaClasses(ext.id)"
+                  >
+                    <span>{{ getDeltaArrow(ext.id) }}</span>
+                    <span>{{ getDeltaDisplay(ext.id) }}</span>
+                  </span>
+                  <span v-else class="text-xs text-gray-300">&mdash;</span>
+                </td>
                 <td class="py-2 text-right">
                   <button
                     v-if="ext.id !== project.ownExtensionId && isCompetitorHigher(ext.id)"
@@ -253,6 +332,29 @@ watch([selectedKeywordId, dateRange], async () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Rank Position Heatmap (all keywords × all extensions) -->
+      <div v-if="heatmapCells.length > 0" class="mt-6">
+        <RankHeatmap
+          :keywords="keywords"
+          :extensions="extensions"
+          :cells="heatmapCells"
+          :own-extension-id="project.ownExtensionId"
+        />
+      </div>
+
+      <!-- Keyword Coverage + Scatter Plot side by side -->
+      <div v-if="coverageData.length > 0 || scatterData.length > 0" class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <KeywordCoverageChart
+          v-if="coverageData.length > 0"
+          :data="coverageData"
+          :own-extension-id="project.ownExtensionId"
+        />
+        <KeywordScatterPlot
+          v-if="scatterData.length > 0"
+          :data="scatterData"
+        />
       </div>
 
       <!-- Audit Tool panel -->
