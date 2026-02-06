@@ -312,6 +312,52 @@ function createTabs() {
   };
 }
 
+// --- chrome.permissions ---
+
+function createPermissions() {
+  const granted: Set<string> = new Set();
+
+  return {
+    _granted: granted,
+
+    async request(permissions: { origins?: string[]; permissions?: string[] }): Promise<boolean> {
+      recordCall('permissions.request', [permissions]);
+      if (permissions.origins) {
+        for (const origin of permissions.origins) {
+          granted.add(origin);
+        }
+      }
+      if (permissions.permissions) {
+        for (const perm of permissions.permissions) {
+          granted.add(perm);
+        }
+      }
+      return true;
+    },
+
+    async contains(permissions: { origins?: string[]; permissions?: string[] }): Promise<boolean> {
+      recordCall('permissions.contains', [permissions]);
+      const all = [...(permissions.origins ?? []), ...(permissions.permissions ?? [])];
+      return all.every((p) => granted.has(p));
+    },
+
+    async remove(permissions: { origins?: string[]; permissions?: string[] }): Promise<boolean> {
+      recordCall('permissions.remove', [permissions]);
+      if (permissions.origins) {
+        for (const origin of permissions.origins) {
+          granted.delete(origin);
+        }
+      }
+      if (permissions.permissions) {
+        for (const perm of permissions.permissions) {
+          granted.delete(perm);
+        }
+      }
+      return true;
+    },
+  };
+}
+
 // --- Assemble mock ---
 
 export function createChromeMock() {
@@ -323,6 +369,7 @@ export function createChromeMock() {
     runtime: createRuntime(),
     action: createAction(),
     tabs: createTabs(),
+    permissions: createPermissions(),
   };
 }
 
@@ -349,6 +396,9 @@ export function resetChromeMock(): void {
   // Reset runtime listeners
   chromeMock.runtime._messageListeners.length = 0;
   chromeMock.runtime._installedListeners.length = 0;
+
+  // Reset permissions
+  chromeMock.permissions._granted.clear();
 }
 
 // Install globally
