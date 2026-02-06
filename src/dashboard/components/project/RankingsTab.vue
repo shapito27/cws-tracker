@@ -147,8 +147,8 @@ async function loadCrossKeywordData(): Promise<void> {
     heatmapCells.value = cells;
     coverageData.value = buildCoverageData(cells, extensions.value);
     scatterData.value = buildScatterData(allRanks, keywords.value, props.project.ownExtensionId);
-  } catch {
-    // Non-critical: don't block the page on visualization errors
+  } catch (err) {
+    console.error('Failed to load cross-keyword visualization data:', err);
     heatmapCells.value = [];
     coverageData.value = [];
     scatterData.value = [];
