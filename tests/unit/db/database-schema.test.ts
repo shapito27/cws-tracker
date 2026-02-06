@@ -162,6 +162,7 @@ describe('CWSDatabase - Schema & CRUD (Phase 1.2.1 & 1.2.2)', () => {
       expect(db.isOpen()).toBe(true);
       const tableNames = db.tables.map((t) => t.name).sort();
       expect(tableNames).toEqual([
+        'audit_cache',
         'events',
         'extensions',
         'keywords',
