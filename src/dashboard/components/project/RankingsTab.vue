@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
-import type { Project, Extension, Keyword, EventRecord } from '@/shared/types';
+import { ref, computed, onMounted, watch } from 'vue';
+import type { Project, Extension, Keyword, EventRecord, RankSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useRankings } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import { ALL_EVENT_TYPES, EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
 import RankChart from '../charts/RankChart.vue';
+import AuditTool from '../ai/AuditTool.vue';
 import type { RankChartSeries } from '../../composables/useRankings';
 
 const props = defineProps<{
@@ -25,9 +26,48 @@ const events = ref<EventRecord[]>([]);
 const loading = ref(true);
 const chartLoading = ref(false);
 const chartError = ref<string | null>(null);
+const latestRanks = ref<RankSnapshot[]>([]);
+
+// Audit tool state
+const showAudit = ref(false);
+const auditKeywordId = ref<number | undefined>(undefined);
+const auditCompetitorId = ref<string | undefined>(undefined);
 
 /** Which event types are currently visible as annotations. */
 const visibleEventTypes = ref<Set<string>>(new Set(ALL_EVENT_TYPES));
+
+/** Latest positions per extension for the selected keyword. */
+const currentPositions = computed(() => {
+  const map = new Map<string, number | null>();
+  for (const rank of latestRanks.value) {
+    map.set(rank.extensionId, rank.position);
+  }
+  return map;
+});
+
+function openAudit(competitorId: string): void {
+  auditKeywordId.value = selectedKeywordId.value ?? undefined;
+  auditCompetitorId.value = competitorId;
+  showAudit.value = true;
+}
+
+function closeAudit(): void {
+  showAudit.value = false;
+}
+
+function getPosition(extId: string): string {
+  const pos = currentPositions.value.get(extId);
+  if (pos === undefined) return '-';
+  return pos !== null ? `#${pos}` : '30+';
+}
+
+function isCompetitorHigher(competitorId: string): boolean {
+  const ownPos = currentPositions.value.get(props.project.ownExtensionId);
+  const compPos = currentPositions.value.get(competitorId);
+  if (compPos === undefined || compPos === null) return false;
+  if (ownPos === undefined || ownPos === null) return true;
+  return compPos < ownPos;
+}
 
 function toggleEventType(type: string): void {
   const next = new Set(visibleEventTypes.value);
@@ -74,6 +114,11 @@ watch([selectedKeywordId, dateRange], async () => {
     ]);
 
     series.value = rankSeries;
+
+    // Load latest rank positions for the summary table
+    if (selectedKeywordId.value !== null) {
+      latestRanks.value = await db.getLatestRankForKeyword(selectedKeywordId.value);
+    }
 
     // Merge all events, sorted by date ascending for consistent annotation order
     const allEvents: EventRecord[] = eventArrays.flat();
@@ -167,6 +212,56 @@ watch([selectedKeywordId, dateRange], async () => {
           :series="series"
           :events="events"
           :visible-event-types="visibleEventTypes"
+        />
+
+        <!-- Current positions table with "Why higher?" buttons -->
+        <div v-if="latestRanks.length > 0" class="mt-6">
+          <h4 class="mb-2 text-sm font-semibold text-gray-700">Current Positions</h4>
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-gray-200 text-left text-xs font-medium text-gray-500">
+                <th class="py-2 pr-4">Extension</th>
+                <th class="py-2 pr-4">Position</th>
+                <th class="py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="ext in extensions"
+                :key="ext.id"
+                class="border-b border-gray-100"
+              >
+                <td class="py-2 pr-4">
+                  <span :class="ext.id === project.ownExtensionId ? 'font-semibold text-blue-700' : 'text-gray-700'">
+                    {{ ext.name || ext.id }}
+                  </span>
+                  <span v-if="ext.id === project.ownExtensionId" class="ml-1 text-xs text-blue-500">(yours)</span>
+                </td>
+                <td class="py-2 pr-4 font-mono text-gray-800">
+                  {{ getPosition(ext.id) }}
+                </td>
+                <td class="py-2 text-right">
+                  <button
+                    v-if="ext.id !== project.ownExtensionId && isCompetitorHigher(ext.id)"
+                    class="rounded-md border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 hover:bg-purple-100"
+                    @click="openAudit(ext.id)"
+                  >
+                    Why higher?
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Audit Tool panel -->
+      <div v-if="showAudit" class="mt-6">
+        <AuditTool
+          :project="project"
+          :pre-selected-keyword-id="auditKeywordId"
+          :pre-selected-competitor-id="auditCompetitorId"
+          @close="closeAudit"
         />
       </div>
     </div>

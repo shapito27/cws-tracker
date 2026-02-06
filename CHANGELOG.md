@@ -2,6 +2,45 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.15.0] - 2026-02-06
+
+### Added
+- Phase 3.1: OpenAI API Client
+  - `src/shared/utils/openai.ts`: OpenAI API client wrapper
+    - `OpenAIClient` class with constructor accepting API key
+    - `chat(messages, options)` method wrapping `/v1/chat/completions` endpoint, defaults to GPT-4o model
+    - `estimateTokens(text)` static method: approximates token count (~4 chars per token)
+    - `estimateCost(inputTokens, outputTokens)` static method: calculates cost using GPT-4o pricing ($2.50/1M input, $10.00/1M output)
+    - `OpenAIError` class with typed error codes: `invalid_api_key`, `rate_limited`, `no_credits`, `connection_failed`, `api_error`
+  - Error handling for HTTP 401 (invalid API key), 429 (rate limited), 402 (insufficient credits), `insufficient_quota` error code, and network failures
+  - `optional_host_permissions` added to manifest for `https://api.openai.com/*` (requested at runtime when user enters API key)
+  - `chrome.permissions` mock added to test infrastructure
+  - 23 new tests: successful completion, custom options, missing usage data, empty choices, 401/429/402/quota/network/generic errors, token estimation (empty/short/long/rounding), cost calculation (zero/typical/1M tokens)
+- Phase 3.2: Keyword Audit - "Why Is Competitor Higher?"
+  - `src/shared/utils/keyword-audit.ts`: Audit logic and prompt construction
+    - `buildAuditPrompt(input)`: Constructs system + user messages including both listings' data, keyword, positions, metrics, quality scores, permission risk
+    - `estimateAuditTokens(input)`: Pre-execution cost estimate shown to user
+    - `parseAuditResponse(raw)`: Parses structured JSON response with relevance analysis, metric comparison, and prioritized recommendations; graceful fallback for non-JSON responses
+    - `buildCacheKey(keyword, ownExtId, compExtId, date)`: Deterministic daily cache key
+    - `runKeywordAudit(client, input)`: Orchestrates prompt building, API call, response parsing, and cost calculation
+  - `src/dashboard/components/ai/AuditTool.vue`: Full audit UI component
+    - Keyword selector dropdown showing current positions
+    - Competitor selector dropdown
+    - Cost estimate display before execution
+    - "Run Audit" button with loading state
+    - Results display: relevance analysis, metric comparison, color-coded prioritized recommendations (high/medium/low)
+    - Cache indicator for previously-run audits
+    - Error handling: no API key, API errors, missing listing data
+  - Updated `RankingsTab.vue`: Current positions table with contextual "Why higher?" button
+    - Shows all extensions' current positions for selected keyword
+    - Purple "Why higher?" button appears next to competitors ranked higher than user's extension
+    - Opens AuditTool pre-populated with selected keyword and competitor
+  - Database v2 migration: `audit_cache` table with `cacheKey` index for storing audit results
+    - `getCachedAudit(cacheKey)`, `saveAuditResult(result)`, `clearAuditCache()` methods
+    - Daily cache key prevents redundant API calls for same inputs on same day
+  - 23 new keyword audit tests: prompt field inclusion (both listings, keyword, positions, metrics, quality scores), null positions/rating/quality score handling, description truncation, JSON format, token estimation, response parsing (valid JSON, markdown fences, invalid JSON fallback, empty response, missing fields, invalid priority, malformed recommendations), cache key determinism/uniqueness, audit execution, DB cache CRUD
+  - 809 total tests passing, zero type errors
+
 ## [0.14.0] - 2026-02-05
 
 ### Added
