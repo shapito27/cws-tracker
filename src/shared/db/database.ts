@@ -23,6 +23,7 @@ import type {
   TranslationSnapshot,
   QueueJobStatus,
 } from '../types';
+import type { CachedAuditResult } from '../utils/keyword-audit';
 
 export class CWSDatabase extends Dexie {
   projects!: Table<Project, number>;
@@ -33,6 +34,7 @@ export class CWSDatabase extends Dexie {
   events!: Table<EventRecord, number>;
   queue!: Table<QueueJob, number>;
   translation_snapshots!: Table<TranslationSnapshot, number>;
+  audit_cache!: Table<CachedAuditResult, number>;
 
   constructor(name = 'CWSTrackerDB') {
     super(name);
@@ -46,6 +48,11 @@ export class CWSDatabase extends Dexie {
       events: '++id, [extensionId+date]',
       queue: '++id, [status+scheduledAt], status',
       translation_snapshots: '++id, [extensionId+date]',
+    });
+
+    // v2: Add audit_cache table for AI keyword audit results
+    this.version(2).stores({
+      audit_cache: '++id, cacheKey',
     });
   }
 
@@ -314,6 +321,22 @@ export class CWSDatabase extends Dexie {
       count = ids.length;
     });
     return count;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Audit cache methods
+  // ---------------------------------------------------------------------------
+
+  async getCachedAudit(cacheKey: string): Promise<CachedAuditResult | undefined> {
+    return this.audit_cache.where('cacheKey').equals(cacheKey).first();
+  }
+
+  async saveAuditResult(result: CachedAuditResult): Promise<number> {
+    return this.audit_cache.put(result);
+  }
+
+  async clearAuditCache(): Promise<void> {
+    await this.audit_cache.clear();
   }
 
   // ---------------------------------------------------------------------------

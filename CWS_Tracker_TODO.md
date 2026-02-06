@@ -807,46 +807,46 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 3.1 OpenAI API Client (~4h)
 
-- [ ] **3.1.1** Create `src/shared/utils/openai.ts`:
+- [x] **3.1.1** Create `src/shared/utils/openai.ts`:
   - `OpenAIClient` class
   - Constructor takes API key
   - `chat(messages, options)` - wrapper for `/v1/chat/completions` endpoint
   - `estimateTokens(text)` - rough token count (chars / 4)
   - `estimateCost(inputTokens, outputTokens)` - cost estimate based on GPT-4o pricing
-- [ ] **3.1.2** Implement error handling:
+- [x] **3.1.2** Implement error handling:
   - 401: invalid API key
   - 429: rate limited, suggest waiting
   - 402/insufficient_quota: no credits
   - Network error: generic retry message
-- [ ] **3.1.3** Request `api.openai.com` host permission at runtime via `chrome.permissions.request()` when user enters API key
+- [x] **3.1.3** Request `api.openai.com` host permission at runtime via `chrome.permissions.request()` when user enters API key
 
 **Tests (mock fetch):**
-- [ ] Successful chat: returns parsed response content
-- [ ] 401 error: throws specific "invalid API key" error
-- [ ] 429 error: throws specific "rate limited" error
-- [ ] Network error: throws specific "connection failed" error
-- [ ] `estimateTokens()`: roughly correct for known strings
-- [ ] `estimateCost()`: matches expected GPT-4o pricing
+- [x] Successful chat: returns parsed response content
+- [x] 401 error: throws specific "invalid API key" error
+- [x] 429 error: throws specific "rate limited" error
+- [x] Network error: throws specific "connection failed" error
+- [x] `estimateTokens()`: roughly correct for known strings
+- [x] `estimateCost()`: matches expected GPT-4o pricing
 
 ### 3.2 Keyword Audit - "Why Is Competitor Higher?" (~6h) [depends: 3.1]
 
-- [ ] **3.2.1** Create `src/dashboard/components/ai/AuditTool.vue`:
+- [x] **3.2.1** Create `src/dashboard/components/ai/AuditTool.vue`:
   - Selector: keyword + competitor extension
   - "Run Audit" button with cost estimate
   - Results display area
-- [ ] **3.2.2** Create prompt template for audit:
+- [x] **3.2.2** Create prompt template for audit:
   - Include both listings' data (title, descriptions, metrics)
   - Include keyword and ranking positions
   - Ask for structured analysis: relevance factors, metric advantages, actionable recommendations
-- [ ] **3.2.3** Parse and display structured AI response
-- [ ] **3.2.4** Add "Why higher?" contextual button in rankings table next to each competitor's rank
-- [ ] **3.2.5** Cache audit results in IndexedDB (avoid re-running for same inputs)
+- [x] **3.2.3** Parse and display structured AI response
+- [x] **3.2.4** Add "Why higher?" contextual button in rankings table next to each competitor's rank
+- [x] **3.2.5** Cache audit results in IndexedDB (avoid re-running for same inputs)
 
 **Tests:**
-- [ ] Prompt includes all required data fields
-- [ ] Token estimate is shown before running
-- [ ] Cached result returned on re-run with same inputs
-- [ ] Error states: API key missing, API error, empty response
+- [x] Prompt includes all required data fields
+- [x] Token estimate is shown before running
+- [x] Cached result returned on re-run with same inputs
+- [x] Error states: API key missing, API error, empty response
 
 ### 3.3 AI Title & Description Generator (~4h) [depends: 3.1]
 
