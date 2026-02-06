@@ -110,12 +110,13 @@ export async function loadAllKeywordLatestRanks(
   keywords: Keyword[]
 ): Promise<Map<number, RankSnapshot[]>> {
   const result = new Map<number, RankSnapshot[]>();
-  for (const kw of keywords) {
-    if (kw.id !== undefined) {
-      const ranks = await db.getLatestRankForKeyword(kw.id);
-      result.set(kw.id, ranks);
-    }
-  }
+  const withId = keywords.filter((kw) => kw.id !== undefined);
+  const ranksArray = await Promise.all(
+    withId.map((kw) => db.getLatestRankForKeyword(kw.id!))
+  );
+  withId.forEach((kw, idx) => {
+    result.set(kw.id!, ranksArray[idx]);
+  });
   return result;
 }
 
@@ -130,9 +131,12 @@ export async function loadRankDeltas(
   const startDate = daysAgo(90);
   const endDate = today();
 
-  for (const ext of extensions) {
-    const snapshots = await db.getRankSnapshots(keywordId, ext.id, startDate, endDate);
-    const sorted = [...snapshots].sort((a, b) => b.date.localeCompare(a.date));
+  const snapshotsArray = await Promise.all(
+    extensions.map((ext) => db.getRankSnapshots(keywordId, ext.id, startDate, endDate))
+  );
+
+  extensions.forEach((ext, idx) => {
+    const sorted = [...snapshotsArray[idx]].sort((a, b) => b.date.localeCompare(a.date));
 
     const current = sorted.length > 0 ? sorted[0].position : null;
     const previous = sorted.length > 1 ? sorted[1].position : null;
@@ -143,7 +147,7 @@ export async function loadRankDeltas(
     }
 
     result.set(ext.id, { current, previous, delta });
-  }
+  });
 
   return result;
 }

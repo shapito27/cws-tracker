@@ -3,6 +3,15 @@ import { computed } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
 import type { ScatterPoint } from '../../composables/useRankings';
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 const props = defineProps<{
   data: ScatterPoint[];
 }>();
@@ -55,7 +64,7 @@ const chartOptions = computed(() => ({
       if (!point) return '';
       const pos = point.position !== null ? `#${point.position}` : '30+';
       return `<div class="px-3 py-2 text-xs">
-        <strong>${point.keywordText}</strong><br/>
+        <strong>${escapeHtml(point.keywordText)}</strong><br/>
         Position: ${pos}<br/>
         Competition: ${point.totalResults} results
       </div>`;
@@ -114,7 +123,12 @@ const chartSeries = computed(() => [
       />
       <div v-if="unrankedPoints.length > 0" class="mt-3 text-xs text-gray-500">
         <span class="font-medium">Not ranked (30+):</span>
-        {{ unrankedPoints.map(p => p.keywordText).join(', ') }}
+        <span v-if="unrankedPoints.length <= 5">
+          {{ unrankedPoints.map(p => p.keywordText).join(', ') }}
+        </span>
+        <span v-else>
+          {{ unrankedPoints.length }} keywords
+        </span>
       </div>
     </template>
   </div>
