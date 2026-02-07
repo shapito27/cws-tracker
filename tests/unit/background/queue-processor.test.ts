@@ -550,6 +550,159 @@ describe('Queue Processor', () => {
     });
   });
 
+  describe('scan logging', () => {
+    it('listing_scan success: writes scan log with info level', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs).toHaveLength(1);
+      expect(logs[0].level).toBe('info');
+      expect(logs[0].jobType).toBe('listing_scan');
+      expect(logs[0].responseStatus).toBe(200);
+      expect(logs[0].responsePreview).toBe(MOCK_LISTING_HTML.slice(0, 100));
+      expect(logs[0].durationMs).toBeGreaterThanOrEqual(0);
+      expect(logs[0].error).toBeNull();
+      expect(logs[0].requestUrl).toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+    });
+
+    it('keyword_scan success: writes scan log', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeKeywordJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response('mock-search-results', { status: 200 })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs).toHaveLength(1);
+      expect(logs[0].level).toBe('info');
+      expect(logs[0].jobType).toBe('keyword_scan');
+      expect(logs[0].jobDetail).toContain('ad blocker');
+    });
+
+    it('HTTP error: writes scan log with error level', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response('', { status: 500, statusText: 'Internal Server Error' })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs).toHaveLength(1);
+      expect(logs[0].level).toBe('error');
+      expect(logs[0].responseStatus).toBe(500);
+      expect(logs[0].error).toContain('500');
+    });
+
+    it('network error: writes scan log with error level and null status', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockRejectedValue(
+        new TypeError('Failed to fetch')
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs).toHaveLength(1);
+      expect(logs[0].level).toBe('error');
+      expect(logs[0].responseStatus).toBeNull();
+      expect(logs[0].error).toContain('Failed to fetch');
+    });
+
+    it('response preview is truncated to 100 characters', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const longHtml = 'x'.repeat(500);
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(longHtml, { status: 200 })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs[0].responsePreview).toHaveLength(100);
+    });
+
+    it('scan log records correct jobId', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      const jobs = await testDb.queue.toArray();
+      expect(logs[0].jobId).toBe(jobs[0].id);
+    });
+
+    it('scan log timestamp is a valid ISO string', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      const parsed = new Date(logs[0].timestamp);
+      expect(parsed.toISOString()).toBe(logs[0].timestamp);
+    });
+
+    it('HTTP 404 on listing_scan: writes warn-level log (not error)', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response('', { status: 404, statusText: 'Not Found' })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs).toHaveLength(1);
+      // 404 goes through fetchCWSPage successfully (returns cwsStatus=404)
+      // so it's logged as warn (cwsStatus >= 400)
+      expect(logs[0].level).toBe('warn');
+      expect(logs[0].responseStatus).toBe(404);
+    });
+  });
+
   describe('normal delay', () => {
     it('delay is within expected range (base +/- jitter)', async () => {
       const { processNextJob } = await import('@/background/queue-processor');

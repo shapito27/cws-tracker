@@ -363,15 +363,20 @@ export class CWSDatabase extends Dexie {
   }
 
   async cleanupOldScanLogs(beforeDate: Date): Promise<number> {
-    const old = await this.scan_logs
-      .where('timestamp')
-      .below(beforeDate)
-      .toArray();
-    const ids = old.map((l) => l.id!);
-    if (ids.length > 0) {
-      await this.scan_logs.bulkDelete(ids);
-    }
-    return ids.length;
+    let count = 0;
+    const cutoff = beforeDate.toISOString();
+    await this.transaction('rw', this.scan_logs, async () => {
+      const old = await this.scan_logs
+        .where('timestamp')
+        .below(cutoff)
+        .toArray();
+      const ids = old.map((l) => l.id!);
+      if (ids.length > 0) {
+        await this.scan_logs.bulkDelete(ids);
+      }
+      count = ids.length;
+    });
+    return count;
   }
 
   // ---------------------------------------------------------------------------
