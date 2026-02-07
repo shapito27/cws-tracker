@@ -44,7 +44,7 @@ const eventAnnotations = computed(() => {
   return props.events
     .filter((e) => props.visibleEventTypes.has(e.type) && chartDates.has(e.date))
     .map((e) => ({
-      x: e.date,
+      x: new Date(e.date + 'T00:00:00').getTime(),
       borderColor: EVENT_TYPE_COLORS[e.type],
       strokeDashArray: 0,
       label: {
@@ -72,9 +72,10 @@ const chartOptions = computed(() => ({
   },
   colors: CHART_COLORS.slice(0, props.series.length),
   xaxis: {
-    type: 'category' as const,
+    type: 'datetime' as const,
     labels: {
       style: { fontSize: '11px', colors: '#6b7280' },
+      format: 'yyyy-MM-dd',
     },
   },
   yaxis: {
@@ -133,7 +134,7 @@ const chartSeries = computed(() =>
   props.series.map((s) => ({
     name: s.name,
     data: s.data.map((d) => ({
-      x: d.x,
+      x: new Date(d.x + 'T00:00:00').getTime(),
       // ApexCharts shows null as gap. For "not ranked", use 31 to show at bottom.
       y: d.y === null ? 31 : d.y,
     })),
