@@ -214,27 +214,25 @@ export async function loadOwnExtensionRankHistory(
   startDate: string,
   endDate: string
 ): Promise<RankChartSeries[]> {
+  const withId = keywords.filter((kw) => kw.id !== undefined);
+
+  const snapshotsArray = await Promise.all(
+    withId.map((kw) =>
+      db.getRankSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+    )
+  );
+
   const series: RankChartSeries[] = [];
-
-  for (const kw of keywords) {
-    if (kw.id === undefined) continue;
-
-    const snapshots = await db.getRankSnapshots(
-      kw.id,
-      ownExtensionId,
-      startDate,
-      endDate
-    );
-
-    const data = transformSnapshots(snapshots);
-    if (data.length === 0) continue;
+  withId.forEach((kw, idx) => {
+    const data = transformSnapshots(snapshotsArray[idx]);
+    if (data.length === 0) return;
 
     series.push({
       name: kw.text,
-      extensionId: String(kw.id),
+      extensionId: ownExtensionId,
       data,
     });
-  }
+  });
 
   return series;
 }
