@@ -363,6 +363,17 @@ describe('listingParserV1', () => {
       expect(result.rating).toBeNull();
       expect(result.ratingCount).toBe(0);
     });
+
+    it('returns null rating when ratingCount is null even if rating is numeric', () => {
+      const html = loadFixture('cws-detail-en.html');
+      const modified = html.replace(
+        '4.697287542998929,35466,',
+        '4.5,null,',
+      );
+      const result = listingParserV1.parse(modified);
+      expect(result.rating).toBeNull();
+      expect(result.ratingCount).toBe(0);
+    });
   });
 
   describe('edge cases', () => {

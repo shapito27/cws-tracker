@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.15.2] - 2026-02-07
+
+### Fixed
+- Listing parser crash when CWS returns `null` for rating/ratingCount fields on extensions with no ratings yet. Parser now gracefully handles `null` values, setting `rating` to `null` and `ratingCount` to `0`.
+
 ## [0.15.1] - 2026-02-07
 
 ### Fixed
