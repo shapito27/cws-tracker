@@ -65,6 +65,9 @@ const MAX_BACKOFF_MS = 600_000;
 /** Base delay for retry backoff (2 minutes). */
 const RETRY_BASE_DELAY_MS = 120_000;
 
+/** Maximum length of response body preview stored in scan logs. */
+const SCAN_LOG_PREVIEW_LENGTH = 100;
+
 // ---------------------------------------------------------------------------
 // CWS Fetch (proxy-aware)
 // ---------------------------------------------------------------------------
@@ -132,6 +135,7 @@ function buildRequestUrl(
     const proxyUrl = new URL(`/${type}`, settings.proxyUrl);
     if (params.id) proxyUrl.searchParams.set('id', params.id);
     if (params.q) proxyUrl.searchParams.set('q', params.q);
+    if (settings.proxyApiKey) proxyUrl.searchParams.set('key', '[REDACTED]');
     return proxyUrl.toString();
   }
   const baseUrl = type === 'detail' ? CWS_DETAIL_URL : CWS_SEARCH_URL;
@@ -172,13 +176,13 @@ async function fetchCWSPageWithLogging(
     const level: ScanLogLevel = result.cwsStatus >= 400 ? 'warn' : 'info';
 
     await writeScanLog({
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       jobId: job.id ?? null,
       jobType: job.type,
       level,
       requestUrl,
       responseStatus: result.cwsStatus,
-      responsePreview: result.html.slice(0, 100),
+      responsePreview: result.html.slice(0, SCAN_LOG_PREVIEW_LENGTH),
       durationMs,
       jobDetail,
       error: null,
@@ -191,7 +195,7 @@ async function fetchCWSPageWithLogging(
     const statusCode = error instanceof HttpError ? error.statusCode : null;
 
     await writeScanLog({
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       jobId: job.id ?? null,
       jobType: job.type,
       level: 'error',

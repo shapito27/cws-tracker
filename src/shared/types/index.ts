@@ -304,8 +304,8 @@ export type ScanLogLevel = 'info' | 'warn' | 'error';
 export interface ScanLog {
   /** Auto-increment primary key. Omit when creating. */
   id?: number;
-  /** Timestamp of the log entry. */
-  timestamp: Date;
+  /** ISO 8601 timestamp string (e.g. '2026-02-07T14:30:00.000Z'). Indexed. */
+  timestamp: string;
   /** Queue job ID that produced this log (if applicable). */
   jobId: number | null;
   /** Job type (listing_scan, keyword_scan, etc.). */
