@@ -80,6 +80,9 @@ export async function handleDailyScanAlarm(
   const failedBefore = new Date(now.getTime() - FAILED_RETENTION_DAYS * 24 * 60 * 60 * 1000);
   await db.cleanupOldJobs(completedBefore, failedBefore);
 
+  // Clean up scan logs older than 7 days
+  await db.cleanupOldScanLogs(completedBefore);
+
   // Build jobs from all projects
   const projects = await db.getAllProjects();
   const extensions = await db.extensions.toArray();
