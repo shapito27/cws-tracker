@@ -35,6 +35,8 @@ import type {
   Extension,
   Keyword,
   Settings,
+  ScanLog,
+  ScanLogLevel,
 } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -112,6 +114,97 @@ async function fetchCWSPage(
     throw new HttpError(response.status, response.statusText);
   }
   return { html: await response.text(), cwsStatus: response.status };
+}
+
+// ---------------------------------------------------------------------------
+// Scan Logging
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the URL string that fetchCWSPage will request, for logging purposes.
+ */
+function buildRequestUrl(
+  type: 'detail' | 'search',
+  params: { id?: string; q?: string },
+  settings: Settings
+): string {
+  if (settings.proxyUrl) {
+    const proxyUrl = new URL(`/${type}`, settings.proxyUrl);
+    if (params.id) proxyUrl.searchParams.set('id', params.id);
+    if (params.q) proxyUrl.searchParams.set('q', params.q);
+    return proxyUrl.toString();
+  }
+  const baseUrl = type === 'detail' ? CWS_DETAIL_URL : CWS_SEARCH_URL;
+  const path = type === 'detail' ? params.id! : encodeURIComponent(params.q!);
+  return `${baseUrl}${path}`;
+}
+
+/**
+ * Persist a scan log entry to IndexedDB. Failures are swallowed so logging
+ * never breaks the scan pipeline.
+ */
+async function writeScanLog(log: ScanLog): Promise<void> {
+  try {
+    await db.saveScanLog(log);
+  } catch {
+    // Logging must never break the scan pipeline
+  }
+}
+
+/**
+ * Fetch a CWS page with timing & logging. Wraps fetchCWSPage and records
+ * request URL, response status, truncated body preview, and duration.
+ */
+async function fetchCWSPageWithLogging(
+  type: 'detail' | 'search',
+  params: { id?: string; q?: string },
+  settings: Settings,
+  fetchPage: (url: string) => Promise<Response>,
+  job: QueueJob
+): Promise<CWSFetchResult> {
+  const requestUrl = buildRequestUrl(type, params, settings);
+  const jobDetail = getJobDescription(job);
+  const start = Date.now();
+
+  try {
+    const result = await fetchCWSPage(type, params, settings, fetchPage);
+    const durationMs = Date.now() - start;
+    const level: ScanLogLevel = result.cwsStatus >= 400 ? 'warn' : 'info';
+
+    await writeScanLog({
+      timestamp: new Date(),
+      jobId: job.id ?? null,
+      jobType: job.type,
+      level,
+      requestUrl,
+      responseStatus: result.cwsStatus,
+      responsePreview: result.html.slice(0, 100),
+      durationMs,
+      jobDetail,
+      error: null,
+    });
+
+    return result;
+  } catch (error) {
+    const durationMs = Date.now() - start;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const statusCode = error instanceof HttpError ? error.statusCode : null;
+
+    await writeScanLog({
+      timestamp: new Date(),
+      jobId: job.id ?? null,
+      jobType: job.type,
+      level: 'error',
+      requestUrl,
+      responseStatus: statusCode,
+      responsePreview: '',
+      durationMs,
+      jobDetail,
+      error: errorMessage,
+    });
+
+    throw error;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -214,8 +307,8 @@ async function processListingScan(
   const settings = await deps.settings.getWithDefaults();
   const parser = getListingParser(settings.parserVersion);
 
-  const { html, cwsStatus } = await fetchCWSPage(
-    'detail', { id: extensionId }, settings, deps.fetchPage
+  const { html, cwsStatus } = await fetchCWSPageWithLogging(
+    'detail', { id: extensionId }, settings, deps.fetchPage, job
   );
 
   if (cwsStatus === 404) {
@@ -281,8 +374,8 @@ async function processKeywordScan(
   const settings = await deps.settings.getWithDefaults();
   const parser = getSearchParser(settings.parserVersion);
 
-  const { html, cwsStatus } = await fetchCWSPage(
-    'search', { q: keyword }, settings, deps.fetchPage
+  const { html, cwsStatus } = await fetchCWSPageWithLogging(
+    'search', { q: keyword }, settings, deps.fetchPage, job
   );
 
   if (cwsStatus >= 400) {

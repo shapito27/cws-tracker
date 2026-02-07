@@ -22,6 +22,7 @@ import type {
   QueueJob,
   TranslationSnapshot,
   QueueJobStatus,
+  ScanLog,
 } from '../types';
 import type { CachedAuditResult } from '../utils/keyword-audit';
 
@@ -35,6 +36,7 @@ export class CWSDatabase extends Dexie {
   queue!: Table<QueueJob, number>;
   translation_snapshots!: Table<TranslationSnapshot, number>;
   audit_cache!: Table<CachedAuditResult, number>;
+  scan_logs!: Table<ScanLog, number>;
 
   constructor(name = 'CWSTrackerDB') {
     super(name);
@@ -53,6 +55,11 @@ export class CWSDatabase extends Dexie {
     // v2: Add audit_cache table for AI keyword audit results
     this.version(2).stores({
       audit_cache: '++id, cacheKey',
+    });
+
+    // v3: Add scan_logs table for request/response logging
+    this.version(3).stores({
+      scan_logs: '++id, timestamp, jobId',
     });
   }
 
@@ -337,6 +344,34 @@ export class CWSDatabase extends Dexie {
 
   async clearAuditCache(): Promise<void> {
     await this.audit_cache.clear();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Scan log methods
+  // ---------------------------------------------------------------------------
+
+  async saveScanLog(log: ScanLog): Promise<number> {
+    return this.scan_logs.put(log);
+  }
+
+  async getRecentScanLogs(limit: number): Promise<ScanLog[]> {
+    return this.scan_logs.orderBy('id').reverse().limit(limit).toArray();
+  }
+
+  async getScanLogsByJob(jobId: number): Promise<ScanLog[]> {
+    return this.scan_logs.where('jobId').equals(jobId).toArray();
+  }
+
+  async cleanupOldScanLogs(beforeDate: Date): Promise<number> {
+    const old = await this.scan_logs
+      .where('timestamp')
+      .below(beforeDate)
+      .toArray();
+    const ids = old.map((l) => l.id!);
+    if (ids.length > 0) {
+      await this.scan_logs.bulkDelete(ids);
+    }
+    return ids.length;
   }
 
   // ---------------------------------------------------------------------------

@@ -317,7 +317,7 @@ describe('Phase 2.6 - Database Migration v2 Verification', () => {
   });
 
   describe('v2 schema adds audit_cache table', () => {
-    it('all 9 stores exist in v2', async () => {
+    it('all 10 stores exist in v3', async () => {
       await db.open();
       const tableNames = db.tables.map((t) => t.name).sort();
       expect(tableNames).toEqual([
@@ -329,13 +329,14 @@ describe('Phase 2.6 - Database Migration v2 Verification', () => {
         'projects',
         'queue',
         'rank_snapshots',
+        'scan_logs',
         'translation_snapshots',
       ]);
     });
 
-    it('schema version is 2', async () => {
+    it('schema version is 3', async () => {
       await db.open();
-      expect(db.verno).toBe(2);
+      expect(db.verno).toBe(3);
     });
 
     it('populated v1 data is fully usable for all Phase 2 features', async () => {
