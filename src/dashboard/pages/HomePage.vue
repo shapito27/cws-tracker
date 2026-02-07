@@ -138,7 +138,7 @@ function openCreateModal(): void {
     </div>
 
     <!-- Extensions Overview Table -->
-    <ExtensionsOverviewTable v-if="projects.length > 0" class="mt-8" />
+    <ExtensionsOverviewTable v-if="!loading && projects.length > 0" class="mt-8" />
 
     <!-- Create Project Modal -->
     <div

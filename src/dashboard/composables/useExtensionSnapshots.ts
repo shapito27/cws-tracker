@@ -6,7 +6,7 @@
  */
 
 import { ref, computed } from 'vue';
-import type { Project, Extension, ListingSnapshot } from '@/shared/types';
+import type { Extension, ListingSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { today, daysAgo } from '@/shared/utils/dates';
 
@@ -90,11 +90,15 @@ export function useExtensionSnapshots() {
           const snap = byDate.get(date);
           if (!snap) continue;
 
-          // Find previous day's snapshot (look backwards)
+          // Find previous day's snapshot (look backwards through visible dates,
+          // then fall back to the day-before-range for the first column)
           let prevSnap: ListingSnapshot | undefined;
           for (let j = i - 1; j >= 0; j--) {
             prevSnap = byDate.get(allDates[j]);
             if (prevSnap) break;
+          }
+          if (!prevSnap) {
+            prevSnap = byDate.get(daysAgo(dateRange.value));
           }
 
           days.set(date, {
@@ -114,6 +118,12 @@ export function useExtensionSnapshots() {
         });
       }
 
+      newRows.sort((a, b) => {
+        const projectCmp = a.projectName.localeCompare(b.projectName);
+        if (projectCmp !== 0) return projectCmp;
+        return a.name.localeCompare(b.name);
+      });
+
       rows.value = newRows;
     } catch (e) {
       console.error('Failed to load extension snapshots:', e);
@@ -123,9 +133,9 @@ export function useExtensionSnapshots() {
     }
   }
 
-  function setDateRange(range: DateRange): void {
+  async function setDateRange(range: DateRange): Promise<void> {
     dateRange.value = range;
-    loadSnapshots();
+    await loadSnapshots();
   }
 
   return {

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, computed } from 'vue';
 import {
   useExtensionSnapshots,
   type DateRange,
   type DayCell,
+  type ExtensionRow,
 } from '../../composables/useExtensionSnapshots';
 
 const {
@@ -23,6 +24,112 @@ const rangeOptions: { label: string; value: DateRange }[] = [
   { label: '30d', value: 30 },
 ];
 
+/** Threshold for highlighting a cell as "significant change". */
+const SIGNIFICANCE_THRESHOLD = 0.1;
+
+/** Pre-computed cell data to avoid repeated Map.get() in the template. */
+interface CellView {
+  /** Compact display string like "1.2M" */
+  display: string;
+  /** Full number for tooltip */
+  fullDisplay: string;
+  /** Delta display string like "+1.2K" */
+  deltaDisplay: string;
+  /** Tooltip with delta + percentage */
+  deltaTooltip: string;
+  deltaClasses: string;
+  arrow: string;
+  /** Background highlight class for significant changes */
+  bgClass: string;
+  hasData: boolean;
+  hasDelta: boolean;
+}
+
+const EMPTY_CELL: CellView = {
+  display: '-',
+  fullDisplay: '',
+  deltaDisplay: '',
+  deltaTooltip: '',
+  deltaClasses: '',
+  arrow: '',
+  bgClass: '',
+  hasData: false,
+  hasDelta: false,
+};
+
+/**
+ * Precomputed cell views keyed by "extensionId:date:field".
+ * Computed once per reactive change, then accessed O(1) in template.
+ */
+const cellViews = computed<Map<string, CellView>>(() => {
+  const map = new Map<string, CellView>();
+  for (const row of rows.value) {
+    for (const date of dateColumns.value) {
+      for (const field of ['users', 'reviews'] as const) {
+        const key = `${row.extensionId}:${date}:${field}`;
+        map.set(key, buildCellView(row, date, field));
+      }
+    }
+  }
+  return map;
+});
+
+function getCell(extensionId: string, date: string, field: 'users' | 'reviews'): CellView {
+  return cellViews.value.get(`${extensionId}:${date}:${field}`) ?? EMPTY_CELL;
+}
+
+/**
+ * Build a CellView from a DayCell and field, computing all display
+ * values upfront so the template only accesses flat properties.
+ */
+function buildCellView(
+  row: ExtensionRow,
+  date: string,
+  field: 'users' | 'reviews'
+): CellView {
+  const cell = row.days.get(date);
+  if (!cell) return EMPTY_CELL;
+
+  const value = field === 'users' ? cell.users : cell.reviews;
+  const delta = field === 'users' ? cell.usersDelta : cell.reviewsDelta;
+  const hasDelta = delta !== null && delta !== 0;
+
+  let bgClass = '';
+  if (hasDelta) {
+    const base = value - delta!;
+    const significant =
+      base === 0 || Math.abs(delta! / base) >= SIGNIFICANCE_THRESHOLD;
+    if (significant) {
+      bgClass = delta! > 0 ? 'bg-green-50/50' : 'bg-red-50/50';
+    }
+  }
+
+  let deltaDisplay = '';
+  let deltaTooltip = '';
+  let deltaClasses = 'text-gray-400';
+  let arrow = '';
+
+  if (hasDelta) {
+    const base = value - delta!;
+    deltaDisplay = formatDelta(delta!);
+    deltaTooltip = `${formatDelta(delta!)} (${formatPercent(delta!, base)})`;
+    deltaClasses = delta! > 0 ? 'text-green-600' : 'text-red-600';
+    arrow = delta! > 0 ? '\u25B2' : '\u25BC';
+  }
+
+  return {
+    display: formatCompact(value),
+    fullDisplay: value.toLocaleString(),
+    deltaDisplay,
+    deltaTooltip,
+    deltaClasses,
+    arrow,
+    bgClass,
+    hasData: true,
+    hasDelta,
+  };
+}
+
 /**
  * Format large numbers compactly: 1,234,567 -> "1.2M", 45,200 -> "45.2K".
  * Numbers under 1,000 are shown as-is.
@@ -30,11 +137,15 @@ const rangeOptions: { label: string; value: DateRange }[] = [
 function formatCompact(n: number): string {
   if (n >= 1_000_000) {
     const val = n / 1_000_000;
-    return val >= 100 ? `${Math.round(val)}M` : `${val.toFixed(1).replace(/\.0$/, '')}M`;
+    return val >= 100
+      ? `${Math.round(val)}M`
+      : `${val.toFixed(1).replace(/\.0$/, '')}M`;
   }
   if (n >= 1_000) {
     const val = n / 1_000;
-    return val >= 100 ? `${Math.round(val)}K` : `${val.toFixed(1).replace(/\.0$/, '')}K`;
+    return val >= 100
+      ? `${Math.round(val)}K`
+      : `${val.toFixed(1).replace(/\.0$/, '')}K`;
   }
   return String(n);
 }
@@ -58,26 +169,6 @@ function formatDateHeader(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
-
-function getDeltaClasses(delta: number | null): string {
-  if (delta === null || delta === 0) return 'text-gray-400';
-  return delta > 0 ? 'text-green-600' : 'text-red-600';
-}
-
-function getDeltaArrow(delta: number | null): string {
-  if (delta === null || delta === 0) return '';
-  return delta > 0 ? '\u25B2' : '\u25BC';
-}
-
-/** Returns true if this cell has a large change (>10%) worth highlighting. */
-function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
-  const delta = field === 'users' ? cell.usersDelta : cell.reviewsDelta;
-  const value = field === 'users' ? cell.users : cell.reviews;
-  if (delta === null || delta === 0) return false;
-  const base = value - delta;
-  if (base === 0) return true;
-  return Math.abs(delta / base) >= 0.1;
-}
 </script>
 
 <template>
@@ -88,6 +179,8 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
         <button
           v-for="opt in rangeOptions"
           :key="opt.value"
+          :aria-label="`Show ${opt.label} of data`"
+          :aria-pressed="dateRange === opt.value"
           class="rounded-md px-3 py-1 text-xs font-medium transition-colors"
           :class="dateRange === opt.value
             ? 'bg-blue-600 text-white'
@@ -116,11 +209,15 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
 
     <!-- Table -->
     <div v-else class="overflow-x-auto rounded-lg border border-gray-200">
-      <table class="min-w-full divide-y divide-gray-200">
+      <table
+        class="min-w-full divide-y divide-gray-200"
+        aria-label="Extensions overview showing daily user and review trends"
+      >
         <!-- Header row 1: Date groups -->
         <thead class="bg-gray-50">
           <tr>
             <th
+              scope="col"
               class="sticky left-0 z-10 bg-gray-50 px-4 py-2 text-left text-xs font-medium uppercase tracking-wide text-gray-500 border-r border-gray-200"
               rowspan="2"
             >
@@ -129,6 +226,7 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
             <th
               v-for="date in dateColumns"
               :key="date"
+              scope="colgroup"
               class="px-1 py-2 text-center text-xs font-medium text-gray-500 border-l border-gray-100"
               colspan="2"
             >
@@ -138,10 +236,10 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
           <!-- Header row 2: Users / Reviews sub-columns -->
           <tr>
             <template v-for="date in dateColumns" :key="date">
-              <th class="px-2 py-1.5 text-center text-[10px] font-medium uppercase tracking-wide text-gray-400 border-l border-gray-100">
+              <th scope="col" class="px-2 py-1.5 text-center text-[10px] font-medium uppercase tracking-wide text-gray-400 border-l border-gray-100">
                 Users
               </th>
-              <th class="px-2 py-1.5 text-center text-[10px] font-medium uppercase tracking-wide text-gray-400">
+              <th scope="col" class="px-2 py-1.5 text-center text-[10px] font-medium uppercase tracking-wide text-gray-400">
                 Reviews
               </th>
             </template>
@@ -151,7 +249,7 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
         <tbody class="divide-y divide-gray-200 bg-white">
           <tr v-for="row in rows" :key="row.extensionId" class="hover:bg-gray-50">
             <!-- Sticky extension name column -->
-            <td class="sticky left-0 z-10 bg-white px-4 py-3 border-r border-gray-200 min-w-[200px]">
+            <td scope="row" class="sticky left-0 z-10 bg-white px-4 py-3 border-r border-gray-200 min-w-[200px]">
               <div class="flex items-center gap-2">
                 <img
                   v-if="row.iconUrl"
@@ -162,6 +260,8 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
                 <div
                   v-else
                   class="flex h-6 w-6 items-center justify-center rounded bg-blue-100 text-xs font-bold text-blue-600"
+                  role="img"
+                  :aria-label="row.name"
                 >
                   {{ row.name.charAt(0).toUpperCase() }}
                 </div>
@@ -181,20 +281,20 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
               <!-- Users cell -->
               <td
                 class="px-2 py-2 text-center border-l border-gray-50 whitespace-nowrap"
-                :class="{ 'bg-green-50/50': row.days.get(date) && isSignificant(row.days.get(date)!, 'users') && (row.days.get(date)!.usersDelta ?? 0) > 0, 'bg-red-50/50': row.days.get(date) && isSignificant(row.days.get(date)!, 'users') && (row.days.get(date)!.usersDelta ?? 0) < 0 }"
+                :class="getCell(row.extensionId, date, 'users').bgClass"
               >
-                <template v-if="row.days.get(date)">
-                  <div class="text-xs text-gray-700" :title="row.days.get(date)!.users.toLocaleString()">
-                    {{ formatCompact(row.days.get(date)!.users) }}
+                <template v-if="getCell(row.extensionId, date, 'users').hasData">
+                  <div class="text-xs text-gray-700" :title="getCell(row.extensionId, date, 'users').fullDisplay">
+                    {{ getCell(row.extensionId, date, 'users').display }}
                   </div>
                   <div
-                    v-if="row.days.get(date)!.usersDelta !== null && row.days.get(date)!.usersDelta !== 0"
+                    v-if="getCell(row.extensionId, date, 'users').hasDelta"
                     class="text-[10px] leading-tight"
-                    :class="getDeltaClasses(row.days.get(date)!.usersDelta)"
-                    :title="formatDelta(row.days.get(date)!.usersDelta!) + ' (' + formatPercent(row.days.get(date)!.usersDelta!, row.days.get(date)!.users - row.days.get(date)!.usersDelta!) + ')'"
+                    :class="getCell(row.extensionId, date, 'users').deltaClasses"
+                    :title="getCell(row.extensionId, date, 'users').deltaTooltip"
                   >
-                    {{ getDeltaArrow(row.days.get(date)!.usersDelta) }}
-                    {{ formatDelta(row.days.get(date)!.usersDelta!) }}
+                    {{ getCell(row.extensionId, date, 'users').arrow }}
+                    {{ getCell(row.extensionId, date, 'users').deltaDisplay }}
                   </div>
                 </template>
                 <span v-else class="text-xs text-gray-300">-</span>
@@ -203,20 +303,20 @@ function isSignificant(cell: DayCell, field: 'users' | 'reviews'): boolean {
               <!-- Reviews cell -->
               <td
                 class="px-2 py-2 text-center whitespace-nowrap"
-                :class="{ 'bg-green-50/50': row.days.get(date) && isSignificant(row.days.get(date)!, 'reviews') && (row.days.get(date)!.reviewsDelta ?? 0) > 0, 'bg-red-50/50': row.days.get(date) && isSignificant(row.days.get(date)!, 'reviews') && (row.days.get(date)!.reviewsDelta ?? 0) < 0 }"
+                :class="getCell(row.extensionId, date, 'reviews').bgClass"
               >
-                <template v-if="row.days.get(date)">
-                  <div class="text-xs text-gray-700" :title="row.days.get(date)!.reviews.toLocaleString()">
-                    {{ formatCompact(row.days.get(date)!.reviews) }}
+                <template v-if="getCell(row.extensionId, date, 'reviews').hasData">
+                  <div class="text-xs text-gray-700" :title="getCell(row.extensionId, date, 'reviews').fullDisplay">
+                    {{ getCell(row.extensionId, date, 'reviews').display }}
                   </div>
                   <div
-                    v-if="row.days.get(date)!.reviewsDelta !== null && row.days.get(date)!.reviewsDelta !== 0"
+                    v-if="getCell(row.extensionId, date, 'reviews').hasDelta"
                     class="text-[10px] leading-tight"
-                    :class="getDeltaClasses(row.days.get(date)!.reviewsDelta)"
-                    :title="formatDelta(row.days.get(date)!.reviewsDelta!) + ' (' + formatPercent(row.days.get(date)!.reviewsDelta!, row.days.get(date)!.reviews - row.days.get(date)!.reviewsDelta!) + ')'"
+                    :class="getCell(row.extensionId, date, 'reviews').deltaClasses"
+                    :title="getCell(row.extensionId, date, 'reviews').deltaTooltip"
                   >
-                    {{ getDeltaArrow(row.days.get(date)!.reviewsDelta) }}
-                    {{ formatDelta(row.days.get(date)!.reviewsDelta!) }}
+                    {{ getCell(row.extensionId, date, 'reviews').arrow }}
+                    {{ getCell(row.extensionId, date, 'reviews').deltaDisplay }}
                   </div>
                 </template>
                 <span v-else class="text-xs text-gray-300">-</span>
