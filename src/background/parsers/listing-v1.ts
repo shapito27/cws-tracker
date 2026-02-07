@@ -147,17 +147,20 @@ export const listingParserV1: ListingParser = {
     }
 
     const rawRating = card[3];
-    if (typeof rawRating !== 'number') {
+    if (typeof rawRating !== 'number' && rawRating !== null) {
       throw new ParserError('Rating is not a number', VERSION, 'rating');
     }
 
     const ratingCount = card[4];
-    if (typeof ratingCount !== 'number') {
+    if (typeof ratingCount !== 'number' && ratingCount !== null) {
       throw new ParserError('Rating count is not a number', VERSION, 'ratingCount');
     }
+    const safeRatingCount = typeof ratingCount === 'number' ? ratingCount : 0;
 
-    // If no ratings, set rating to null
-    const rating = ratingCount === 0 ? null : rawRating;
+    // Set rating to null if either:
+    // 1. No ratings exist (safeRatingCount === 0), or
+    // 2. CWS returned null for rating (new/unrated extensions)
+    const rating = safeRatingCount === 0 || rawRating === null ? null : rawRating;
 
     const shortDescription = typeof card[6] === 'string' ? card[6] : '';
     const userCountNumeric = typeof card[14] === 'number' ? card[14] : 0;
@@ -235,8 +238,8 @@ export const listingParserV1: ListingParser = {
       shortDescription,
       fullDescription,
       rating,
-      ratingCount,
-      reviewCount: ratingCount,
+      ratingCount: safeRatingCount,
+      reviewCount: safeRatingCount,
       userCount: formatUserCount(userCountNumeric),
       userCountNumeric,
       version,
