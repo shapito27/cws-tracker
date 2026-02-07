@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjects } from '../composables/useProjects';
 import { useServiceWorker } from '../composables/useServiceWorker';
+import ExtensionsOverviewTable from '../components/tables/ExtensionsOverviewTable.vue';
 
 const router = useRouter();
 const { projects, loading, loadProjects, createProject } = useProjects();
@@ -135,6 +136,9 @@ function openCreateModal(): void {
         </p>
       </router-link>
     </div>
+
+    <!-- Extensions Overview Table -->
+    <ExtensionsOverviewTable v-if="!loading && projects.length > 0" class="mt-8" />
 
     <!-- Create Project Modal -->
     <div
