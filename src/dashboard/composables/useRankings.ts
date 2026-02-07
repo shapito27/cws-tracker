@@ -205,6 +205,39 @@ export function buildCoverageData(
 }
 
 /**
+ * Load rank history for ALL keywords for a single extension (the user's own).
+ * Returns one series per keyword, suitable for showing on the overview tab.
+ */
+export async function loadOwnExtensionRankHistory(
+  keywords: Keyword[],
+  ownExtensionId: string,
+  startDate: string,
+  endDate: string
+): Promise<RankChartSeries[]> {
+  const withId = keywords.filter((kw) => kw.id !== undefined);
+
+  const snapshotsArray = await Promise.all(
+    withId.map((kw) =>
+      db.getRankSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+    )
+  );
+
+  const series: RankChartSeries[] = [];
+  withId.forEach((kw, idx) => {
+    const data = transformSnapshots(snapshotsArray[idx]);
+    if (data.length === 0) return;
+
+    series.push({
+      name: kw.text,
+      extensionId: ownExtensionId,
+      data,
+    });
+  });
+
+  return series;
+}
+
+/**
  * Build scatter plot data for keyword prioritization (own extension only).
  */
 export function buildScatterData(
@@ -235,6 +268,7 @@ export function buildScatterData(
 export function useRankings() {
   return {
     loadRankHistory,
+    loadOwnExtensionRankHistory,
     loadAllKeywordLatestRanks,
     loadRankDeltas,
     buildHeatmapData,
