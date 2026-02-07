@@ -135,13 +135,30 @@ export class CWSDatabase extends Dexie {
     const results = await this.listing_snapshots
       .where('extensionId')
       .equals(extensionId)
-      .reverse()
-      .sortBy('date');
+      .toArray();
+    if (results.length === 0) return undefined;
+    // Sort by date descending, then by scannedAt descending for same-date tiebreaker
+    results.sort((a, b) => {
+      const dateCmp = b.date.localeCompare(a.date);
+      if (dateCmp !== 0) return dateCmp;
+      return b.scannedAt.getTime() - a.scannedAt.getTime();
+    });
     return results[0];
   }
 
   async saveListingSnapshot(snapshot: ListingSnapshot): Promise<number> {
-    return this.listing_snapshots.put(snapshot);
+    return this.transaction('rw', this.listing_snapshots, async () => {
+      // Delete existing snapshots for the same extensionId+date
+      // to prevent duplicate data when scanning multiple times per day.
+      const existing = await this.listing_snapshots
+        .where('[extensionId+date]')
+        .equals([snapshot.extensionId, snapshot.date])
+        .toArray();
+      if (existing.length > 0) {
+        await this.listing_snapshots.bulkDelete(existing.map((e) => e.id!));
+      }
+      return this.listing_snapshots.put(snapshot);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -187,11 +204,32 @@ export class CWSDatabase extends Dexie {
       all[0].date
     );
 
-    return all.filter((s) => s.date === latestDate);
+    const latestDaySnaps = all.filter((s) => s.date === latestDate);
+
+    // Deduplicate by extensionId (keep latest scannedAt per extension)
+    const byExt = new Map<string, RankSnapshot>();
+    for (const snap of latestDaySnaps) {
+      const existing = byExt.get(snap.extensionId);
+      if (!existing || snap.scannedAt > existing.scannedAt) {
+        byExt.set(snap.extensionId, snap);
+      }
+    }
+    return [...byExt.values()];
   }
 
   async saveRankSnapshots(snapshots: RankSnapshot[]): Promise<void> {
     await this.transaction('rw', this.rank_snapshots, async () => {
+      // Delete existing snapshots for the same keywordId+extensionId+date combos
+      // to prevent duplicate data when scanning multiple times per day.
+      for (const snap of snapshots) {
+        const existing = await this.rank_snapshots
+          .where('[keywordId+extensionId+date]')
+          .equals([snap.keywordId, snap.extensionId, snap.date])
+          .toArray();
+        if (existing.length > 0) {
+          await this.rank_snapshots.bulkDelete(existing.map((e) => e.id!));
+        }
+      }
       await this.rank_snapshots.bulkPut(snapshots);
     });
   }
