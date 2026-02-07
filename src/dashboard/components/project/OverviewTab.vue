@@ -66,6 +66,12 @@ function getLastScanned(): string {
   if (dates.length === 0) return 'Never';
   return new Date(Math.max(...dates)).toLocaleDateString();
 }
+
+function formatTime(isoString: string): string {
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '--:--:--';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 </script>
 
 <template>
@@ -118,6 +124,9 @@ function getLastScanned(): string {
       <span v-if="scanStatus.isRunning && scanStatus.total > 0" class="ml-3 text-sm text-gray-500">
         {{ scanStatus.completed }}/{{ scanStatus.total }} jobs
       </span>
+      <p v-if="scanStatus.isRunning && scanStatus.nextProcessingAt" class="mt-1 text-xs text-gray-500">
+        Next job at {{ formatTime(scanStatus.nextProcessingAt) }}
+      </p>
       <p v-if="scanStatus.lastError" class="mt-2 text-sm text-red-600">
         Scan error: {{ scanStatus.lastError }}
       </p>
