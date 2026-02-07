@@ -8,6 +8,7 @@
 import type { RankSnapshot, Extension, Keyword } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { daysAgo, today } from '@/shared/utils/dates';
+import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
 
 /** A single data point for ApexCharts. */
 export interface ChartDataPoint {
@@ -59,17 +60,8 @@ export async function loadRankHistory(
  * Deduplicates by date (takes latest scannedAt per day) and sorts ascending.
  */
 function transformSnapshots(snapshots: RankSnapshot[]): ChartDataPoint[] {
-  // Deduplicate: keep only the latest scannedAt per date
-  const byDate = new Map<string, RankSnapshot>();
-  for (const snap of snapshots) {
-    const existing = byDate.get(snap.date);
-    if (!existing || snap.scannedAt > existing.scannedAt) {
-      byDate.set(snap.date, snap);
-    }
-  }
-
-  // Sort by date ascending
-  const deduped = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+  const deduped = deduplicateByDate(snapshots);
+  deduped.sort((a, b) => a.date.localeCompare(b.date));
 
   return deduped.map((s) => ({
     x: s.date,
@@ -145,15 +137,8 @@ export async function loadRankDeltas(
   );
 
   extensions.forEach((ext, idx) => {
-    // Deduplicate: keep only the latest scannedAt per date
-    const byDate = new Map<string, RankSnapshot>();
-    for (const snap of snapshotsArray[idx]) {
-      const existing = byDate.get(snap.date);
-      if (!existing || snap.scannedAt > existing.scannedAt) {
-        byDate.set(snap.date, snap);
-      }
-    }
-    const sorted = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+    const sorted = deduplicateByDate(snapshotsArray[idx])
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     const current = sorted.length > 0 ? sorted[0].position : null;
     const previous = sorted.length > 1 ? sorted[1].position : null;

@@ -221,14 +221,17 @@ export class CWSDatabase extends Dexie {
     await this.transaction('rw', this.rank_snapshots, async () => {
       // Delete existing snapshots for the same keywordId+extensionId+date combos
       // to prevent duplicate data when scanning multiple times per day.
+      // Collect all IDs to delete first, then batch-delete in one operation.
+      const idsToDelete: number[] = [];
       for (const snap of snapshots) {
         const existing = await this.rank_snapshots
           .where('[keywordId+extensionId+date]')
           .equals([snap.keywordId, snap.extensionId, snap.date])
           .toArray();
-        if (existing.length > 0) {
-          await this.rank_snapshots.bulkDelete(existing.map((e) => e.id!));
-        }
+        idsToDelete.push(...existing.map((e) => e.id!));
+      }
+      if (idsToDelete.length > 0) {
+        await this.rank_snapshots.bulkDelete(idsToDelete);
       }
       await this.rank_snapshots.bulkPut(snapshots);
     });
