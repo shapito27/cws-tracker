@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import type { Project, Extension, EventRecord } from '@/shared/types';
+import type { Project, Extension, EventRecord, Keyword } from '@/shared/types';
+import type { RankChartSeries } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
+import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
+import { daysAgo, today } from '@/shared/utils/dates';
+import RankChart from '../charts/RankChart.vue';
 
 const props = defineProps<{
   project: Project;
@@ -14,23 +18,45 @@ const { scanStatus, requestRefresh } = useServiceWorker();
 
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
+const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const loading = ref(true);
+const loadError = ref<string | null>(null);
 
 onMounted(async () => {
-  extensions.value = await getExtensionsByProject(props.project.id!);
-
-  // Get recent events across all project extensions
-  const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
-  const events: EventRecord[] = [];
-  for (const extId of allExtIds) {
-    const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
-    events.push(...extEvents);
+  if (!props.project.id) {
+    loading.value = false;
+    return;
   }
-  // Sort by date descending, take last 10
-  events.sort((a, b) => b.date.localeCompare(a.date));
-  recentEvents.value = events.slice(0, 10);
 
-  loading.value = false;
+  try {
+    extensions.value = await getExtensionsByProject(props.project.id);
+
+    // Load keyword position history for own extension
+    const keywords = await db.getKeywordsByProject(props.project.id);
+    if (keywords.length > 0) {
+      ownKeywordSeries.value = await loadOwnExtensionRankHistory(
+        keywords,
+        props.project.ownExtensionId,
+        daysAgo(30),
+        today()
+      );
+    }
+
+    // Get recent events across all project extensions
+    const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
+    const events: EventRecord[] = [];
+    for (const extId of allExtIds) {
+      const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
+      events.push(...extEvents);
+    }
+    // Sort by date descending, take last 10
+    events.sort((a, b) => b.date.localeCompare(a.date));
+    recentEvents.value = events.slice(0, 10);
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
+  } finally {
+    loading.value = false;
+  }
 });
 
 function getLastScanned(): string {
@@ -45,6 +71,10 @@ function getLastScanned(): string {
 <template>
   <div v-if="loading" class="text-center py-8">
     <p class="text-sm text-gray-500">Loading overview...</p>
+  </div>
+
+  <div v-else-if="loadError" class="rounded-lg bg-red-50 border border-red-200 p-6 text-center">
+    <p class="text-sm text-red-700">Failed to load overview: {{ loadError }}</p>
   </div>
 
   <div v-else>
@@ -91,6 +121,15 @@ function getLastScanned(): string {
       <p v-if="scanStatus.lastError" class="mt-2 text-sm text-red-600">
         Scan error: {{ scanStatus.lastError }}
       </p>
+    </div>
+
+    <!-- Keyword positions chart (own extension only) -->
+    <div class="mb-8">
+      <h3 class="text-base font-semibold text-gray-900 mb-3">My Keyword Positions (Last 30 Days)</h3>
+      <div v-if="ownKeywordSeries.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
+        <p class="text-sm text-gray-500">No ranking data yet. Run a scan to track keyword positions.</p>
+      </div>
+      <RankChart v-else :series="ownKeywordSeries" />
     </div>
 
     <!-- Recent events -->

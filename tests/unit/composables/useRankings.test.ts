@@ -7,6 +7,7 @@ import 'fake-indexeddb/auto';
 import { db } from '@/shared/db/database';
 import {
   loadRankHistory,
+  loadOwnExtensionRankHistory,
   loadAllKeywordLatestRanks,
   loadRankDeltas,
   buildHeatmapData,
@@ -384,6 +385,146 @@ describe('buildCoverageData', () => {
     const coverage = buildCoverageData([], [extA]);
     expect(coverage[0].top3).toBe(0);
     expect(coverage[0].top30).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadOwnExtensionRankHistory
+// ---------------------------------------------------------------------------
+
+describe('loadOwnExtensionRankHistory', () => {
+  it('returns one series per keyword for the own extension', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+      makeSnapshot(1, EXT_A_ID, '2026-01-02', 3),
+      makeSnapshot(2, EXT_A_ID, '2026-01-01', 10),
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1, kw2],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-02'
+    );
+
+    expect(series).toHaveLength(2);
+    expect(series[0].name).toBe('ad blocker');
+    expect(series[0].extensionId).toBe(EXT_A_ID);
+    expect(series[0].data).toHaveLength(2);
+    expect(series[1].name).toBe('privacy tool');
+    expect(series[1].extensionId).toBe(EXT_A_ID);
+    expect(series[1].data).toHaveLength(1);
+  });
+
+  it('skips keywords with no ranking data', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1, kw2],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-02'
+    );
+
+    expect(series).toHaveLength(1);
+    expect(series[0].name).toBe('ad blocker');
+  });
+
+  it('skips keywords without id', async () => {
+    const kwNoId: Keyword = { projectId: 1, text: 'no id', createdAt: new Date() };
+
+    const series = await loadOwnExtensionRankHistory(
+      [kwNoId],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-02'
+    );
+
+    expect(series).toEqual([]);
+  });
+
+  it('returns empty array when no keywords have data', async () => {
+    const series = await loadOwnExtensionRankHistory(
+      [kw1, kw2],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-02'
+    );
+
+    expect(series).toEqual([]);
+  });
+
+  it('only includes data for the specified extension', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+      makeSnapshot(1, EXT_B_ID, '2026-01-01', 2),
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-02'
+    );
+
+    expect(series).toHaveLength(1);
+    expect(series[0].data[0].y).toBe(5);
+  });
+
+  it('applies date range filtering', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2025-12-31', 10),
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+      makeSnapshot(1, EXT_A_ID, '2026-01-03', 8),
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-02'
+    );
+
+    expect(series[0].data).toHaveLength(1);
+    expect(series[0].data[0].x).toBe('2026-01-01');
+  });
+
+  it('preserves null positions for unranked keywords', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', null),
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-02'
+    );
+
+    expect(series[0].data[0].y).toBeNull();
+  });
+
+  it('sorts data points by date ascending', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-03', 8),
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+      makeSnapshot(1, EXT_A_ID, '2026-01-02', 3),
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-03'
+    );
+
+    expect(series[0].data.map((d) => d.x)).toEqual([
+      '2026-01-01',
+      '2026-01-02',
+      '2026-01-03',
+    ]);
   });
 });
 

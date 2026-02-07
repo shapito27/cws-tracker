@@ -153,7 +153,7 @@ const chartSeries = computed(() =>
     <div class="mt-2 flex items-center gap-4 px-2">
       <div
         v-for="(s, i) in series"
-        :key="s.extensionId"
+        :key="`${s.extensionId}-${s.name}`"
         class="flex items-center gap-1.5 text-xs text-gray-600"
       >
         <span
