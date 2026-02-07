@@ -56,13 +56,22 @@ export async function loadRankHistory(
 
 /**
  * Transform rank snapshots into chart data points.
- * Sorted by date ascending.
+ * Deduplicates by date (takes latest scannedAt per day) and sorts ascending.
  */
 function transformSnapshots(snapshots: RankSnapshot[]): ChartDataPoint[] {
-  // Sort by date ascending
-  const sorted = [...snapshots].sort((a, b) => a.date.localeCompare(b.date));
+  // Deduplicate: keep only the latest scannedAt per date
+  const byDate = new Map<string, RankSnapshot>();
+  for (const snap of snapshots) {
+    const existing = byDate.get(snap.date);
+    if (!existing || snap.scannedAt > existing.scannedAt) {
+      byDate.set(snap.date, snap);
+    }
+  }
 
-  return sorted.map((s) => ({
+  // Sort by date ascending
+  const deduped = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+  return deduped.map((s) => ({
     x: s.date,
     y: s.position,
   }));
@@ -136,7 +145,15 @@ export async function loadRankDeltas(
   );
 
   extensions.forEach((ext, idx) => {
-    const sorted = [...snapshotsArray[idx]].sort((a, b) => b.date.localeCompare(a.date));
+    // Deduplicate: keep only the latest scannedAt per date
+    const byDate = new Map<string, RankSnapshot>();
+    for (const snap of snapshotsArray[idx]) {
+      const existing = byDate.get(snap.date);
+      if (!existing || snap.scannedAt > existing.scannedAt) {
+        byDate.set(snap.date, snap);
+      }
+    }
+    const sorted = [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
 
     const current = sorted.length > 0 ? sorted[0].position : null;
     const previous = sorted.length > 1 ? sorted[1].position : null;
