@@ -6,6 +6,12 @@ All notable changes to CWS Tracker will be documented in this file.
 
 ### Fixed
 - Listing parser crash when CWS returns `null` for rating/ratingCount fields on extensions with no ratings yet. Parser now gracefully handles `null` values, setting `rating` to `null` and `ratingCount` to `0`.
+- Duplicate scan data when scanning multiple times per day: same-day rescans now overwrite previous snapshots instead of accumulating duplicates
+  - `saveRankSnapshots()` deletes existing records for same `keywordId+extensionId+date` before inserting
+  - `saveListingSnapshot()` deletes existing record for same `extensionId+date` before inserting
+  - Defensive read-time dedup in `transformSnapshots()`, `getLatestRankForKeyword()`, `loadRankDeltas()`, and `getLatestListingSnapshot()` handles pre-existing duplicate data
+  - Extracted `deduplicateByDate()` shared utility to `src/shared/utils/snapshot-dedup.ts`
+- 858 total tests passing, zero type errors
 
 ## [0.15.1] - 2026-02-07
 

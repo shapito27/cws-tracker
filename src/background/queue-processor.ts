@@ -35,6 +35,7 @@ import type {
   Extension,
   Keyword,
   Settings,
+  ScanProgressMessage,
 } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -62,6 +63,9 @@ const MAX_BACKOFF_MS = 600_000;
 
 /** Base delay for retry backoff (2 minutes). */
 const RETRY_BASE_DELAY_MS = 120_000;
+
+/** Minimum alarm delay in ms (1 minute per MV3 rules). */
+const MIN_ALARM_DELAY_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // CWS Fetch (proxy-aware)
@@ -160,15 +164,20 @@ export async function processNextJob(
 
     // Send progress message
     const stats = await db.getQueueStats();
-    deps.sendMessage({
+    const delayMs = await calculateNormalDelay(deps.settings);
+    const hasPending = (await db.getPendingCount()) > 0;
+
+    const progressMessage: ScanProgressMessage = {
       type: 'SCAN_PROGRESS',
       completed: stats.completed,
       total: stats.completed + stats.pending + stats.running,
       currentJob: getJobDescription(job),
-    });
+      nextProcessingAt: hasPending
+        ? new Date(Date.now() + Math.max(delayMs, MIN_ALARM_DELAY_MS)).toISOString()
+        : undefined,
+    };
+    deps.sendMessage(progressMessage);
 
-    const delayMs = await calculateNormalDelay(deps.settings);
-    const hasPending = (await db.getPendingCount()) > 0;
     return { hasMore: hasPending, delayMs };
   } catch (error) {
     return handleJobError(job, error, deps);

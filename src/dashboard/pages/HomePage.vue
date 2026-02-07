@@ -42,6 +42,12 @@ function openCreateModal(): void {
   createExtensionInput.value = '';
   showCreateModal.value = true;
 }
+
+function formatTime(isoString: string): string {
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '--:--:--';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
 </script>
 
 <template>
@@ -82,6 +88,9 @@ function openCreateModal(): void {
           </p>
           <p class="text-xs text-blue-600">
             {{ scanStatus.completed }}/{{ scanStatus.total }} jobs completed
+            <span v-if="scanStatus.nextProcessingAt">
+              &middot; Next job at {{ formatTime(scanStatus.nextProcessingAt) }}
+            </span>
           </p>
         </div>
       </div>
