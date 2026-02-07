@@ -89,6 +89,56 @@ describe('useServiceWorker', () => {
         expect(scanStatus.value.currentJob).toBe('Scanning uBlock Origin');
       });
 
+      it('sets nextProcessingAt from SCAN_PROGRESS message', () => {
+        const { handleMessage, scanStatus } = useServiceWorker();
+
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 1,
+          total: 5,
+          currentJob: 'Scanning extension',
+          nextProcessingAt: '2026-02-07T15:30:00.000Z',
+        });
+
+        expect(scanStatus.value.nextProcessingAt).toBe('2026-02-07T15:30:00.000Z');
+      });
+
+      it('sets nextProcessingAt to null when field is absent', () => {
+        const { handleMessage, scanStatus } = useServiceWorker();
+
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 5,
+          total: 5,
+          currentJob: 'Final job',
+        });
+
+        expect(scanStatus.value.nextProcessingAt).toBeNull();
+      });
+
+      it('clears nextProcessingAt on SCAN_COMPLETE', () => {
+        const { handleMessage, scanStatus } = useServiceWorker();
+
+        // Set nextProcessingAt via progress
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 1,
+          total: 2,
+          currentJob: 'Job 1',
+          nextProcessingAt: '2026-02-07T15:30:00.000Z',
+        });
+        expect(scanStatus.value.nextProcessingAt).toBe('2026-02-07T15:30:00.000Z');
+
+        // Complete clears it
+        handleMessage({
+          type: 'SCAN_COMPLETE',
+          date: '2026-02-07',
+          jobsCompleted: 2,
+          jobsFailed: 0,
+        });
+        expect(scanStatus.value.nextProcessingAt).toBeNull();
+      });
+
       it('sets isRunning to true and clears lastError', () => {
         const { handleMessage, scanStatus } = useServiceWorker();
 
