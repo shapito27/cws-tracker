@@ -20,33 +20,43 @@ const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const loading = ref(true);
+const loadError = ref<string | null>(null);
 
 onMounted(async () => {
-  extensions.value = await getExtensionsByProject(props.project.id!);
-
-  // Load keyword position history for own extension
-  const keywords = await db.getKeywordsByProject(props.project.id!);
-  if (keywords.length > 0) {
-    ownKeywordSeries.value = await loadOwnExtensionRankHistory(
-      keywords,
-      props.project.ownExtensionId,
-      daysAgo(30),
-      today()
-    );
+  if (!props.project.id) {
+    loading.value = false;
+    return;
   }
 
-  // Get recent events across all project extensions
-  const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
-  const events: EventRecord[] = [];
-  for (const extId of allExtIds) {
-    const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
-    events.push(...extEvents);
-  }
-  // Sort by date descending, take last 10
-  events.sort((a, b) => b.date.localeCompare(a.date));
-  recentEvents.value = events.slice(0, 10);
+  try {
+    extensions.value = await getExtensionsByProject(props.project.id);
 
-  loading.value = false;
+    // Load keyword position history for own extension
+    const keywords = await db.getKeywordsByProject(props.project.id);
+    if (keywords.length > 0) {
+      ownKeywordSeries.value = await loadOwnExtensionRankHistory(
+        keywords,
+        props.project.ownExtensionId,
+        daysAgo(30),
+        today()
+      );
+    }
+
+    // Get recent events across all project extensions
+    const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
+    const events: EventRecord[] = [];
+    for (const extId of allExtIds) {
+      const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
+      events.push(...extEvents);
+    }
+    // Sort by date descending, take last 10
+    events.sort((a, b) => b.date.localeCompare(a.date));
+    recentEvents.value = events.slice(0, 10);
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
+  } finally {
+    loading.value = false;
+  }
 });
 
 function getLastScanned(): string {
@@ -61,6 +71,10 @@ function getLastScanned(): string {
 <template>
   <div v-if="loading" class="text-center py-8">
     <p class="text-sm text-gray-500">Loading overview...</p>
+  </div>
+
+  <div v-else-if="loadError" class="rounded-lg bg-red-50 border border-red-200 p-6 text-center">
+    <p class="text-sm text-red-700">Failed to load overview: {{ loadError }}</p>
   </div>
 
   <div v-else>
