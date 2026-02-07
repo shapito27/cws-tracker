@@ -157,7 +157,9 @@ export const listingParserV1: ListingParser = {
     }
     const safeRatingCount = typeof ratingCount === 'number' ? ratingCount : 0;
 
-    // If no ratings, set rating to null
+    // Set rating to null if either:
+    // 1. No ratings exist (safeRatingCount === 0), or
+    // 2. CWS returned null for rating (new/unrated extensions)
     const rating = safeRatingCount === 0 || rawRating === null ? null : rawRating;
 
     const shortDescription = typeof card[6] === 'string' ? card[6] : '';
