@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.15.1] - 2026-02-07
+
+### Fixed
+- Rank chart not drawing lines between data points: switched x-axis from `category` to `datetime` type and converted date strings to UTC timestamps so ApexCharts properly connects points with lines and spaces dates correctly on the time axis
+
 ## [0.15.0] - 2026-02-06
 
 ### Added
