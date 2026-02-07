@@ -19,6 +19,7 @@ export interface ScanStatus {
   completed: number;
   total: number;
   currentJob: string;
+  nextProcessingAt: string | null;
   lastScanDate: string | null;
   lastJobsCompleted: number;
   lastJobsFailed: number;
@@ -34,6 +35,7 @@ export function useServiceWorker() {
     completed: 0,
     total: 0,
     currentJob: '',
+    nextProcessingAt: null,
     lastScanDate: null,
     lastJobsCompleted: 0,
     lastJobsFailed: 0,
@@ -53,6 +55,7 @@ export function useServiceWorker() {
           completed: msg.completed,
           total: msg.total,
           currentJob: msg.currentJob,
+          nextProcessingAt: msg.nextProcessingAt ?? null,
           lastError: null,
         };
         break;
@@ -64,6 +67,7 @@ export function useServiceWorker() {
           completed: 0,
           total: 0,
           currentJob: '',
+          nextProcessingAt: null,
           lastScanDate: msg.date,
           lastJobsCompleted: msg.jobsCompleted,
           lastJobsFailed: msg.jobsFailed,

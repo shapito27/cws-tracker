@@ -22,6 +22,8 @@ export interface ScanProgressMessage {
   total: number;
   /** Human-readable description of the current job (e.g. "Scanning uBlock Origin"). */
   currentJob: string;
+  /** ISO timestamp of when the next job will be processed (from chrome.alarms delay). */
+  nextProcessingAt?: string;
 }
 
 /** Sent when all queued jobs have been processed. */
