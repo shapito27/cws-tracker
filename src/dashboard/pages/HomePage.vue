@@ -44,7 +44,9 @@ function openCreateModal(): void {
 }
 
 function formatTime(isoString: string): string {
-  return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const date = new Date(isoString);
+  if (isNaN(date.getTime())) return '--:--:--';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 </script>
 

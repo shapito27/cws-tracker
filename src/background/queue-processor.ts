@@ -35,6 +35,7 @@ import type {
   Extension,
   Keyword,
   Settings,
+  ScanProgressMessage,
 } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -166,16 +167,15 @@ export async function processNextJob(
     const delayMs = await calculateNormalDelay(deps.settings);
     const hasPending = (await db.getPendingCount()) > 0;
 
-    const progressMessage: Record<string, unknown> = {
+    const progressMessage: ScanProgressMessage = {
       type: 'SCAN_PROGRESS',
       completed: stats.completed,
       total: stats.completed + stats.pending + stats.running,
       currentJob: getJobDescription(job),
+      nextProcessingAt: hasPending
+        ? new Date(Date.now() + Math.max(delayMs, MIN_ALARM_DELAY_MS)).toISOString()
+        : undefined,
     };
-    if (hasPending) {
-      const actualDelayMs = Math.max(delayMs, MIN_ALARM_DELAY_MS);
-      progressMessage.nextProcessingAt = new Date(Date.now() + actualDelayMs).toISOString();
-    }
     deps.sendMessage(progressMessage);
 
     return { hasMore: hasPending, delayMs };
