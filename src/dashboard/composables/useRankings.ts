@@ -8,6 +8,7 @@
 import type { RankSnapshot, Extension, Keyword } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { daysAgo, today } from '@/shared/utils/dates';
+import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
 
 /** A single data point for ApexCharts. */
 export interface ChartDataPoint {
@@ -56,13 +57,13 @@ export async function loadRankHistory(
 
 /**
  * Transform rank snapshots into chart data points.
- * Sorted by date ascending.
+ * Deduplicates by date (takes latest scannedAt per day) and sorts ascending.
  */
 function transformSnapshots(snapshots: RankSnapshot[]): ChartDataPoint[] {
-  // Sort by date ascending
-  const sorted = [...snapshots].sort((a, b) => a.date.localeCompare(b.date));
+  const deduped = deduplicateByDate(snapshots);
+  deduped.sort((a, b) => a.date.localeCompare(b.date));
 
-  return sorted.map((s) => ({
+  return deduped.map((s) => ({
     x: s.date,
     y: s.position,
   }));
@@ -136,7 +137,8 @@ export async function loadRankDeltas(
   );
 
   extensions.forEach((ext, idx) => {
-    const sorted = [...snapshotsArray[idx]].sort((a, b) => b.date.localeCompare(a.date));
+    const sorted = deduplicateByDate(snapshotsArray[idx])
+      .sort((a, b) => b.date.localeCompare(a.date));
 
     const current = sorted.length > 0 ? sorted[0].position : null;
     const previous = sorted.length > 1 ? sorted[1].position : null;
