@@ -123,12 +123,12 @@ function togglePause(): void {
           class="flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-2"
         >
           <div class="min-w-0 flex-1 mr-2">
-            <p class="text-xs font-medium truncate" :class="rc.isOwn ? 'text-blue-700' : 'text-gray-800'">
+            <p class="text-xs truncate" :class="rc.isOwn ? 'font-semibold text-blue-700' : 'font-medium text-gray-800'">
               {{ rc.extensionName }}
               <span
                 v-if="rc.isOwn"
-                class="ml-1 inline-flex rounded-full bg-blue-100 px-1.5 py-0 text-[10px] font-medium text-blue-700 align-middle"
-              >Mine</span>
+                class="ml-1 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 align-middle"
+              >Own</span>
             </p>
             <p class="text-xs text-gray-500 truncate">
               "{{ rc.keyword }}"

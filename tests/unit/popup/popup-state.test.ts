@@ -277,6 +277,22 @@ describe('loadRecentRankChanges()', () => {
     expect(dropped!.isOwn).toBe(false);
   });
 
+  it('marks extension as own when referenced by multiple projects', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Multi Ext' }));
+    await db.keywords.add(makeKeyword({ id: 1, text: 'kw' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+    await db.projects.add(makeProject({ name: 'Project 2', ownExtensionId: 'ext-aaa', competitorIds: [] }));
+
+    await db.rank_snapshots.bulkAdd([
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 10 }),
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 5 }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    expect(changes).toHaveLength(1);
+    expect(changes[0].isOwn).toBe(true);
+  });
+
   it('marks extensions without a project as not own', async () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Orphan Ext' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
