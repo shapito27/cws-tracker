@@ -356,6 +356,56 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
       const snap = await db.listing_snapshots.get(id);
       expect(snap).toBeDefined();
     });
+
+    it('saveListingSnapshot overwrites existing snapshot for same extension+date', async () => {
+      await db.saveListingSnapshot(makeListingSnapshot({
+        extensionId: EXT_ID_A,
+        date: '2026-01-15',
+        title: 'Morning scan',
+        scannedAt: new Date('2026-01-15T09:00:00Z'),
+      }));
+      expect(await db.listing_snapshots.count()).toBe(1);
+
+      await db.saveListingSnapshot(makeListingSnapshot({
+        extensionId: EXT_ID_A,
+        date: '2026-01-15',
+        title: 'Evening scan',
+        scannedAt: new Date('2026-01-15T17:00:00Z'),
+      }));
+
+      // Should still be 1, not 2
+      expect(await db.listing_snapshots.count()).toBe(1);
+      const all = await db.listing_snapshots.toArray();
+      expect(all[0].title).toBe('Evening scan');
+    });
+
+    it('saveListingSnapshot preserves snapshots for different dates', async () => {
+      await db.saveListingSnapshot(makeListingSnapshot({
+        extensionId: EXT_ID_A, date: '2026-01-14',
+      }));
+      await db.saveListingSnapshot(makeListingSnapshot({
+        extensionId: EXT_ID_A, date: '2026-01-15',
+      }));
+      expect(await db.listing_snapshots.count()).toBe(2);
+    });
+
+    it('getLatestListingSnapshot picks latest scannedAt among same-date records', async () => {
+      // Simulate pre-existing duplicates (from before the fix)
+      await db.listing_snapshots.bulkAdd([
+        makeListingSnapshot({
+          extensionId: EXT_ID_A, date: '2026-01-15',
+          title: 'Morning', scannedAt: new Date('2026-01-15T09:00:00Z'),
+        }),
+        makeListingSnapshot({
+          extensionId: EXT_ID_A, date: '2026-01-15',
+          title: 'Evening', scannedAt: new Date('2026-01-15T17:00:00Z'),
+        }),
+      ]);
+
+      const latest = await db.getLatestListingSnapshot(EXT_ID_A);
+      expect(latest).toBeDefined();
+      expect(latest!.title).toBe('Evening');
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -404,6 +454,80 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
 
     it('getLatestRankForKeyword returns empty array when no data', async () => {
       expect(await db.getLatestRankForKeyword(999)).toEqual([]);
+    });
+
+    it('saveRankSnapshots overwrites existing snapshots for same keyword+extension+date', async () => {
+      // First scan
+      await db.saveRankSnapshots([
+        makeRankSnapshot({
+          keywordId: 1,
+          extensionId: EXT_ID_A,
+          date: '2026-01-15',
+          position: 5,
+          scannedAt: new Date('2026-01-15T09:00:00Z'),
+        }),
+        makeRankSnapshot({
+          keywordId: 1,
+          extensionId: EXT_ID_B,
+          date: '2026-01-15',
+          position: 10,
+          scannedAt: new Date('2026-01-15T09:00:00Z'),
+        }),
+      ]);
+      expect(await db.rank_snapshots.count()).toBe(2);
+
+      // Second scan same day - should overwrite, not duplicate
+      await db.saveRankSnapshots([
+        makeRankSnapshot({
+          keywordId: 1,
+          extensionId: EXT_ID_A,
+          date: '2026-01-15',
+          position: 3,
+          scannedAt: new Date('2026-01-15T17:00:00Z'),
+        }),
+        makeRankSnapshot({
+          keywordId: 1,
+          extensionId: EXT_ID_B,
+          date: '2026-01-15',
+          position: 8,
+          scannedAt: new Date('2026-01-15T17:00:00Z'),
+        }),
+      ]);
+
+      // Should still be 2, not 4
+      expect(await db.rank_snapshots.count()).toBe(2);
+      const all = await db.rank_snapshots.toArray();
+      const snapA = all.find((s) => s.extensionId === EXT_ID_A)!;
+      expect(snapA.position).toBe(3); // latest value
+    });
+
+    it('saveRankSnapshots preserves snapshots for different dates', async () => {
+      await db.saveRankSnapshots([
+        makeRankSnapshot({ keywordId: 1, extensionId: EXT_ID_A, date: '2026-01-14', position: 5 }),
+      ]);
+      await db.saveRankSnapshots([
+        makeRankSnapshot({ keywordId: 1, extensionId: EXT_ID_A, date: '2026-01-15', position: 3 }),
+      ]);
+      expect(await db.rank_snapshots.count()).toBe(2);
+    });
+
+    it('getLatestRankForKeyword deduplicates same-day records per extension', async () => {
+      // Simulate pre-existing duplicates (from before the fix)
+      await db.rank_snapshots.bulkAdd([
+        makeRankSnapshot({
+          keywordId: 1, extensionId: EXT_ID_A, date: '2026-01-15',
+          position: 5, scannedAt: new Date('2026-01-15T09:00:00Z'),
+        }),
+        makeRankSnapshot({
+          keywordId: 1, extensionId: EXT_ID_A, date: '2026-01-15',
+          position: 3, scannedAt: new Date('2026-01-15T17:00:00Z'),
+        }),
+      ]);
+
+      const latest = await db.getLatestRankForKeyword(1);
+      // Should return 1, not 2
+      expect(latest).toHaveLength(1);
+      expect(latest[0].position).toBe(3); // latest scannedAt
     });
   });
 

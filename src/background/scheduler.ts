@@ -188,12 +188,14 @@ export async function triggerManualRefresh(
   await db.enqueueJobs(jobs);
 
   // Notify dashboard immediately so UI shows "Scan Running..."
+  const nextProcessingAt = new Date(Date.now() + MIN_ALARM_DELAY_MINUTES * 60_000).toISOString();
   try {
     chrome.runtime.sendMessage({
       type: 'SCAN_PROGRESS',
       completed: 0,
       total: jobs.length,
       currentJob: 'Queued, waiting to start...',
+      nextProcessingAt,
     });
   } catch {
     // Dashboard may not be open

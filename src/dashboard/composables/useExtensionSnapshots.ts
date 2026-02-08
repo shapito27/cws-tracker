@@ -9,6 +9,7 @@ import { ref, computed } from 'vue';
 import type { Extension, ListingSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { today, daysAgo } from '@/shared/utils/dates';
+import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
 
 /** A single day's data for one extension. */
 export interface DayCell {
@@ -72,13 +73,11 @@ export function useExtensionSnapshots() {
 
         const snapshots = await db.getListingSnapshots(extId, startDate, endDate);
 
-        // Build a map of date -> snapshot (take latest if multiple per day)
+        // Deduplicate: take latest snapshot per day
+        const dedupedSnapshots = deduplicateByDate(snapshots);
         const byDate = new Map<string, ListingSnapshot>();
-        for (const snap of snapshots) {
-          const existing = byDate.get(snap.date);
-          if (!existing || snap.scannedAt > existing.scannedAt) {
-            byDate.set(snap.date, snap);
-          }
+        for (const snap of dedupedSnapshots) {
+          byDate.set(snap.date, snap);
         }
 
         // Build day cells with deltas

@@ -470,6 +470,53 @@ describe('Queue Processor', () => {
       );
     });
 
+    it('progress message includes nextProcessingAt when more jobs pending', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // Enqueue 2 jobs so after first completes, there's still one pending
+      await testDb.enqueueJobs([makeListingJob(), makeKeywordJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const sendMessage = vi.fn();
+      const deps = createDeps({ fetchPage, sendMessage });
+
+      await processNextJob(deps);
+
+      const progressCall = sendMessage.mock.calls.find(
+        (c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS'
+      );
+      expect(progressCall).toBeDefined();
+      const msg = progressCall![0] as { nextProcessingAt?: string };
+      expect(msg.nextProcessingAt).toBeDefined();
+      expect(typeof msg.nextProcessingAt).toBe('string');
+      // Timestamp should be in the future
+      expect(new Date(msg.nextProcessingAt!).getTime()).toBeGreaterThan(Date.now() - 1000);
+    });
+
+    it('progress message omits nextProcessingAt when no more jobs', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // Single job - after completion nothing left
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const sendMessage = vi.fn();
+      const deps = createDeps({ fetchPage, sendMessage });
+
+      await processNextJob(deps);
+
+      const progressCall = sendMessage.mock.calls.find(
+        (c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS'
+      );
+      expect(progressCall).toBeDefined();
+      const msg = progressCall![0] as { nextProcessingAt?: string };
+      expect(msg.nextProcessingAt).toBeUndefined();
+    });
+
     it('listing_scan updates extension metadata after success', async () => {
       const { processNextJob } = await import('@/background/queue-processor');
       await seedProject();

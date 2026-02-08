@@ -328,6 +328,54 @@ describe('listingParserV1', () => {
     });
   });
 
+  describe('extension with null rating (no ratings yet)', () => {
+    it('returns null rating and zero ratingCount when CWS sends null', () => {
+      const html = loadFixture('cws-detail-en.html');
+      // Replace the numeric rating and ratingCount with null in the CWS data
+      const modified = html.replace(
+        '4.697287542998929,35466,',
+        'null,null,',
+      );
+      const result = listingParserV1.parse(modified);
+      expect(result.rating).toBeNull();
+      expect(result.ratingCount).toBe(0);
+      expect(result.reviewCount).toBe(0);
+    });
+
+    it('returns null rating when rating is null but ratingCount is 0', () => {
+      const html = loadFixture('cws-detail-en.html');
+      const modified = html.replace(
+        '4.697287542998929,35466,',
+        'null,0,',
+      );
+      const result = listingParserV1.parse(modified);
+      expect(result.rating).toBeNull();
+      expect(result.ratingCount).toBe(0);
+    });
+
+    it('returns null rating when ratingCount is zero even if rating is numeric', () => {
+      const html = loadFixture('cws-detail-en.html');
+      const modified = html.replace(
+        '4.697287542998929,35466,',
+        '0,0,',
+      );
+      const result = listingParserV1.parse(modified);
+      expect(result.rating).toBeNull();
+      expect(result.ratingCount).toBe(0);
+    });
+
+    it('returns null rating when ratingCount is null even if rating is numeric', () => {
+      const html = loadFixture('cws-detail-en.html');
+      const modified = html.replace(
+        '4.697287542998929,35466,',
+        '4.5,null,',
+      );
+      const result = listingParserV1.parse(modified);
+      expect(result.rating).toBeNull();
+      expect(result.ratingCount).toBe(0);
+    });
+  });
+
   describe('edge cases', () => {
     it('throws ParserError for empty HTML', () => {
       expect(() => listingParserV1.parse('')).toThrow(ParserError);
