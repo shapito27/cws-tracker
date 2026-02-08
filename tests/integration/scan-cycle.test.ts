@@ -520,13 +520,13 @@ describe('1.10.2 Second scan cycle', () => {
       await processNextJob(deps);
     }
 
-    // Verify new listing snapshots (6 total: 3 from first + 3 from second)
+    // Verify listing snapshots (3 total: same-day scans overwrite previous)
     const allListingSnapshots = await testDb.listing_snapshots.toArray();
-    expect(allListingSnapshots).toHaveLength(6);
+    expect(allListingSnapshots).toHaveLength(3);
 
-    // Verify new rank snapshots (6 total: 3 from first + 3 from second)
+    // Verify rank snapshots (3 total: same-day scans overwrite previous)
     const allRankSnapshots = await testDb.rank_snapshots.toArray();
-    expect(allRankSnapshots).toHaveLength(6);
+    expect(allRankSnapshots).toHaveLength(3);
 
     // Verify change events were detected for ext-aaa
     const events = await testDb.events.toArray();

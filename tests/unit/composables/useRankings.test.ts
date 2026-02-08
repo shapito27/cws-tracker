@@ -176,6 +176,33 @@ describe('loadRankHistory', () => {
       '2026-01-03',
     ]);
   });
+
+  it('deduplicates multiple snapshots for same date, keeps latest', async () => {
+    await db.rank_snapshots.bulkAdd([
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-01',
+        position: 10, totalResults: 30,
+        scannedAt: new Date('2026-01-01T09:00:00Z'),
+      },
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-01',
+        position: 5, totalResults: 30,
+        scannedAt: new Date('2026-01-01T17:00:00Z'),
+      },
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-02',
+        position: 3, totalResults: 30,
+        scannedAt: new Date('2026-01-02T10:00:00Z'),
+      },
+    ]);
+
+    const series = await loadRankHistory(1, [extA], '2026-01-01', '2026-01-02');
+
+    // Should have 2 points (one per day), not 3
+    expect(series[0].data).toHaveLength(2);
+    expect(series[0].data[0]).toEqual({ x: '2026-01-01', y: 5 }); // latest scan
+    expect(series[0].data[1]).toEqual({ x: '2026-01-02', y: 3 });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -317,6 +344,40 @@ describe('loadRankDeltas', () => {
 
     expect(deltas.get(EXT_A_ID)!.delta).toBe(5);  // improved
     expect(deltas.get(EXT_B_ID)!.delta).toBe(-4);  // dropped
+  });
+
+  it('deduplicates same-day snapshots, compares across different days', async () => {
+    // Two scans on Jan 1, two scans on Jan 2
+    await db.rank_snapshots.bulkAdd([
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-01',
+        position: 10, totalResults: 30,
+        scannedAt: new Date('2026-01-01T09:00:00Z'),
+      },
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-01',
+        position: 8, totalResults: 30,
+        scannedAt: new Date('2026-01-01T17:00:00Z'),
+      },
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-02',
+        position: 5, totalResults: 30,
+        scannedAt: new Date('2026-01-02T09:00:00Z'),
+      },
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-02',
+        position: 3, totalResults: 30,
+        scannedAt: new Date('2026-01-02T17:00:00Z'),
+      },
+    ]);
+
+    const deltas = await loadRankDeltas(1, [extA]);
+    const d = deltas.get(EXT_A_ID)!;
+
+    // Should compare latest Jan 2 (3) vs latest Jan 1 (8), not two Jan 2 scans
+    expect(d.current).toBe(3);
+    expect(d.previous).toBe(8);
+    expect(d.delta).toBe(5); // improved by 5
   });
 });
 
@@ -525,6 +586,31 @@ describe('loadOwnExtensionRankHistory', () => {
       '2026-01-02',
       '2026-01-03',
     ]);
+  });
+
+  it('deduplicates multiple snapshots for same date', async () => {
+    await db.rank_snapshots.bulkAdd([
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-01',
+        position: 10, totalResults: 30,
+        scannedAt: new Date('2026-01-01T09:00:00Z'),
+      },
+      {
+        keywordId: 1, extensionId: EXT_A_ID, date: '2026-01-01',
+        position: 5, totalResults: 30,
+        scannedAt: new Date('2026-01-01T17:00:00Z'),
+      },
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-01'
+    );
+
+    expect(series[0].data).toHaveLength(1);
+    expect(series[0].data[0]).toEqual({ x: '2026-01-01', y: 5 });
   });
 });
 

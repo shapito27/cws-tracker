@@ -37,6 +37,7 @@ import type {
   Settings,
   ScanLog,
   ScanLogLevel,
+  ScanProgressMessage,
 } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,9 @@ const RETRY_BASE_DELAY_MS = 120_000;
 
 /** Maximum length of response body preview stored in scan logs. */
 const SCAN_LOG_PREVIEW_LENGTH = 100;
+
+/** Minimum alarm delay in ms (1 minute per MV3 rules). */
+const MIN_ALARM_DELAY_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // CWS Fetch (proxy-aware)
@@ -257,15 +261,20 @@ export async function processNextJob(
 
     // Send progress message
     const stats = await db.getQueueStats();
-    deps.sendMessage({
+    const delayMs = await calculateNormalDelay(deps.settings);
+    const hasPending = (await db.getPendingCount()) > 0;
+
+    const progressMessage: ScanProgressMessage = {
       type: 'SCAN_PROGRESS',
       completed: stats.completed,
       total: stats.completed + stats.pending + stats.running,
       currentJob: getJobDescription(job),
-    });
+      nextProcessingAt: hasPending
+        ? new Date(Date.now() + Math.max(delayMs, MIN_ALARM_DELAY_MS)).toISOString()
+        : undefined,
+    };
+    deps.sendMessage(progressMessage);
 
-    const delayMs = await calculateNormalDelay(deps.settings);
-    const hasPending = (await db.getPendingCount()) > 0;
     return { hasMore: hasPending, delayMs };
   } catch (error) {
     return handleJobError(job, error, deps);

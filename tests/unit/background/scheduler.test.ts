@@ -383,6 +383,30 @@ describe('Scheduler', () => {
       expect(oldJob).toBeUndefined();
     });
 
+    it('sends initial progress message with nextProcessingAt', async () => {
+      const { triggerManualRefresh } = await import('@/background/scheduler');
+
+      await seedProject();
+
+      const deps = createSchedulerDeps();
+      const beforeTime = Date.now();
+      await triggerManualRefresh(undefined, deps);
+
+      // chrome.runtime.sendMessage should have been called with nextProcessingAt
+      const sendCalls = getCalls('runtime.sendMessage');
+      const progressMsg = sendCalls.find(
+        (c) => (c.args[0] as { type: string }).type === 'SCAN_PROGRESS'
+      );
+      expect(progressMsg).toBeDefined();
+      const msg = progressMsg!.args[0] as { nextProcessingAt?: string; completed: number };
+      expect(msg.completed).toBe(0);
+      expect(msg.nextProcessingAt).toBeDefined();
+      // Timestamp should be ~1 minute in the future
+      const nextTime = new Date(msg.nextProcessingAt!).getTime();
+      expect(nextTime).toBeGreaterThanOrEqual(beforeTime + 55_000);
+      expect(nextTime).toBeLessThanOrEqual(beforeTime + 65_000);
+    });
+
     it('starts processing immediately by creating processQueue alarm', async () => {
       const { triggerManualRefresh } = await import('@/background/scheduler');
 
