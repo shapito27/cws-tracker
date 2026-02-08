@@ -170,6 +170,7 @@ describe('CWSDatabase - Schema & CRUD (Phase 1.2.1 & 1.2.2)', () => {
         'projects',
         'queue',
         'rank_snapshots',
+        'scan_logs',
         'translation_snapshots',
       ]);
     });

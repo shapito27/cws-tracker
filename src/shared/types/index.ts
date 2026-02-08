@@ -290,6 +290,43 @@ export interface QueueJob {
 }
 
 // ---------------------------------------------------------------------------
+// Scan logging
+// ---------------------------------------------------------------------------
+
+/** Log level for scan log entries. */
+export type ScanLogLevel = 'info' | 'warn' | 'error';
+
+/**
+ * A log entry recording a single CWS request/response during scanning.
+ *
+ * Dexie indexes: `++id`, `timestamp`, `jobId`
+ */
+export interface ScanLog {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  /** ISO 8601 timestamp string (e.g. '2026-02-07T14:30:00.000Z'). Indexed. */
+  timestamp: string;
+  /** Queue job ID that produced this log (if applicable). */
+  jobId: number | null;
+  /** Job type (listing_scan, keyword_scan, etc.). */
+  jobType: string;
+  /** Log severity level. */
+  level: ScanLogLevel;
+  /** The URL that was requested. */
+  requestUrl: string;
+  /** HTTP status code of the response (null if network error). */
+  responseStatus: number | null;
+  /** First 100 characters of the response body. */
+  responsePreview: string;
+  /** Duration of the request in milliseconds. */
+  durationMs: number;
+  /** Human-readable description of the job (e.g. extension ID, keyword). */
+  jobDetail: string;
+  /** Error message if the request failed. */
+  error: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Translation manipulation detection (Phase 3, defined early for schema)
 // ---------------------------------------------------------------------------
 
