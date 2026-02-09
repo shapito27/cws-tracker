@@ -5,6 +5,7 @@ import type { RankChartSeries } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
+import { useSettings } from '../../composables/useSettings';
 import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import RankChart from '../charts/RankChart.vue';
@@ -16,6 +17,7 @@ const props = defineProps<{
 
 const { getExtensionsByProject, getLatestSnapshot } = useExtensions();
 const { scanStatus, requestRefresh } = useServiceWorker();
+const { settings, loadSettings } = useSettings();
 
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
@@ -31,6 +33,7 @@ onMounted(async () => {
   }
 
   try {
+    await loadSettings();
     extensions.value = await getExtensionsByProject(props.project.id);
 
     // Load keyword position history for own extension
@@ -61,12 +64,48 @@ onMounted(async () => {
   }
 });
 
-function getLastScanned(): string {
+function getLastScannedDate(): Date | null {
   const dates = extensions.value
     .filter((e) => e.lastScannedAt)
     .map((e) => e.lastScannedAt!.getTime());
-  if (dates.length === 0) return 'Never';
-  return new Date(Math.max(...dates)).toLocaleDateString();
+  if (dates.length === 0) return null;
+  return new Date(Math.max(...dates));
+}
+
+function getLastScanned(): string {
+  const latest = getLastScannedDate();
+  if (!latest) return 'Never';
+  const timeStr = latest.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return `${latest.toLocaleDateString()} ${timeStr}`;
+}
+
+function getLastScannedTooltip(): string {
+  const latest = getLastScannedDate();
+  if (!latest) return '';
+  return latest.toLocaleString();
+}
+
+function getNextScan(): string {
+  if (scanStatus.value.isRunning) return 'Scanning...';
+  if (!settings.dailyScanEnabled) return 'Auto-scan off';
+
+  const [hours, minutes] = settings.dailyScanTime.split(':').map(Number);
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+
+  const nextDate = new Date();
+  nextDate.setHours(hours, minutes, 0, 0);
+
+  if (settings.lastDailyScanDate === todayStr || nextDate.getTime() <= now.getTime()) {
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const timeStr = nextDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (nextDate.toDateString() === now.toDateString()) return `Today ~${timeStr}`;
+  if (nextDate.toDateString() === tomorrow.toDateString()) return `Tomorrow ~${timeStr}`;
+  return `${nextDate.toLocaleDateString()} ~${timeStr}`;
 }
 
 function formatTime(isoString: string): string {
@@ -100,16 +139,19 @@ function formatTime(isoString: string): string {
           {{ project.keywordIds.length }}
         </p>
       </div>
-      <div class="rounded-lg border border-gray-200 bg-white p-4">
+      <div class="rounded-lg border border-gray-200 bg-white p-4" :title="getLastScannedTooltip()">
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Scan</p>
-        <p class="mt-1 text-2xl font-bold text-gray-900">
+        <p class="mt-1 text-lg font-bold text-gray-900">
           {{ getLastScanned() }}
         </p>
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Status</p>
-        <p class="mt-1 text-2xl font-bold" :class="scanStatus.isRunning ? 'text-blue-600' : 'text-green-600'">
-          {{ scanStatus.isRunning ? 'Scanning' : 'Idle' }}
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Next Scan</p>
+        <p
+          class="mt-1 text-lg font-bold"
+          :class="scanStatus.isRunning ? 'text-blue-600' : settings.dailyScanEnabled ? 'text-gray-900' : 'text-gray-400'"
+        >
+          {{ getNextScan() }}
         </p>
       </div>
     </div>
