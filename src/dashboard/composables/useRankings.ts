@@ -267,6 +267,97 @@ export function buildScatterData(
   return points;
 }
 
+/** A single day's position data for one keyword. */
+export interface KeywordDayCell {
+  /** Position on this date. null = not in top 30. */
+  position: number | null;
+  /** Change vs previous day. Positive = improved (moved up). null if no previous data. */
+  delta: number | null;
+}
+
+/** One row in the keyword position table. */
+export interface KeywordPositionRow {
+  keywordId: number;
+  keywordText: string;
+  /** Map of date (YYYY-MM-DD) -> KeywordDayCell */
+  days: Map<string, KeywordDayCell>;
+}
+
+/**
+ * Load keyword position table data for the user's own extension.
+ * Returns per-day position and delta for each keyword over the given range.
+ * Loads one extra day before the range to compute delta for the first visible day.
+ */
+export async function loadKeywordPositionTable(
+  keywords: Keyword[],
+  ownExtensionId: string,
+  rangeDays: number
+): Promise<KeywordPositionRow[]> {
+  const withId = keywords.filter((kw) => kw.id !== undefined);
+  const endDate = today();
+  // Fetch one extra day before range to compute delta for the first visible day
+  const startDate = daysAgo(rangeDays);
+
+  const snapshotsArray = await Promise.all(
+    withId.map((kw) =>
+      db.getRankSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+    )
+  );
+
+  const rows: KeywordPositionRow[] = [];
+
+  // Build the list of visible dates (the range the user selected)
+  const visibleDates: string[] = [];
+  for (let i = rangeDays - 1; i >= 0; i--) {
+    visibleDates.push(daysAgo(i));
+  }
+
+  withId.forEach((kw, idx) => {
+    const sorted = deduplicateByDate(snapshotsArray[idx])
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    // Index snapshots by date for O(1) lookup
+    const byDate = new Map<string, RankSnapshot>();
+    for (const snap of sorted) {
+      byDate.set(snap.date, snap);
+    }
+
+    const days = new Map<string, KeywordDayCell>();
+
+    for (let i = 0; i < visibleDates.length; i++) {
+      const date = visibleDates[i];
+      const snap = byDate.get(date);
+      if (!snap) continue;
+
+      // Find the previous day's snapshot by looking backwards
+      let prevSnap: RankSnapshot | undefined;
+      for (let j = i - 1; j >= 0; j--) {
+        prevSnap = byDate.get(visibleDates[j]);
+        if (prevSnap) break;
+      }
+      // For the first visible date, check the day before the range
+      if (!prevSnap) {
+        prevSnap = byDate.get(startDate);
+      }
+
+      let delta: number | null = null;
+      if (prevSnap && prevSnap.position !== null && snap.position !== null) {
+        delta = prevSnap.position - snap.position; // positive = improved
+      }
+
+      days.set(date, { position: snap.position, delta });
+    }
+
+    rows.push({
+      keywordId: kw.id!,
+      keywordText: kw.text,
+      days,
+    });
+  });
+
+  return rows;
+}
+
 export function useRankings() {
   return {
     loadRankHistory,
@@ -276,5 +367,6 @@ export function useRankings() {
     buildHeatmapData,
     buildCoverageData,
     buildScatterData,
+    loadKeywordPositionTable,
   };
 }
