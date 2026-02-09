@@ -1,21 +1,137 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useProjects } from '../composables/useProjects';
 import { useServiceWorker } from '../composables/useServiceWorker';
+import { useSettings } from '../composables/useSettings';
+import { db } from '@/shared/db/database';
+import type { Project, Extension } from '@/shared/types';
 import ExtensionsOverviewTable from '../components/tables/ExtensionsOverviewTable.vue';
 
 const router = useRouter();
 const { projects, loading, loadProjects, createProject } = useProjects();
 const { scanStatus, requestRefresh } = useServiceWorker();
+const { settings, loadSettings } = useSettings();
 
 const showCreateModal = ref(false);
 const createName = ref('');
 const createExtensionInput = ref('');
 const createError = ref<string | null>(null);
 const creating = ref(false);
+const extensionMap = ref<Map<string, Extension>>(new Map());
 
-onMounted(loadProjects);
+async function loadExtensions(): Promise<void> {
+  try {
+    const allExts = await db.extensions.toArray();
+    const map = new Map<string, Extension>();
+    for (const ext of allExts) {
+      map.set(ext.id, ext);
+    }
+    extensionMap.value = map;
+  } catch {
+    // Non-critical: cards will show "Never" for scan time
+  }
+}
+
+onMounted(async () => {
+  await loadProjects();
+  await Promise.all([loadExtensions(), loadSettings()]);
+});
+
+// Reload extension data when a scan completes so lastScannedAt updates
+watch(
+  () => scanStatus.value.isRunning,
+  (isRunning, wasRunning) => {
+    if (wasRunning && !isRunning) {
+      loadExtensions();
+    }
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Per-project last scan time
+// ---------------------------------------------------------------------------
+
+function getProjectLastScan(project: Project): Date | null {
+  const extIds = [project.ownExtensionId, ...project.competitorIds];
+  let latest: Date | null = null;
+  for (const id of extIds) {
+    const ext = extensionMap.value.get(id);
+    if (ext?.lastScannedAt) {
+      if (!latest || ext.lastScannedAt.getTime() > latest.getTime()) {
+        latest = ext.lastScannedAt;
+      }
+    }
+  }
+  return latest;
+}
+
+function formatRelativeTime(date: Date | null): string {
+  if (!date) return 'Never';
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  if (diffMs < 0) return 'Just now';
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMs / 3_600_000);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  const diffDays = Math.floor(diffMs / 86_400_000);
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
+function getLastScanLabel(project: Project): string {
+  const lastScan = getProjectLastScan(project);
+  return formatRelativeTime(lastScan);
+}
+
+function lastScanDotClass(project: Project): string {
+  const lastScan = getProjectLastScan(project);
+  if (!lastScan) return 'bg-gray-300';
+  const hoursAgo = (Date.now() - lastScan.getTime()) / 3_600_000;
+  if (hoursAgo < 24) return 'bg-green-400';
+  if (hoursAgo < 48) return 'bg-yellow-400';
+  return 'bg-orange-400';
+}
+
+// ---------------------------------------------------------------------------
+// Global next scan time
+// ---------------------------------------------------------------------------
+
+const nextScanLabel = computed<string>(() => {
+  if (scanStatus.value.isRunning) return 'Scanning...';
+  if (!settings.dailyScanEnabled) return 'Auto-scan off';
+
+  const [hours, minutes] = settings.dailyScanTime.split(':').map(Number);
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+
+  const nextDate = new Date();
+  nextDate.setHours(hours, minutes, 0, 0);
+
+  // If already scanned today or the scheduled time has passed, next is tomorrow
+  if (settings.lastDailyScanDate === todayStr || nextDate.getTime() <= now.getTime()) {
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+
+  return formatNextScanDate(nextDate);
+});
+
+function formatNextScanDate(date: Date): string {
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (date.toDateString() === now.toDateString()) return `Today ~${timeStr}`;
+  if (date.toDateString() === tomorrow.toDateString()) return `Tomorrow ~${timeStr}`;
+  return `${date.toLocaleDateString()} ~${timeStr}`;
+}
+
+// ---------------------------------------------------------------------------
+// Create project + utilities
+// ---------------------------------------------------------------------------
 
 async function handleCreate(): Promise<void> {
   createError.value = null;
@@ -132,17 +248,24 @@ function formatTime(isoString: string): string {
         <h3 class="text-base font-semibold text-gray-900 group-hover:text-blue-700">
           {{ project.name }}
         </h3>
-        <div class="mt-2 space-y-1">
-          <p class="text-xs text-gray-500">
-            {{ 1 + project.competitorIds.length }} extension{{ project.competitorIds.length > 0 ? 's' : '' }}
-          </p>
-          <p class="text-xs text-gray-500">
-            {{ project.keywordIds.length }} keyword{{ project.keywordIds.length !== 1 ? 's' : '' }}
-          </p>
-        </div>
-        <p class="mt-3 text-xs text-gray-400">
-          Created {{ project.createdAt.toLocaleDateString() }}
+        <p class="mt-2 text-xs text-gray-500">
+          {{ 1 + project.competitorIds.length }} extension{{ project.competitorIds.length > 0 ? 's' : '' }}
+          &middot;
+          {{ project.keywordIds.length }} keyword{{ project.keywordIds.length !== 1 ? 's' : '' }}
         </p>
+        <div class="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+          <div class="flex items-center gap-1.5">
+            <span class="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0" :class="lastScanDotClass(project)" />
+            <span class="text-xs text-gray-500">Last scan: {{ getLastScanLabel(project) }}</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span
+              class="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
+              :class="scanStatus.isRunning ? 'bg-blue-400 animate-pulse' : 'bg-gray-300'"
+            />
+            <span class="text-xs text-gray-400">Next: {{ nextScanLabel }}</span>
+          </div>
+        </div>
       </router-link>
     </div>
 
