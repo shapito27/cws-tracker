@@ -10,7 +10,7 @@
  */
 
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import type { ServiceWorkerMessage } from '../../shared/types';
+import type { ServiceWorkerMessage, RankSnapshot } from '../../shared/types';
 import { db } from '../../shared/db/database';
 import { SettingsManager } from '../../shared/utils/settings';
 import { today, daysBetween } from '../../shared/utils/dates';
@@ -88,30 +88,77 @@ export function isServiceWorkerMessage(msg: unknown): msg is ServiceWorkerMessag
 // ---------------------------------------------------------------------------
 
 /**
+ * Deduplicate snapshots per [keywordId, extensionId] within a date group,
+ * keeping the snapshot with the latest scannedAt. Consistent with the
+ * dashboard's deduplicateByDate logic.
+ */
+function deduplicateSnapshots(snapshots: RankSnapshot[]): RankSnapshot[] {
+  const byKey = new Map<string, RankSnapshot>();
+  for (const snap of snapshots) {
+    const key = `${snap.keywordId}:${snap.extensionId}`;
+    const existing = byKey.get(key);
+    if (!existing || snap.scannedAt > existing.scannedAt) {
+      byKey.set(key, snap);
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
  * Load the top rank changes between the two most recent scan dates.
- * Returns up to `limit` changes sorted by magnitude.
+ * Returns up to `limit` changes, own extensions first, then by magnitude.
+ *
+ * Only includes snapshots for keywords that belong to active projects,
+ * preventing cross-project data mixing when multiple projects track
+ * the same keyword text with different keyword IDs.
  */
 export async function loadRecentRankChanges(limit: number = 5): Promise<RankChange[]> {
+  // Load projects and their keyword IDs upfront to filter snapshots
+  const projects = await db.projects.toArray();
+  if (projects.length === 0) return [];
+
+  const allProjectKeywordIds = new Set<number>();
+  for (const project of projects) {
+    for (const kwId of project.keywordIds) {
+      allProjectKeywordIds.add(kwId);
+    }
+  }
+
+  const ownExtIds = new Set(projects.map((p) => p.ownExtensionId));
+
   // Get a batch of recent snapshots to identify the two latest scan dates.
   // A typical scan: 20 keywords x 10 extensions = 200 snapshots per date.
-  // 500 comfortably covers 2+ scan dates.
+  // 2000 comfortably covers 2+ scan dates even for large projects.
   const recentSnapshots = await db.rank_snapshots
     .orderBy('id')
     .reverse()
-    .limit(500)
+    .limit(2000)
     .toArray();
 
   if (recentSnapshots.length === 0) return [];
 
+  // Filter to only keywords from active projects
+  const projectSnapshots = recentSnapshots.filter(
+    (s) => allProjectKeywordIds.has(s.keywordId)
+  );
+
+  if (projectSnapshots.length === 0) return [];
+
   // Find distinct dates, sorted descending
-  const dates = [...new Set(recentSnapshots.map((s) => s.date))].sort().reverse();
+  const dates = [...new Set(projectSnapshots.map((s) => s.date))].sort().reverse();
   if (dates.length < 2) return [];
 
   const currentDate = dates[0];
   const previousDate = dates[1];
 
-  const current = recentSnapshots.filter((s) => s.date === currentDate);
-  const previous = recentSnapshots.filter((s) => s.date === previousDate);
+  // Deduplicate per [keywordId, extensionId] within each date, keeping latest scannedAt.
+  // This matches the dashboard's deduplicateByDate behavior.
+  const current = deduplicateSnapshots(
+    projectSnapshots.filter((s) => s.date === currentDate)
+  );
+  const previous = deduplicateSnapshots(
+    projectSnapshots.filter((s) => s.date === previousDate)
+  );
 
   const changes: RankChange[] = [];
 
@@ -144,13 +191,18 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
         previousPosition: prev?.position ?? null,
         currentPosition: snap.position,
         change,
-        isOwn: false,
+        isOwn: ownExtIds.has(snap.extensionId),
       });
     }
   }
 
-  // Sort by absolute change magnitude (biggest changes first)
-  changes.sort((a, b) => Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0));
+  // Sort: own extensions first, then by absolute change magnitude
+  changes.sort((a, b) => {
+    // Own extensions always come first
+    if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
+    // Within same group, sort by magnitude descending
+    return Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0);
+  });
 
   // Take top N and fill in names via batch queries
   const topChanges = changes.slice(0, limit);
@@ -159,22 +211,19 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
     const extensionIds = [...new Set(topChanges.map((c) => c.extensionId))];
     const keywordIds = [...new Set(topChanges.map((c) => c.keywordId))];
 
-    const [extensions, keywords, projects] = await Promise.all([
+    const [extensions, keywords] = await Promise.all([
       db.extensions.where('id').anyOf(extensionIds).toArray(),
       db.keywords.where('id').anyOf(keywordIds).toArray(),
-      db.projects.toArray(),
     ]);
 
     const extMap = new Map(extensions.map((e) => [e.id, e]));
     const kwMap = new Map(keywords.map((k) => [k.id!, k]));
-    const ownExtIds = new Set(projects.map((p) => p.ownExtensionId));
 
     for (const c of topChanges) {
       const ext = extMap.get(c.extensionId);
       const kw = kwMap.get(c.keywordId);
       c.extensionName = ext?.name || c.extensionId.substring(0, 8) + '...';
       c.keyword = kw?.text || `Keyword #${c.keywordId}`;
-      c.isOwn = ownExtIds.has(c.extensionId);
     }
   }
 
