@@ -13,7 +13,7 @@ import {
   getCalls,
 } from '../../mocks/chrome';
 import { CWSDatabase } from '../../../src/shared/db/database';
-import type { RankSnapshot, Extension, Keyword } from '../../../src/shared/types';
+import type { RankSnapshot, Extension, Keyword, Project } from '../../../src/shared/types';
 import {
   loadRecentRankChanges,
   updateBadgeCount,
@@ -66,6 +66,18 @@ function makeKeyword(overrides: Partial<Keyword> = {}): Keyword {
   };
 }
 
+function makeProject(overrides: Partial<Project> = {}): Project {
+  return {
+    name: 'Test Project',
+    ownExtensionId: 'ext-aaa',
+    competitorIds: ['ext-bbb'],
+    keywordIds: [1],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
 beforeEach(async () => {
   resetChromeMock();
   // Create fresh DB for each test (unique name avoids cross-test contamination)
@@ -110,6 +122,7 @@ describe('loadRecentRankChanges()', () => {
   it('detects rank improvement (moved up)', async () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'My Extension' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'ad blocker' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
 
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 10 }),
@@ -123,6 +136,7 @@ describe('loadRecentRankChanges()', () => {
     expect(changes[0].currentPosition).toBe(5);
     expect(changes[0].extensionName).toBe('My Extension');
     expect(changes[0].keyword).toBe('ad blocker');
+    expect(changes[0].isOwn).toBe(true);
   });
 
   it('detects rank drop (moved down)', async () => {
@@ -238,6 +252,7 @@ describe('loadRecentRankChanges()', () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'My Ext' }));
     await db.extensions.add(makeExtension({ id: 'ext-bbb', name: 'Competitor' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'ad blocker' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa', competitorIds: ['ext-bbb'] }));
 
     await db.rank_snapshots.bulkAdd([
       // ext-aaa improved
@@ -256,8 +271,41 @@ describe('loadRecentRankChanges()', () => {
 
     expect(improved).toBeDefined();
     expect(improved!.change).toBe(5); // was 8, now 3
+    expect(improved!.isOwn).toBe(true);
     expect(dropped).toBeDefined();
     expect(dropped!.change).toBe(-5); // was 2, now 7
+    expect(dropped!.isOwn).toBe(false);
+  });
+
+  it('marks extension as own when referenced by multiple projects', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Multi Ext' }));
+    await db.keywords.add(makeKeyword({ id: 1, text: 'kw' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+    await db.projects.add(makeProject({ name: 'Project 2', ownExtensionId: 'ext-aaa', competitorIds: [] }));
+
+    await db.rank_snapshots.bulkAdd([
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 10 }),
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 5 }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    expect(changes).toHaveLength(1);
+    expect(changes[0].isOwn).toBe(true);
+  });
+
+  it('marks extensions without a project as not own', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Orphan Ext' }));
+    await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
+    // No project created — extension is not associated as "own"
+
+    await db.rank_snapshots.bulkAdd([
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 10 }),
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 5 }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    expect(changes).toHaveLength(1);
+    expect(changes[0].isOwn).toBe(false);
   });
 
   it('uses extension ID prefix when extension name not in DB', async () => {

@@ -31,6 +31,8 @@ export interface RankChange {
   currentPosition: number | null;
   /** Positive = improved (moved up in rank), negative = dropped. null = no prior data. */
   change: number | null;
+  /** Whether this extension is the user's own (vs a competitor). */
+  isOwn: boolean;
 }
 
 export interface PopupState {
@@ -142,6 +144,7 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
         previousPosition: prev?.position ?? null,
         currentPosition: snap.position,
         change,
+        isOwn: false,
       });
     }
   }
@@ -156,19 +159,22 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
     const extensionIds = [...new Set(topChanges.map((c) => c.extensionId))];
     const keywordIds = [...new Set(topChanges.map((c) => c.keywordId))];
 
-    const [extensions, keywords] = await Promise.all([
+    const [extensions, keywords, projects] = await Promise.all([
       db.extensions.where('id').anyOf(extensionIds).toArray(),
       db.keywords.where('id').anyOf(keywordIds).toArray(),
+      db.projects.toArray(),
     ]);
 
     const extMap = new Map(extensions.map((e) => [e.id, e]));
     const kwMap = new Map(keywords.map((k) => [k.id!, k]));
+    const ownExtIds = new Set(projects.map((p) => p.ownExtensionId));
 
     for (const c of topChanges) {
       const ext = extMap.get(c.extensionId);
       const kw = kwMap.get(c.keywordId);
       c.extensionName = ext?.name || c.extensionId.substring(0, 8) + '...';
       c.keyword = kw?.text || `Keyword #${c.keywordId}`;
+      c.isOwn = ownExtIds.has(c.extensionId);
     }
   }
 
