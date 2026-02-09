@@ -9,6 +9,8 @@ import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import RankChart from '../charts/RankChart.vue';
 
+const ALARM_DAILY_SCAN = 'dailyScan';
+
 const props = defineProps<{
   project: Project;
 }>();
@@ -21,6 +23,7 @@ const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
+const nextScanTime = ref<string | null>(null);
 
 onMounted(async () => {
   if (!props.project.id) {
@@ -52,6 +55,16 @@ onMounted(async () => {
     // Sort by date descending, take last 10
     events.sort((a, b) => b.date.localeCompare(a.date));
     recentEvents.value = events.slice(0, 10);
+
+    // Fetch next scheduled scan time from chrome.alarms
+    try {
+      const alarm = await chrome.alarms.get(ALARM_DAILY_SCAN);
+      if (alarm) {
+        nextScanTime.value = formatRelativeDateTime(new Date(alarm.scheduledTime));
+      }
+    } catch {
+      // chrome.alarms may not be available in tests
+    }
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
   } finally {
@@ -59,12 +72,27 @@ onMounted(async () => {
   }
 });
 
+function formatRelativeDateTime(date: Date): string {
+  const now = new Date();
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((dateStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return `Today, ${timeStr}`;
+  if (diffDays === -1) return `Yesterday, ${timeStr}`;
+  if (diffDays === 1) return `Tomorrow, ${timeStr}`;
+
+  return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+}
+
 function getLastScanned(): string {
   const dates = extensions.value
     .filter((e) => e.lastScannedAt)
     .map((e) => e.lastScannedAt!.getTime());
   if (dates.length === 0) return 'Never';
-  return new Date(Math.max(...dates)).toLocaleDateString();
+  return formatRelativeDateTime(new Date(Math.max(...dates)));
 }
 
 function formatTime(isoString: string): string {
@@ -100,8 +128,11 @@ function formatTime(isoString: string): string {
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4">
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Scan</p>
-        <p class="mt-1 text-2xl font-bold text-gray-900">
+        <p class="mt-1 text-lg font-bold text-gray-900 leading-snug">
           {{ getLastScanned() }}
+        </p>
+        <p v-if="nextScanTime && !scanStatus.isRunning" class="mt-1 text-xs text-gray-400">
+          Next: {{ nextScanTime }}
         </p>
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4">
