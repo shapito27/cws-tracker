@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import type { Project, Extension, EventRecord, Keyword } from '@/shared/types';
-import type { RankChartSeries } from '../../composables/useRankings';
+import type { RankChartSeries, KeywordPositionRow } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
-import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
+import { loadOwnExtensionRankHistory, loadKeywordPositionTable } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import RankChart from '../charts/RankChart.vue';
+import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
 
 const props = defineProps<{
   project: Project;
@@ -19,6 +20,7 @@ const { scanStatus, requestRefresh } = useServiceWorker();
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
+const keywordPositionRows = ref<KeywordPositionRow[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
 
@@ -39,6 +41,10 @@ onMounted(async () => {
         props.project.ownExtensionId,
         daysAgo(30),
         today()
+      );
+      keywordPositionRows.value = await loadKeywordPositionTable(
+        keywords,
+        props.project.ownExtensionId
       );
     }
 
@@ -139,6 +145,15 @@ function formatTime(isoString: string): string {
         <p class="text-sm text-gray-500">No ranking data yet. Run a scan to track keyword positions.</p>
       </div>
       <RankChart v-else :series="ownKeywordSeries" />
+    </div>
+
+    <!-- Keyword positions table -->
+    <div class="mb-8">
+      <h3 class="text-base font-semibold text-gray-900 mb-3">Keyword Positions</h3>
+      <div v-if="keywordPositionRows.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
+        <p class="text-sm text-gray-500">No keyword data yet. Add keywords and run a scan.</p>
+      </div>
+      <KeywordPositionTable v-else :rows="keywordPositionRows" />
     </div>
 
     <!-- Recent events -->

@@ -267,6 +267,96 @@ export function buildScatterData(
   return points;
 }
 
+/** A cell in the keyword position table for a single time period. */
+export interface PositionPeriodCell {
+  /** Change in position over this period. Positive = improved. null if no data. */
+  delta: number | null;
+}
+
+/** One row in the keyword position table. */
+export interface KeywordPositionRow {
+  keywordId: number;
+  keywordText: string;
+  /** Latest position for this keyword. null = not in top 30. */
+  currentPosition: number | null;
+  /** Change vs previous day. Positive = improved. null if no comparison. */
+  dailyDelta: number | null;
+  periods: {
+    '7d': PositionPeriodCell;
+    '14d': PositionPeriodCell;
+    '30d': PositionPeriodCell;
+  };
+}
+
+/**
+ * Load keyword position table data for the user's own extension.
+ * For each keyword, returns current position, daily delta, and
+ * deltas over 7d/14d/30d windows.
+ */
+export async function loadKeywordPositionTable(
+  keywords: Keyword[],
+  ownExtensionId: string
+): Promise<KeywordPositionRow[]> {
+  const withId = keywords.filter((kw) => kw.id !== undefined);
+  const endDate = today();
+  const startDate = daysAgo(31); // 31 days to ensure we have data for 30d comparison
+
+  // Load all snapshots for the last 31 days for each keyword
+  const snapshotsArray = await Promise.all(
+    withId.map((kw) =>
+      db.getRankSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+    )
+  );
+
+  const rows: KeywordPositionRow[] = [];
+
+  withId.forEach((kw, idx) => {
+    const sorted = deduplicateByDate(snapshotsArray[idx])
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const latest = sorted.length > 0 ? sorted[sorted.length - 1] : null;
+    const currentPosition = latest?.position ?? null;
+
+    // Daily delta: compare last two data points
+    let dailyDelta: number | null = null;
+    if (sorted.length >= 2) {
+      const prev = sorted[sorted.length - 2].position;
+      const curr = sorted[sorted.length - 1].position;
+      if (prev !== null && curr !== null) {
+        dailyDelta = prev - curr; // positive = improved (lower rank number)
+      }
+    }
+
+    // Compute delta for each period window
+    function periodDelta(daysBack: number): PositionPeriodCell {
+      const cutoff = daysAgo(daysBack);
+      // Find the earliest snapshot at or after the cutoff
+      const oldSnap = sorted.find((s) => s.date >= cutoff);
+      if (!oldSnap || !latest) return { delta: null };
+      if (oldSnap.position === null || currentPosition === null) return { delta: null };
+      // If the old snap IS the latest, no meaningful delta
+      if (oldSnap.date === latest.date && sorted.indexOf(oldSnap) === sorted.length - 1) {
+        return { delta: null };
+      }
+      return { delta: oldSnap.position - currentPosition };
+    }
+
+    rows.push({
+      keywordId: kw.id!,
+      keywordText: kw.text,
+      currentPosition,
+      dailyDelta,
+      periods: {
+        '7d': periodDelta(7),
+        '14d': periodDelta(14),
+        '30d': periodDelta(30),
+      },
+    });
+  });
+
+  return rows;
+}
+
 export function useRankings() {
   return {
     loadRankHistory,
@@ -276,5 +366,6 @@ export function useRankings() {
     buildHeatmapData,
     buildCoverageData,
     buildScatterData,
+    loadKeywordPositionTable,
   };
 }
