@@ -109,7 +109,18 @@ describe('loadRecentRankChanges()', () => {
     expect(changes).toEqual([]);
   });
 
+  it('returns empty array when no projects exist', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeRankSnapshot({ date: '2026-02-04', position: 5 }),
+      makeRankSnapshot({ date: '2026-02-05', position: 10 }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    expect(changes).toEqual([]);
+  });
+
   it('returns empty array when only one scan date exists', async () => {
+    await db.projects.add(makeProject({ keywordIds: [1] }));
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ date: '2026-02-05', position: 5 }),
       makeRankSnapshot({ date: '2026-02-05', position: 10, extensionId: 'ext-bbb' }),
@@ -142,6 +153,7 @@ describe('loadRecentRankChanges()', () => {
   it('detects rank drop (moved down)', async () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'My Extension' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'vpn' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
 
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 3 }),
@@ -156,6 +168,7 @@ describe('loadRecentRankChanges()', () => {
   });
 
   it('skips unchanged positions (no change)', async () => {
+    await db.projects.add(makeProject({ keywordIds: [1] }));
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 5 }),
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 5 }),
@@ -168,6 +181,7 @@ describe('loadRecentRankChanges()', () => {
   it('handles position: null as "30+" (not in top 30)', async () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Test Ext' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
 
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 8 }),
@@ -183,6 +197,7 @@ describe('loadRecentRankChanges()', () => {
   it('handles entering top 30 (null -> ranked)', async () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Test Ext' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
 
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: null }),
@@ -197,6 +212,7 @@ describe('loadRecentRankChanges()', () => {
   });
 
   it('skips when both positions are null (still not ranked)', async () => {
+    await db.projects.add(makeProject({ keywordIds: [1] }));
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: null }),
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: null }),
@@ -213,6 +229,7 @@ describe('loadRecentRankChanges()', () => {
     await db.keywords.add(makeKeyword({ id: 1, text: 'kw1' }));
     await db.keywords.add(makeKeyword({ id: 2, text: 'kw2', projectId: 1 }));
     await db.keywords.add(makeKeyword({ id: 3, text: 'kw3', projectId: 1 }));
+    await db.projects.add(makeProject({ keywordIds: [1, 2, 3] }));
 
     // Create 3 changes
     await db.rank_snapshots.bulkAdd([
@@ -228,24 +245,30 @@ describe('loadRecentRankChanges()', () => {
     expect(changes).toHaveLength(2);
   });
 
-  it('sorts by absolute change magnitude (biggest first)', async () => {
-    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'A' }));
-    await db.extensions.add(makeExtension({ id: 'ext-bbb', name: 'B' }));
+  it('sorts own extensions first, then by magnitude', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'My Ext' }));
+    await db.extensions.add(makeExtension({ id: 'ext-bbb', name: 'Competitor' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'kw1' }));
     await db.keywords.add(makeKeyword({ id: 2, text: 'kw2', projectId: 1 }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa', competitorIds: ['ext-bbb'], keywordIds: [1, 2] }));
 
     await db.rank_snapshots.bulkAdd([
-      // Small change: 5 -> 3 = +2
+      // Own ext: small change 5 -> 3 = +2
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 5 }),
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 3 }),
-      // Big change: 20 -> 2 = +18
+      // Competitor: big change 20 -> 2 = +18
       makeRankSnapshot({ keywordId: 2, extensionId: 'ext-bbb', date: '2026-02-04', position: 20 }),
       makeRankSnapshot({ keywordId: 2, extensionId: 'ext-bbb', date: '2026-02-05', position: 2 }),
     ]);
 
     const changes = await loadRecentRankChanges();
-    expect(changes[0].change).toBe(18); // biggest change first
-    expect(changes[1].change).toBe(2);
+    // Own extension comes first despite smaller magnitude
+    expect(changes[0].extensionId).toBe('ext-aaa');
+    expect(changes[0].change).toBe(2);
+    expect(changes[0].isOwn).toBe(true);
+    expect(changes[1].extensionId).toBe('ext-bbb');
+    expect(changes[1].change).toBe(18);
+    expect(changes[1].isOwn).toBe(false);
   });
 
   it('handles multiple extensions and keywords correctly', async () => {
@@ -266,15 +289,14 @@ describe('loadRecentRankChanges()', () => {
     const changes = await loadRecentRankChanges();
     expect(changes).toHaveLength(2);
 
-    const improved = changes.find((c) => c.extensionId === 'ext-aaa');
-    const dropped = changes.find((c) => c.extensionId === 'ext-bbb');
+    // Own extension sorted first
+    expect(changes[0].extensionId).toBe('ext-aaa');
+    expect(changes[0].change).toBe(5); // was 8, now 3
+    expect(changes[0].isOwn).toBe(true);
 
-    expect(improved).toBeDefined();
-    expect(improved!.change).toBe(5); // was 8, now 3
-    expect(improved!.isOwn).toBe(true);
-    expect(dropped).toBeDefined();
-    expect(dropped!.change).toBe(-5); // was 2, now 7
-    expect(dropped!.isOwn).toBe(false);
+    expect(changes[1].extensionId).toBe('ext-bbb');
+    expect(changes[1].change).toBe(-5); // was 2, now 7
+    expect(changes[1].isOwn).toBe(false);
   });
 
   it('marks extension as own when referenced by multiple projects', async () => {
@@ -293,14 +315,29 @@ describe('loadRecentRankChanges()', () => {
     expect(changes[0].isOwn).toBe(true);
   });
 
-  it('marks extensions without a project as not own', async () => {
+  it('excludes snapshots for keywords not in any project', async () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Orphan Ext' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
-    // No project created — extension is not associated as "own"
+    // Project exists but doesn't include keyword 1
+    await db.projects.add(makeProject({ keywordIds: [99] }));
 
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 10 }),
       makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 5 }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    expect(changes).toHaveLength(0); // filtered out since keyword 1 not in project
+  });
+
+  it('marks competitor extensions as not own', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-bbb', name: 'Competitor Ext' }));
+    await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa', competitorIds: ['ext-bbb'] }));
+
+    await db.rank_snapshots.bulkAdd([
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-bbb', date: '2026-02-04', position: 10 }),
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-bbb', date: '2026-02-05', position: 5 }),
     ]);
 
     const changes = await loadRecentRankChanges();
@@ -310,6 +347,7 @@ describe('loadRecentRankChanges()', () => {
 
   it('uses extension ID prefix when extension name not in DB', async () => {
     await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
+    await db.projects.add(makeProject({ keywordIds: [1] }));
 
     await db.rank_snapshots.bulkAdd([
       makeRankSnapshot({ keywordId: 1, extensionId: 'abcdefghijklmnop', date: '2026-02-04', position: 10 }),
@@ -319,6 +357,52 @@ describe('loadRecentRankChanges()', () => {
     const changes = await loadRecentRankChanges();
     expect(changes).toHaveLength(1);
     expect(changes[0].extensionName).toBe('abcdefgh...');
+  });
+
+  it('deduplicates snapshots by keywordId+extensionId per date (keeps latest scannedAt)', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'My Ext' }));
+    await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+
+    // Two snapshots for the same keyword+extension+date but different positions/times.
+    // This shouldn't happen in practice (saveRankSnapshots prevents it), but
+    // dedup ensures consistent behavior matching the dashboard.
+    await db.rank_snapshots.bulkAdd([
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 8, scannedAt: new Date('2026-02-04T10:00:00') }),
+      // Stale duplicate on current date (earlier scannedAt, wrong position)
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: null, scannedAt: new Date('2026-02-05T08:00:00') }),
+      // Latest snapshot on current date (later scannedAt, correct position)
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 2, scannedAt: new Date('2026-02-05T14:00:00') }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    expect(changes).toHaveLength(1);
+    // Should use the latest scannedAt snapshot (position 2), not the stale one (null)
+    expect(changes[0].currentPosition).toBe(2);
+    expect(changes[0].change).toBe(6); // was 8, now 2 = improved by 6
+  });
+
+  it('only shows rank changes for keywords in active projects', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'My Ext' }));
+    await db.keywords.add(makeKeyword({ id: 1, text: 'project keyword' }));
+    await db.keywords.add(makeKeyword({ id: 2, text: 'orphan keyword', projectId: 1 }));
+    // Project only includes keyword 1, not keyword 2
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa', keywordIds: [1] }));
+
+    await db.rank_snapshots.bulkAdd([
+      // Keyword 1 (in project): improved
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: 10 }),
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: 3 }),
+      // Keyword 2 (not in project): shows as dropped — should be excluded
+      makeRankSnapshot({ keywordId: 2, extensionId: 'ext-aaa', date: '2026-02-04', position: 2 }),
+      makeRankSnapshot({ keywordId: 2, extensionId: 'ext-aaa', date: '2026-02-05', position: null }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    // Only keyword 1 shown, keyword 2 filtered out
+    expect(changes).toHaveLength(1);
+    expect(changes[0].keywordId).toBe(1);
+    expect(changes[0].change).toBe(7);
   });
 });
 
