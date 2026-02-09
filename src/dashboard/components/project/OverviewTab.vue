@@ -62,14 +62,25 @@ onMounted(async () => {
   }
 });
 
-function getLastScanned(): string {
+function getLastScannedDate(): Date | null {
   const dates = extensions.value
     .filter((e) => e.lastScannedAt)
     .map((e) => e.lastScannedAt!.getTime());
-  if (dates.length === 0) return 'Never';
-  const latest = new Date(Math.max(...dates));
+  if (dates.length === 0) return null;
+  return new Date(Math.max(...dates));
+}
+
+function getLastScanned(): string {
+  const latest = getLastScannedDate();
+  if (!latest) return 'Never';
   const timeStr = latest.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   return `${latest.toLocaleDateString()} ${timeStr}`;
+}
+
+function getLastScannedTooltip(): string {
+  const latest = getLastScannedDate();
+  if (!latest) return '';
+  return latest.toLocaleString();
 }
 
 function getNextScan(): string {
@@ -126,7 +137,7 @@ function formatTime(isoString: string): string {
           {{ project.keywordIds.length }}
         </p>
       </div>
-      <div class="rounded-lg border border-gray-200 bg-white p-4">
+      <div class="rounded-lg border border-gray-200 bg-white p-4" :title="getLastScannedTooltip()">
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Scan</p>
         <p class="mt-1 text-lg font-bold text-gray-900">
           {{ getLastScanned() }}
