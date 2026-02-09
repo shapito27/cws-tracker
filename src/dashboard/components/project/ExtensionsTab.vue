@@ -159,6 +159,83 @@ function getRiskColor(score: number): string {
       </table>
     </div>
 
+    <!-- Risk Score explanation (collapsed by default) -->
+    <details v-if="extensions.length > 0" class="mt-3">
+      <summary class="cursor-pointer select-none text-xs font-medium text-gray-500 hover:text-gray-700">
+        How is Risk Score calculated?
+      </summary>
+      <div class="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+        <p class="mb-2">
+          The <strong class="text-gray-900">Permission Risk Score</strong> (0–100) measures the potential danger of permissions
+          requested by an extension. Higher scores indicate more sensitive data access.
+        </p>
+        <table class="w-full text-xs mb-3">
+          <thead>
+            <tr class="border-b border-gray-200">
+              <th class="py-1 text-left font-medium text-gray-700">Permission</th>
+              <th class="py-1 text-right font-medium text-gray-700">Weight</th>
+              <th class="py-1 text-left pl-4 font-medium text-gray-700">Chrome Install Warning</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-100">
+            <tr>
+              <td class="py-1 font-mono">&lt;all_urls&gt; / broad hosts</td>
+              <td class="py-1 text-right text-red-600 font-semibold">30</td>
+              <td class="py-1 pl-4">Read and change all your data on all websites</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">history</td>
+              <td class="py-1 text-right text-red-600 font-semibold">25</td>
+              <td class="py-1 pl-4">Read your browsing history</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">tabs</td>
+              <td class="py-1 text-right text-red-600 font-semibold">20</td>
+              <td class="py-1 pl-4">Read your browsing history</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">bookmarks</td>
+              <td class="py-1 text-right text-yellow-600 font-semibold">15</td>
+              <td class="py-1 pl-4">Read and change your bookmarks</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">webRequest</td>
+              <td class="py-1 text-right text-yellow-600 font-semibold">15</td>
+              <td class="py-1 pl-4">Observe and intercept network requests</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">cookies</td>
+              <td class="py-1 text-right text-yellow-600 font-semibold">15</td>
+              <td class="py-1 pl-4">Read cookies for all sites</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">activeTab</td>
+              <td class="py-1 text-right text-green-600 font-semibold">5</td>
+              <td class="py-1 pl-4">Access current tab on click</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">Narrow host (single domain)</td>
+              <td class="py-1 text-right text-green-600 font-semibold">5</td>
+              <td class="py-1 pl-4">Read/change data on that site</td>
+            </tr>
+            <tr>
+              <td class="py-1 font-mono">storage, alarms, notifications, etc.</td>
+              <td class="py-1 text-right font-semibold">0</td>
+              <td class="py-1 pl-4 text-gray-400">No warning</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="mb-1">
+          <strong class="text-gray-700">Formula:</strong> Sum all permission weights, then clamp to 0–100.
+        </p>
+        <div class="flex gap-4 text-xs mt-2">
+          <span><span class="inline-block w-2 h-2 rounded-full bg-green-500 mr-1"></span> 0–19 Low</span>
+          <span><span class="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1"></span> 20–49 Medium</span>
+          <span><span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span> 50–100 High</span>
+        </div>
+      </div>
+    </details>
+
     <!-- Confirm remove dialog -->
     <div
       v-if="confirmRemoveId"
