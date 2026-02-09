@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import type { Project, Extension, EventRecord, Keyword } from '@/shared/types';
-import type { RankChartSeries, KeywordPositionRow } from '../../composables/useRankings';
+import type { RankChartSeries } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
-import { loadOwnExtensionRankHistory, loadKeywordPositionTable } from '../../composables/useRankings';
+import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import RankChart from '../charts/RankChart.vue';
 import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
@@ -20,7 +20,7 @@ const { scanStatus, requestRefresh } = useServiceWorker();
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
-const keywordPositionRows = ref<KeywordPositionRow[]>([]);
+const keywords = ref<Keyword[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
 
@@ -34,17 +34,13 @@ onMounted(async () => {
     extensions.value = await getExtensionsByProject(props.project.id);
 
     // Load keyword position history for own extension
-    const keywords = await db.getKeywordsByProject(props.project.id);
-    if (keywords.length > 0) {
+    keywords.value = await db.getKeywordsByProject(props.project.id);
+    if (keywords.value.length > 0) {
       ownKeywordSeries.value = await loadOwnExtensionRankHistory(
-        keywords,
+        keywords.value,
         props.project.ownExtensionId,
         daysAgo(30),
         today()
-      );
-      keywordPositionRows.value = await loadKeywordPositionTable(
-        keywords,
-        props.project.ownExtensionId
       );
     }
 
@@ -148,12 +144,11 @@ function formatTime(isoString: string): string {
     </div>
 
     <!-- Keyword positions table -->
-    <div class="mb-8">
-      <h3 class="text-base font-semibold text-gray-900 mb-3">Keyword Positions</h3>
-      <div v-if="keywordPositionRows.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
-        <p class="text-sm text-gray-500">No keyword data yet. Add keywords and run a scan.</p>
-      </div>
-      <KeywordPositionTable v-else :rows="keywordPositionRows" />
+    <div v-if="keywords.length > 0" class="mb-8">
+      <KeywordPositionTable
+        :keywords="keywords"
+        :own-extension-id="project.ownExtensionId"
+      />
     </div>
 
     <!-- Recent events -->
