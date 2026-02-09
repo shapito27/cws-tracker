@@ -5,11 +5,11 @@ import type { RankChartSeries } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
+import { useSettings } from '../../composables/useSettings';
 import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import RankChart from '../charts/RankChart.vue';
-
-const ALARM_DAILY_SCAN = 'dailyScan';
+import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
 
 const props = defineProps<{
   project: Project;
@@ -17,13 +17,14 @@ const props = defineProps<{
 
 const { getExtensionsByProject, getLatestSnapshot } = useExtensions();
 const { scanStatus, requestRefresh } = useServiceWorker();
+const { settings, loadSettings } = useSettings();
 
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
+const keywords = ref<Keyword[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
-const nextScanTime = ref<string | null>(null);
 
 onMounted(async () => {
   if (!props.project.id) {
@@ -32,13 +33,14 @@ onMounted(async () => {
   }
 
   try {
+    await loadSettings();
     extensions.value = await getExtensionsByProject(props.project.id);
 
     // Load keyword position history for own extension
-    const keywords = await db.getKeywordsByProject(props.project.id);
-    if (keywords.length > 0) {
+    keywords.value = await db.getKeywordsByProject(props.project.id);
+    if (keywords.value.length > 0) {
       ownKeywordSeries.value = await loadOwnExtensionRankHistory(
-        keywords,
+        keywords.value,
         props.project.ownExtensionId,
         daysAgo(30),
         today()
@@ -55,16 +57,6 @@ onMounted(async () => {
     // Sort by date descending, take last 10
     events.sort((a, b) => b.date.localeCompare(a.date));
     recentEvents.value = events.slice(0, 10);
-
-    // Fetch next scheduled scan time from chrome.alarms
-    try {
-      const alarm = await chrome.alarms.get(ALARM_DAILY_SCAN);
-      if (alarm) {
-        nextScanTime.value = formatRelativeDateTime(new Date(alarm.scheduledTime));
-      }
-    } catch {
-      // chrome.alarms may not be available in tests
-    }
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
   } finally {
@@ -89,13 +81,48 @@ function formatRelativeDateTime(date: Date): string {
   return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
 }
 
-const lastScanned = computed<string>(() => {
+function getLastScannedDate(): Date | null {
   const dates = extensions.value
     .filter((e) => e.lastScannedAt)
     .map((e) => e.lastScannedAt!.getTime());
-  if (dates.length === 0) return 'Never';
-  return formatRelativeDateTime(new Date(Math.max(...dates)));
+  if (dates.length === 0) return null;
+  return new Date(Math.max(...dates));
+}
+
+const lastScanned = computed<string>(() => {
+  const latest = getLastScannedDate();
+  if (!latest) return 'Never';
+  return formatRelativeDateTime(latest);
 });
+
+function getLastScannedTooltip(): string {
+  const latest = getLastScannedDate();
+  if (!latest) return '';
+  return latest.toLocaleString();
+}
+
+function getNextScan(): string {
+  if (scanStatus.value.isRunning) return 'Scanning...';
+  if (!settings.dailyScanEnabled) return 'Auto-scan off';
+
+  const [hours, minutes] = settings.dailyScanTime.split(':').map(Number);
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+
+  const nextDate = new Date();
+  nextDate.setHours(hours, minutes, 0, 0);
+
+  if (settings.lastDailyScanDate === todayStr || nextDate.getTime() <= now.getTime()) {
+    nextDate.setDate(nextDate.getDate() + 1);
+  }
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const timeStr = nextDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (nextDate.toDateString() === now.toDateString()) return `Today ~${timeStr}`;
+  if (nextDate.toDateString() === tomorrow.toDateString()) return `Tomorrow ~${timeStr}`;
+  return `${nextDate.toLocaleDateString()} ~${timeStr}`;
+}
 
 function formatTime(isoString: string): string {
   const date = new Date(isoString);
@@ -128,19 +155,19 @@ function formatTime(isoString: string): string {
           {{ project.keywordIds.length }}
         </p>
       </div>
-      <div class="rounded-lg border border-gray-200 bg-white p-4">
+      <div class="rounded-lg border border-gray-200 bg-white p-4" :title="getLastScannedTooltip()">
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Scan</p>
-        <p class="mt-1 text-xl font-bold text-gray-900 leading-snug">
+        <p class="mt-1 text-lg font-bold text-gray-900">
           {{ lastScanned }}
-        </p>
-        <p v-if="nextScanTime && !scanStatus.isRunning" class="mt-1 text-xs text-gray-400">
-          Next: {{ nextScanTime }}
         </p>
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Status</p>
-        <p class="mt-1 text-2xl font-bold" :class="scanStatus.isRunning ? 'text-blue-600' : 'text-green-600'">
-          {{ scanStatus.isRunning ? 'Scanning' : 'Idle' }}
+        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Next Scan</p>
+        <p
+          class="mt-1 text-lg font-bold"
+          :class="scanStatus.isRunning ? 'text-blue-600' : settings.dailyScanEnabled ? 'text-gray-900' : 'text-gray-400'"
+        >
+          {{ getNextScan() }}
         </p>
       </div>
     </div>
@@ -172,6 +199,14 @@ function formatTime(isoString: string): string {
         <p class="text-sm text-gray-500">No ranking data yet. Run a scan to track keyword positions.</p>
       </div>
       <RankChart v-else :series="ownKeywordSeries" />
+    </div>
+
+    <!-- Keyword positions table -->
+    <div v-if="keywords.length > 0" class="mb-8">
+      <KeywordPositionTable
+        :keywords="keywords"
+        :own-extension-id="project.ownExtensionId"
+      />
     </div>
 
     <!-- Recent events -->
