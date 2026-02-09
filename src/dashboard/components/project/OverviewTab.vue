@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import type { Project, Extension, EventRecord, Keyword } from '@/shared/types';
 import type { RankChartSeries } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
@@ -73,6 +73,8 @@ onMounted(async () => {
 });
 
 function formatRelativeDateTime(date: Date): string {
+  if (isNaN(date.getTime())) return 'Unknown';
+
   const now = new Date();
   const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
@@ -87,13 +89,13 @@ function formatRelativeDateTime(date: Date): string {
   return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
 }
 
-function getLastScanned(): string {
+const lastScanned = computed<string>(() => {
   const dates = extensions.value
     .filter((e) => e.lastScannedAt)
     .map((e) => e.lastScannedAt!.getTime());
   if (dates.length === 0) return 'Never';
   return formatRelativeDateTime(new Date(Math.max(...dates)));
-}
+});
 
 function formatTime(isoString: string): string {
   const date = new Date(isoString);
@@ -128,8 +130,8 @@ function formatTime(isoString: string): string {
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4">
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Scan</p>
-        <p class="mt-1 text-lg font-bold text-gray-900 leading-snug">
-          {{ getLastScanned() }}
+        <p class="mt-1 text-xl font-bold text-gray-900 leading-snug">
+          {{ lastScanned }}
         </p>
         <p v-if="nextScanTime && !scanStatus.isRunning" class="mt-1 text-xs text-gray-400">
           Next: {{ nextScanTime }}
