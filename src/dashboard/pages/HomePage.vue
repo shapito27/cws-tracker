@@ -87,6 +87,12 @@ function getLastScanLabel(project: Project): string {
   return formatRelativeTime(lastScan);
 }
 
+function getLastScanTooltip(project: Project): string {
+  const lastScan = getProjectLastScan(project);
+  if (!lastScan) return '';
+  return lastScan.toLocaleString();
+}
+
 function lastScanDotClass(project: Project): string {
   const lastScan = getProjectLastScan(project);
   if (!lastScan) return 'bg-gray-300';
@@ -254,7 +260,7 @@ function formatTime(isoString: string): string {
           {{ project.keywordIds.length }} keyword{{ project.keywordIds.length !== 1 ? 's' : '' }}
         </p>
         <div class="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-1.5" :title="getLastScanTooltip(project)">
             <span class="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0" :class="lastScanDotClass(project)" />
             <span class="text-xs text-gray-500">Last scan: {{ getLastScanLabel(project) }}</span>
           </div>
