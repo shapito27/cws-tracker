@@ -8,6 +8,7 @@ import { useServiceWorker } from '../../composables/useServiceWorker';
 import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import RankChart from '../charts/RankChart.vue';
+import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
 
 const props = defineProps<{
   project: Project;
@@ -19,6 +20,7 @@ const { scanStatus, requestRefresh } = useServiceWorker();
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
+const keywords = ref<Keyword[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
 
@@ -32,10 +34,10 @@ onMounted(async () => {
     extensions.value = await getExtensionsByProject(props.project.id);
 
     // Load keyword position history for own extension
-    const keywords = await db.getKeywordsByProject(props.project.id);
-    if (keywords.length > 0) {
+    keywords.value = await db.getKeywordsByProject(props.project.id);
+    if (keywords.value.length > 0) {
       ownKeywordSeries.value = await loadOwnExtensionRankHistory(
-        keywords,
+        keywords.value,
         props.project.ownExtensionId,
         daysAgo(30),
         today()
@@ -139,6 +141,14 @@ function formatTime(isoString: string): string {
         <p class="text-sm text-gray-500">No ranking data yet. Run a scan to track keyword positions.</p>
       </div>
       <RankChart v-else :series="ownKeywordSeries" />
+    </div>
+
+    <!-- Keyword positions table -->
+    <div v-if="keywords.length > 0" class="mb-8">
+      <KeywordPositionTable
+        :keywords="keywords"
+        :own-extension-id="project.ownExtensionId"
+      />
     </div>
 
     <!-- Recent events -->
