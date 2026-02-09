@@ -1226,3 +1226,429 @@ describe('1.10.8 Manual refresh while scan running', () => {
     expect((keywordJobs[0].payload as { keywordId: number }).keywordId).toBe(1);
   });
 });
+
+// ===========================================================================
+// Search pagination (keyword scan fetches multiple pages)
+// ===========================================================================
+
+describe('keyword_scan pagination', () => {
+  it('fetches page 2 when competitors not found on page 1', { timeout: 15_000 }, async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    // Page 1: only ext-aaa at position 3 (ext-bbb and ext-ccc not found)
+    // Page 2: ext-bbb at position 2 (overall position 12)
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // Page 1: 10 results, only ext-aaa found
+        return {
+          results: [
+            {
+              extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              name: 'Test Extension',
+              iconUrl: 'https://example.com/icon.png',
+              rating: 4.5,
+              ratingCount: 100,
+              shortDescription: 'A test',
+              userCount: 10000,
+              category: 'productivity',
+              isFeatured: false,
+              position: 3,
+            },
+          ],
+          totalCount: 120,
+          nextPageToken: 'page2token',
+        };
+      }
+      if (callCount === 2) {
+        // Page 2: ext-bbb found at position 2 within page
+        return {
+          results: [
+            {
+              extensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+              name: 'Competitor 1',
+              iconUrl: 'https://example.com/icon2.png',
+              rating: 4.0,
+              ratingCount: 50,
+              shortDescription: 'A competitor',
+              userCount: 5000,
+              category: 'productivity',
+              isFeatured: false,
+              position: 2,
+            },
+          ],
+          totalCount: 120,
+          nextPageToken: 'page3token',
+        };
+      }
+      // Page 3: ext-ccc found at position 5 within page
+      return {
+        results: [
+          {
+            extensionId: 'cccccccccccccccccccccccccccccccccc',
+            name: 'Competitor 2',
+            iconUrl: 'https://example.com/icon3.png',
+            rating: 3.5,
+            ratingCount: 20,
+            shortDescription: 'Another competitor',
+            userCount: 1000,
+            category: 'productivity',
+            isFeatured: false,
+            position: 5,
+          },
+        ],
+        totalCount: 120,
+        nextPageToken: 'page4token',
+      };
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending',
+      priority: 30,
+      retryCount: 0,
+      maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null,
+      completedAt: null,
+      error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    // Should have made 3 fetch calls (3 pages)
+    expect(fetchPage).toHaveBeenCalledTimes(3);
+
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(3);
+
+    // ext-aaa: page 1, position 3 (offset 0 + 3 = 3)
+    const snapA = rankSnapshots.find(
+      (s) => s.extensionId === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    )!;
+    expect(snapA.position).toBe(3);
+
+    // ext-bbb: page 2, position 2 within page (offset 1 + 2 = 3)
+    // offset = number of results from page 1 = 1
+    const snapB = rankSnapshots.find(
+      (s) => s.extensionId === 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    )!;
+    expect(snapB.position).toBe(3); // 1 (page1 results) + 2
+
+    // ext-ccc: page 3, position 5 within page (offset 1+1 + 5 = 7)
+    const snapC = rankSnapshots.find(
+      (s) => s.extensionId === 'cccccccccccccccccccccccccccccccccc'
+    )!;
+    expect(snapC.position).toBe(7); // 2 (page1+page2 results) + 5
+  });
+
+  it('stops pagination early when all tracked extensions found', async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // Page 1: all 3 extensions found
+        return {
+          results: [
+            {
+              extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+              name: 'Test Extension',
+              iconUrl: '',
+              rating: 4.5,
+              ratingCount: 100,
+              shortDescription: '',
+              userCount: 10000,
+              category: 'productivity',
+              isFeatured: false,
+              position: 1,
+            },
+            {
+              extensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+              name: 'Competitor 1',
+              iconUrl: '',
+              rating: 4.0,
+              ratingCount: 50,
+              shortDescription: '',
+              userCount: 5000,
+              category: 'productivity',
+              isFeatured: false,
+              position: 5,
+            },
+            {
+              extensionId: 'cccccccccccccccccccccccccccccccccc',
+              name: 'Competitor 2',
+              iconUrl: '',
+              rating: 3.5,
+              ratingCount: 20,
+              shortDescription: '',
+              userCount: 1000,
+              category: 'productivity',
+              isFeatured: false,
+              position: 8,
+            },
+          ],
+          totalCount: 120,
+          nextPageToken: 'page2token',
+        };
+      }
+      throw new Error('Should not fetch page 2');
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending',
+      priority: 30,
+      retryCount: 0,
+      maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null,
+      completedAt: null,
+      error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    // Only 1 fetch call - stopped after page 1 since all extensions found
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(3);
+    expect(rankSnapshots.every((s) => s.position !== null)).toBe(true);
+  });
+
+  it('stops pagination when no nextPageToken', async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    mockSearchParse.mockReturnValue({
+      results: [
+        {
+          extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          name: 'Test Extension',
+          iconUrl: '',
+          rating: 4.5,
+          ratingCount: 100,
+          shortDescription: '',
+          userCount: 10000,
+          category: 'productivity',
+          isFeatured: false,
+          position: 1,
+        },
+      ],
+      totalCount: 5,
+      nextPageToken: null, // No more pages
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending',
+      priority: 30,
+      retryCount: 0,
+      maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null,
+      completedAt: null,
+      error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    // Only 1 fetch - no pagination since nextPageToken is null
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(3);
+
+    // ext-aaa found at position 1
+    const snapA = rankSnapshots.find(
+      (s) => s.extensionId === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    )!;
+    expect(snapA.position).toBe(1);
+
+    // ext-bbb and ext-ccc not found -> null
+    const snapB = rankSnapshots.find(
+      (s) => s.extensionId === 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    )!;
+    expect(snapB.position).toBeNull();
+  });
+
+  it('does not exceed MAX_SEARCH_PAGES (3 pages)', { timeout: 15_000 }, async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    // Always return results with a nextPageToken but never include ext-ccc
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      return {
+        results: [
+          {
+            extensionId: `filler${callCount}aaaaaaaaaaaaaaaaaaaaaaaaa`.slice(0, 32),
+            name: `Filler ${callCount}`,
+            iconUrl: '',
+            rating: 3.0,
+            ratingCount: 10,
+            shortDescription: '',
+            userCount: 100,
+            category: 'productivity',
+            isFeatured: false,
+            position: 1,
+          },
+        ],
+        totalCount: 500,
+        nextPageToken: `page${callCount + 1}token`,
+      };
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending',
+      priority: 30,
+      retryCount: 0,
+      maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null,
+      completedAt: null,
+      error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    // Should stop at 3 pages (MAX_SEARCH_PAGES) even though there are more
+    expect(fetchPage).toHaveBeenCalledTimes(3);
+
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(3);
+
+    // All tracked extensions should have position: null since none were found
+    for (const snap of rankSnapshots) {
+      expect(snap.position).toBeNull();
+    }
+  });
+
+  it('correctly offsets positions across pages with varying result counts', async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        // Page 1: 10 results, ext-aaa at position 3
+        return {
+          results: Array.from({ length: 10 }, (_, i) => ({
+            extensionId: i === 2
+              ? 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+              : `fill${String(i).padStart(28, 'a')}`.slice(0, 32),
+            name: i === 2 ? 'Test Extension' : `Filler ${i}`,
+            iconUrl: '',
+            rating: 4.0,
+            ratingCount: 50,
+            shortDescription: '',
+            userCount: 5000,
+            category: 'productivity',
+            isFeatured: false,
+            position: i + 1,
+          })),
+          totalCount: 200,
+          nextPageToken: 'page2token',
+        };
+      }
+      // Page 2: 10 results, ext-bbb at position 7
+      return {
+        results: Array.from({ length: 10 }, (_, i) => ({
+          extensionId: i === 6
+            ? 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+            : `xill${String(i).padStart(28, 'b')}`.slice(0, 32),
+          name: i === 6 ? 'Competitor 1' : `Filler Page2 ${i}`,
+          iconUrl: '',
+          rating: 4.0,
+          ratingCount: 50,
+          shortDescription: '',
+          userCount: 5000,
+          category: 'productivity',
+          isFeatured: false,
+          position: i + 1,
+        })),
+        totalCount: 200,
+        nextPageToken: null, // no more pages
+      };
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending',
+      priority: 30,
+      retryCount: 0,
+      maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null,
+      completedAt: null,
+      error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+
+    // ext-aaa: page 1, position 3 (offset 0 + 3 = 3)
+    const snapA = rankSnapshots.find(
+      (s) => s.extensionId === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    )!;
+    expect(snapA.position).toBe(3);
+
+    // ext-bbb: page 2, position 7 within page (offset 10 + 7 = 17)
+    const snapB = rankSnapshots.find(
+      (s) => s.extensionId === 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    )!;
+    expect(snapB.position).toBe(17);
+
+    // ext-ccc: not found on either page -> null
+    const snapC = rankSnapshots.find(
+      (s) => s.extensionId === 'cccccccccccccccccccccccccccccccccc'
+    )!;
+    expect(snapC.position).toBeNull();
+  });
+});
