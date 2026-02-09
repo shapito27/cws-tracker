@@ -108,6 +108,18 @@ function getRiskColor(score: number): string {
           <tr v-for="ext in extensions" :key="ext.id" class="hover:bg-gray-50">
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
+                <img
+                  v-if="ext.iconUrl"
+                  :src="ext.iconUrl"
+                  :alt="ext.name || ext.id"
+                  class="h-8 w-8 rounded flex-shrink-0"
+                />
+                <div
+                  v-else
+                  class="h-8 w-8 rounded bg-gray-200 flex items-center justify-center flex-shrink-0"
+                >
+                  <span class="text-xs text-gray-400">?</span>
+                </div>
                 <span
                   v-if="ext.id === project.ownExtensionId"
                   class="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
@@ -115,9 +127,14 @@ function getRiskColor(score: number): string {
                   Own
                 </span>
                 <div>
-                  <p class="text-sm font-medium text-gray-900">
+                  <a
+                    :href="`https://chromewebstore.google.com/detail/-/${ext.id}`"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                  >
                     {{ ext.name || ext.id }}
-                  </p>
+                  </a>
                   <p v-if="ext.name" class="text-xs text-gray-400 font-mono">{{ ext.id }}</p>
                 </div>
               </div>
