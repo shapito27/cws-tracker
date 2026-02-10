@@ -391,6 +391,10 @@ async function processListingScan(
  * 2. Parse search results, merging across pages
  * 3. For each tracked extension in the project, record rank position
  * 4. Save all rank snapshots in a single transaction
+ *
+ * Pagination is best-effort: if page 1 succeeds but page 2+ fails, the
+ * results from earlier pages are still saved. Extensions not found on
+ * scanned pages get position: null ("30+").
  */
 async function processKeywordScan(
   job: QueueJob,
@@ -418,13 +422,15 @@ async function processKeywordScan(
   const trackedExtIds = [project.ownExtensionId, ...project.competitorIds];
   const dateStr = today();
 
-  // Fetch search results with pagination (up to MAX_SEARCH_PAGES pages)
+  // Fetch search results with pagination (up to MAX_SEARCH_PAGES pages).
+  // Page 1 must succeed (errors propagate). Pages 2+ are best-effort:
+  // failures are logged but partial results from earlier pages are saved.
   const allResults: SearchResultEntry[] = [];
   let nextToken: string | null = null;
   let totalCount = 0;
 
   for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
-    // Add delay with jitter between pagination requests (not before the first page)
+    // Delay with jitter between pagination requests (not before page 1)
     if (page > 0) {
       const jitter = (Math.random() * 2 - 1) * PAGINATION_JITTER_MS;
       await paginationDelay(Math.max(0, PAGINATION_DELAY_BASE_MS + jitter));
@@ -435,15 +441,40 @@ async function processKeywordScan(
       params.token = nextToken;
     }
 
-    const { html, cwsStatus } = await fetchCWSPageWithLogging(
-      'search', params, settings, deps.fetchPage, job
-    );
+    let html: string;
+    let cwsStatus: number;
 
-    if (cwsStatus >= 400) {
-      throw new HttpError(cwsStatus, `CWS returned HTTP ${cwsStatus}`);
+    try {
+      const result = await fetchCWSPageWithLogging(
+        'search', params, settings, deps.fetchPage, job
+      );
+      html = result.html;
+      cwsStatus = result.cwsStatus;
+    } catch (error) {
+      // Page 1 failure: propagate (no partial data to save)
+      if (page === 0) throw error;
+      // Page 2+ failure: stop pagination, save what we have
+      break;
     }
 
-    const searchData = parser.parse(html);
+    if (cwsStatus >= 400) {
+      // Page 1 HTTP error: propagate (no partial data to save)
+      if (page === 0) {
+        throw new HttpError(cwsStatus, `CWS returned HTTP ${cwsStatus}`);
+      }
+      // Page 2+ HTTP error: stop pagination, save what we have
+      break;
+    }
+
+    let searchData: SearchData;
+    try {
+      searchData = parser.parse(html);
+    } catch (error) {
+      // Page 1 parse failure: propagate
+      if (page === 0) throw error;
+      // Page 2+ parse failure: stop pagination, save what we have
+      break;
+    }
 
     // Adjust positions: offset by number of results from previous pages
     const positionOffset = allResults.length;
@@ -454,7 +485,11 @@ async function processKeywordScan(
       });
     }
 
-    totalCount = searchData.totalCount;
+    // Capture totalCount from page 1 only (CWS may report different values
+    // on subsequent pages, but the first page's count is canonical)
+    if (page === 0) {
+      totalCount = searchData.totalCount;
+    }
     nextToken = searchData.nextPageToken;
 
     // Stop early if all tracked extensions found or no more pages

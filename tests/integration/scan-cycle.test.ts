@@ -1651,4 +1651,344 @@ describe('keyword_scan pagination', () => {
     )!;
     expect(snapC.position).toBeNull();
   });
+
+  it('passes pagination token in fetch URLs', { timeout: 15_000 }, async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          results: [{
+            extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            name: 'Test', iconUrl: '', rating: 4.5, ratingCount: 100,
+            shortDescription: '', userCount: 10000,
+            category: 'productivity', isFeatured: false, position: 1,
+          }],
+          totalCount: 120,
+          nextPageToken: 'TOKEN_FOR_PAGE_2',
+        };
+      }
+      // Page 2: all found so pagination stops
+      return {
+        results: [
+          {
+            extensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            name: 'Comp1', iconUrl: '', rating: 4.0, ratingCount: 50,
+            shortDescription: '', userCount: 5000,
+            category: 'productivity', isFeatured: false, position: 3,
+          },
+          {
+            extensionId: 'cccccccccccccccccccccccccccccccccc',
+            name: 'Comp2', iconUrl: '', rating: 3.5, ratingCount: 20,
+            shortDescription: '', userCount: 1000,
+            category: 'productivity', isFeatured: false, position: 7,
+          },
+        ],
+        totalCount: 120,
+        nextPageToken: null,
+      };
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending', priority: 30, retryCount: 0, maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null, completedAt: null, error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+
+    // Page 1 URL should NOT contain token
+    const url1 = fetchPage.mock.calls[0][0] as string;
+    expect(url1).toContain('ad%20blocker');
+    expect(url1).not.toContain('token');
+
+    // Page 2 URL SHOULD contain the token from page 1
+    const url2 = fetchPage.mock.calls[1][0] as string;
+    expect(url2).toContain('ad%20blocker');
+    expect(url2).toContain('TOKEN_FOR_PAGE_2');
+  });
+
+  it('saves partial results when page 2 returns HTTP error', { timeout: 15_000 }, async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      // Only page 1 succeeds - page 2 will get HTTP 500
+      return {
+        results: [{
+          extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          name: 'Test', iconUrl: '', rating: 4.5, ratingCount: 100,
+          shortDescription: '', userCount: 10000,
+          category: 'productivity', isFeatured: false, position: 3,
+        }],
+        totalCount: 120,
+        nextPageToken: 'page2token',
+      };
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending', priority: 30, retryCount: 0, maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null, completedAt: null, error: null,
+    }]);
+
+    // Page 1 succeeds, page 2 returns HTTP 500
+    let fetchCallCount = 0;
+    const fetchPage = vi.fn().mockImplementation(async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        return new Response('search-page-1', { status: 200 });
+      }
+      return new Response('', { status: 500, statusText: 'Internal Server Error' });
+    });
+    const deps = createProcessorDeps({ fetchPage });
+
+    const result = await processNextJob(deps);
+
+    // Job should complete (not fail) since page 1 data was saved
+    const jobs = await testDb.queue.toArray();
+    expect(jobs[0].status).toBe('completed');
+
+    // Rank snapshots should be saved with page 1 data
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(3);
+
+    // ext-aaa found on page 1
+    const snapA = rankSnapshots.find(
+      (s) => s.extensionId === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    )!;
+    expect(snapA.position).toBe(3);
+
+    // ext-bbb and ext-ccc not found (page 2 failed) -> null
+    const snapB = rankSnapshots.find(
+      (s) => s.extensionId === 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    )!;
+    expect(snapB.position).toBeNull();
+  });
+
+  it('saves partial results when page 2 has parser error', { timeout: 15_000 }, async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          results: [{
+            extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            name: 'Test', iconUrl: '', rating: 4.5, ratingCount: 100,
+            shortDescription: '', userCount: 10000,
+            category: 'productivity', isFeatured: false, position: 1,
+          }],
+          totalCount: 80,
+          nextPageToken: 'page2token',
+        };
+      }
+      // Page 2 parser fails
+      throw new Error('ds:1 callback not found in search results');
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending', priority: 30, retryCount: 0, maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null, completedAt: null, error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    // Job should complete (not retry) since page 1 data was saved
+    const jobs = await testDb.queue.toArray();
+    expect(jobs[0].status).toBe('completed');
+
+    // Rank snapshots saved with page 1 partial data
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(3);
+
+    const snapA = rankSnapshots.find(
+      (s) => s.extensionId === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    )!;
+    expect(snapA.position).toBe(1);
+    expect(snapA.totalResults).toBe(80);
+  });
+
+  it('propagates errors when page 1 fails (no partial data)', async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    mockSearchParse.mockImplementation(() => {
+      throw new Error('Parse failed on page 1');
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending', priority: 30, retryCount: 0, maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null, completedAt: null, error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('bad-html', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    // Job should be retried (not completed) since page 1 failed
+    const jobs = await testDb.queue.toArray();
+    expect(jobs[0].status).toBe('pending');
+    expect(jobs[0].retryCount).toBe(1);
+    expect(jobs[0].error).toContain('Parse failed');
+
+    // No rank snapshots saved
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(0);
+  });
+
+  it('saves partial results when page 2 has network error', { timeout: 15_000 }, async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      return {
+        results: [{
+          extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          name: 'Test', iconUrl: '', rating: 4.5, ratingCount: 100,
+          shortDescription: '', userCount: 10000,
+          category: 'productivity', isFeatured: false, position: 5,
+        }],
+        totalCount: 200,
+        nextPageToken: 'page2token',
+      };
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending', priority: 30, retryCount: 0, maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null, completedAt: null, error: null,
+    }]);
+
+    // Page 1 succeeds, page 2 throws network error
+    let fetchCallCount = 0;
+    const fetchPage = vi.fn().mockImplementation(async () => {
+      fetchCallCount++;
+      if (fetchCallCount === 1) {
+        return new Response('search-page-1', { status: 200 });
+      }
+      throw new TypeError('Failed to fetch');
+    });
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    // Job completes (partial page 1 data saved)
+    const jobs = await testDb.queue.toArray();
+    expect(jobs[0].status).toBe('completed');
+
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+    expect(rankSnapshots).toHaveLength(3);
+
+    const snapA = rankSnapshots.find(
+      (s) => s.extensionId === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    )!;
+    expect(snapA.position).toBe(5);
+    expect(snapA.totalResults).toBe(200);
+  });
+
+  it('captures totalResults from page 1 only', { timeout: 15_000 }, async () => {
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+
+    let callCount = 0;
+    mockSearchParse.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return {
+          results: [{
+            extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            name: 'Test', iconUrl: '', rating: 4.5, ratingCount: 100,
+            shortDescription: '', userCount: 10000,
+            category: 'productivity', isFeatured: false, position: 1,
+          }],
+          totalCount: 342, // Page 1 totalCount
+          nextPageToken: 'page2token',
+        };
+      }
+      // Page 2 returns different totalCount (CWS can do this)
+      return {
+        results: [
+          {
+            extensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            name: 'Comp1', iconUrl: '', rating: 4.0, ratingCount: 50,
+            shortDescription: '', userCount: 5000,
+            category: 'productivity', isFeatured: false, position: 3,
+          },
+          {
+            extensionId: 'cccccccccccccccccccccccccccccccccc',
+            name: 'Comp2', iconUrl: '', rating: 3.5, ratingCount: 20,
+            shortDescription: '', userCount: 1000,
+            category: 'productivity', isFeatured: false, position: 7,
+          },
+        ],
+        totalCount: 999, // Different totalCount on page 2
+        nextPageToken: null,
+      };
+    });
+
+    await testDb.enqueueJobs([{
+      type: 'keyword_scan',
+      payload: { keywordId: 1, keyword: 'ad blocker' },
+      status: 'pending', priority: 30, retryCount: 0, maxRetries: 3,
+      scheduledAt: new Date(Date.now() - 1000),
+      startedAt: null, completedAt: null, error: null,
+    }]);
+
+    const fetchPage = vi.fn().mockImplementation(
+      async () => new Response('search-results', { status: 200 })
+    );
+    const deps = createProcessorDeps({ fetchPage });
+
+    await processNextJob(deps);
+
+    const rankSnapshots = await testDb.rank_snapshots.toArray();
+
+    // All snapshots should have totalResults from page 1 (342), not page 2 (999)
+    for (const snap of rankSnapshots) {
+      expect(snap.totalResults).toBe(342);
+    }
+  });
 });
