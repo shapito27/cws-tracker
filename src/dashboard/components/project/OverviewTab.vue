@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import type { Project, Extension, EventRecord, Keyword } from '@/shared/types';
 import type { RankChartSeries } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
@@ -64,6 +64,23 @@ onMounted(async () => {
   }
 });
 
+function formatRelativeDateTime(date: Date): string {
+  if (isNaN(date.getTime())) return 'Unknown';
+
+  const now = new Date();
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((dateStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return `Today, ${timeStr}`;
+  if (diffDays === -1) return `Yesterday, ${timeStr}`;
+  if (diffDays === 1) return `Tomorrow, ${timeStr}`;
+
+  return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
+}
+
 function getLastScannedDate(): Date | null {
   const dates = extensions.value
     .filter((e) => e.lastScannedAt)
@@ -72,12 +89,11 @@ function getLastScannedDate(): Date | null {
   return new Date(Math.max(...dates));
 }
 
-function getLastScanned(): string {
+const lastScanned = computed<string>(() => {
   const latest = getLastScannedDate();
   if (!latest) return 'Never';
-  const timeStr = latest.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  return `${latest.toLocaleDateString()} ${timeStr}`;
-}
+  return formatRelativeDateTime(latest);
+});
 
 function getLastScannedTooltip(): string {
   const latest = getLastScannedDate();
@@ -142,7 +158,7 @@ function formatTime(isoString: string): string {
       <div class="rounded-lg border border-gray-200 bg-white p-4" :title="getLastScannedTooltip()">
         <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Scan</p>
         <p class="mt-1 text-lg font-bold text-gray-900">
-          {{ getLastScanned() }}
+          {{ lastScanned }}
         </p>
       </div>
       <div class="rounded-lg border border-gray-200 bg-white p-4">
