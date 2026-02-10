@@ -285,6 +285,43 @@ describe('Search endpoint', () => {
       expect(response.status).toBe(502);
     }
   });
+
+  it('uses batchexecute for paginated search or returns 502', async () => {
+    // When a pagination token is provided, the proxy should use the CWS
+    // batchexecute RPC endpoint (POST) instead of a simple GET.
+    // In a sandboxed test environment without network, this returns 502.
+    const token = 'QVVzVDJnaFVJODBFQTdRa2hYWVNSTUZpa1BzOHpxUVhwM2dURzZLYTN0Y3hFaEVtTXhsSE5QamU5MllyRzhab1ZRPT0=';
+    const response = await callWorker(
+      makeRequest(`/search?q=ad+blocker&token=${encodeURIComponent(token)}`, {
+        apiKey: 'test-key-1',
+      })
+    );
+    const body = await getJson(response);
+
+    if (response.status === 200) {
+      // If network is available: batchexecute succeeded, response wrapped in synthetic HTML
+      expect(body.url).toContain('token=');
+      expect(body.url).toContain('ad%20blocker');
+      expect(body.html).toBeDefined();
+      expect((body.html as string)).toContain('AF_initDataCallback');
+    } else {
+      // No network: either CWS unreachable (502) or pagination parse failed
+      expect([502, 504]).toContain(response.status);
+    }
+  });
+
+  it('works without pagination token (page 1) using GET', async () => {
+    const response = await callWorker(
+      makeRequest('/search?q=ad+blocker', { apiKey: 'test-key-1' })
+    );
+    const body = await getJson(response);
+
+    if (response.status === 200) {
+      expect(body.url).not.toContain('token=');
+    } else {
+      expect(response.status).toBe(502);
+    }
+  });
 });
 
 describe('Routing', () => {
