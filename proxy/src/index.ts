@@ -183,28 +183,55 @@ async function fetchCWS(
 
 // --- Batchexecute (CWS RPC for search pagination) ---
 
-/**
- * Extract the build label (bl) from WIZ_global_data embedded in CWS HTML.
- * This value is required for constructing batchexecute RPC requests.
- * Key: "cfb2h" in WIZ_global_data.
- */
-function extractBuildLabel(html: string): string | null {
-  const match = html.match(/"cfb2h":"([^"]+)"/);
-  return match ? match[1] : null;
+/** Session parameters extracted from CWS HTML, needed for batchexecute RPC. */
+interface SessionParams {
+  /** Build label (WIZ_global_data.cfb2h). Changes with each CWS deployment. */
+  bl: string;
+  /** Session ID (WIZ_global_data.FdrFJe). Numeric string. */
+  sid: string;
+  /** CSRF token (WIZ_global_data.SNlM0e or similar). May be empty for cookieless requests. */
+  at: string;
 }
 
 /**
- * Cache the build label for batchexecute requests.
+ * Extract session parameters from WIZ_global_data embedded in CWS HTML.
+ * These values are required for constructing batchexecute RPC requests:
+ *   - bl (build label): "cfb2h" key
+ *   - f.sid (session ID): "FdrFJe" key
+ *   - at (CSRF token): "SNlM0e" key, or fallback patterns
+ */
+function extractSessionParams(html: string): SessionParams | null {
+  const blMatch = html.match(/"cfb2h":"([^"]+)"/);
+  if (!blMatch) return null;
+
+  const sidMatch = html.match(/"FdrFJe":"([^"]+)"/);
+  const sid = sidMatch ? sidMatch[1] : '';
+
+  // CSRF token: try SNlM0e first, then S06Grb (varies between Google apps)
+  let at = '';
+  const atMatch = html.match(/"SNlM0e":"([^"]+)"/) || html.match(/"S06Grb":"([^"]+)"/);
+  if (atMatch && atMatch[1]) {
+    at = atMatch[1];
+  }
+
+  return { bl: blMatch[1], sid, at };
+}
+
+/**
+ * Cache session parameters for batchexecute requests.
  * Build labels change with each CWS deployment (roughly daily/weekly).
  */
-async function cacheBuildLabel(bl: string): Promise<void> {
+async function cacheSessionParams(params: SessionParams): Promise<void> {
   try {
     const cache = caches.default;
     const key = new Request(BUILD_LABEL_CACHE_PREFIX);
     await cache.put(
       key,
-      new Response(bl, {
-        headers: { 'Cache-Control': `s-maxage=${BUILD_LABEL_CACHE_TTL}` },
+      new Response(JSON.stringify(params), {
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': `s-maxage=${BUILD_LABEL_CACHE_TTL}`,
+        },
       })
     );
   } catch {
@@ -213,15 +240,15 @@ async function cacheBuildLabel(bl: string): Promise<void> {
 }
 
 /**
- * Retrieve cached build label.
+ * Retrieve cached session parameters.
  */
-async function getCachedBuildLabel(): Promise<string | null> {
+async function getCachedSessionParams(): Promise<SessionParams | null> {
   try {
     const cache = caches.default;
     const key = new Request(BUILD_LABEL_CACHE_PREFIX);
     const cached = await cache.match(key);
     if (cached) {
-      return cached.text();
+      return cached.json() as Promise<SessionParams>;
     }
   } catch {
     // Cache miss is fine
@@ -232,10 +259,18 @@ async function getCachedBuildLabel(): Promise<string | null> {
 /**
  * Build the batchexecute URL for CWS search pagination.
  */
-function buildBatchExecuteUrl(bl: string, hl: string): string {
+function buildBatchExecuteUrl(
+  params: SessionParams,
+  query: string,
+  hl: string
+): string {
   const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
   url.searchParams.set('rpcids', SEARCH_RPC_METHOD);
-  url.searchParams.set('bl', bl);
+  url.searchParams.set('source-path', `/search/${encodeURIComponent(query)}`);
+  if (params.sid) {
+    url.searchParams.set('f.sid', params.sid);
+  }
+  url.searchParams.set('bl', params.bl);
   url.searchParams.set('hl', hl);
   url.searchParams.set('soc-app', '1');
   url.searchParams.set('soc-platform', '1');
@@ -251,13 +286,22 @@ function buildBatchExecuteUrl(bl: string, hl: string): string {
  *   [[["zTyKYc", "[[null,[null,null,null,[\"query\",[10,\"token\"]]]]]", null, "generic"]]]
  *
  * Inner payload encodes the search query, page size (10), and pagination token.
+ * The `at` CSRF token is appended to the body when available.
  */
-function buildSearchRpcBody(query: string, token: string): string {
+function buildSearchRpcBody(
+  query: string,
+  token: string,
+  at: string
+): string {
   const innerPayload = [[null, [null, null, null, [query, [SEARCH_PAGE_SIZE, token]]]]];
   const innerJson = JSON.stringify(innerPayload);
   const outerPayload = [[[SEARCH_RPC_METHOD, innerJson, null, 'generic']]];
   const outerJson = JSON.stringify(outerPayload);
-  return `f.req=${encodeURIComponent(outerJson)}&`;
+  let body = `f.req=${encodeURIComponent(outerJson)}&`;
+  if (at) {
+    body += `at=${encodeURIComponent(at)}&`;
+  }
+  return body;
 }
 
 /**
@@ -351,29 +395,29 @@ async function handleSearchPagination(
   hl: string,
   origin: string | null
 ): Promise<Response> {
-  // Get build label (cached or fresh)
-  let bl = await getCachedBuildLabel();
+  // Get session params (cached or fresh from initial page)
+  let sessionParams = await getCachedSessionParams();
 
-  if (!bl) {
-    // Fetch initial search page to extract build label
+  if (!sessionParams) {
+    // Fetch initial search page to extract session params
     const initialResult = await fetchCWS(
       `${CWS_SEARCH_PATH}/${encodeURIComponent(query)}`,
       hl
     );
-    bl = extractBuildLabel(initialResult.body);
-    if (!bl) {
+    sessionParams = extractSessionParams(initialResult.body);
+    if (!sessionParams) {
       return errorResponse(
-        'Failed to extract build label from CWS for pagination',
+        'Failed to extract session parameters from CWS for pagination',
         502,
         origin
       );
     }
-    await cacheBuildLabel(bl);
+    await cacheSessionParams(sessionParams);
   }
 
   // Construct and send batchexecute request
-  const batchUrl = buildBatchExecuteUrl(bl, hl);
-  const body = buildSearchRpcBody(query, token);
+  const batchUrl = buildBatchExecuteUrl(sessionParams, query, hl);
+  const body = buildSearchRpcBody(query, token, sessionParams.at);
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), CWS_FETCH_TIMEOUT_MS);
@@ -385,6 +429,9 @@ async function handleSearchPagination(
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
         'User-Agent': USER_AGENT,
         Accept: '*/*',
+        Origin: CWS_BASE,
+        Referer: `${CWS_BASE}/`,
+        'X-Same-Domain': '1',
       },
       signal: controller.signal,
     });
@@ -505,10 +552,10 @@ async function handleSearch(
     const path = `${CWS_SEARCH_PATH}/${encodeURIComponent(query)}`;
     const result = await fetchCWS(path, hl);
 
-    // Cache build label from this page for future pagination requests
-    const bl = extractBuildLabel(result.body);
-    if (bl) {
-      await cacheBuildLabel(bl);
+    // Cache session params from this page for future pagination requests
+    const sessionParams = extractSessionParams(result.body);
+    if (sessionParams) {
+      await cacheSessionParams(sessionParams);
     }
 
     return jsonResponse(
