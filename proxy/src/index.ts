@@ -26,6 +26,15 @@ const CWS_BASE = 'https://chromewebstore.google.com';
 const CWS_DETAIL_PATH = '/detail';
 const CWS_SEARCH_PATH = '/search';
 
+// Batchexecute RPC endpoint for CWS pagination
+const BATCHEXECUTE_PATH = '/_/ChromeWebStoreConsumerFeUi/data/batchexecute';
+const SEARCH_RPC_METHOD = 'zTyKYc';
+const SEARCH_PAGE_SIZE = 10;
+
+// Cache key prefix for build label used in batchexecute requests
+const BUILD_LABEL_CACHE_PREFIX = 'https://cws-build-label/';
+const BUILD_LABEL_CACHE_TTL = 3600; // 1 hour
+
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
@@ -172,6 +181,254 @@ async function fetchCWS(
   }
 }
 
+// --- Batchexecute (CWS RPC for search pagination) ---
+
+/**
+ * Extract the build label (bl) from WIZ_global_data embedded in CWS HTML.
+ * This value is required for constructing batchexecute RPC requests.
+ * Key: "cfb2h" in WIZ_global_data.
+ */
+function extractBuildLabel(html: string): string | null {
+  const match = html.match(/"cfb2h":"([^"]+)"/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Cache the build label for batchexecute requests.
+ * Build labels change with each CWS deployment (roughly daily/weekly).
+ */
+async function cacheBuildLabel(bl: string): Promise<void> {
+  try {
+    const cache = caches.default;
+    const key = new Request(BUILD_LABEL_CACHE_PREFIX);
+    await cache.put(
+      key,
+      new Response(bl, {
+        headers: { 'Cache-Control': `s-maxage=${BUILD_LABEL_CACHE_TTL}` },
+      })
+    );
+  } catch {
+    // Caching is best-effort
+  }
+}
+
+/**
+ * Retrieve cached build label.
+ */
+async function getCachedBuildLabel(): Promise<string | null> {
+  try {
+    const cache = caches.default;
+    const key = new Request(BUILD_LABEL_CACHE_PREFIX);
+    const cached = await cache.match(key);
+    if (cached) {
+      return cached.text();
+    }
+  } catch {
+    // Cache miss is fine
+  }
+  return null;
+}
+
+/**
+ * Build the batchexecute URL for CWS search pagination.
+ */
+function buildBatchExecuteUrl(bl: string, hl: string): string {
+  const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
+  url.searchParams.set('rpcids', SEARCH_RPC_METHOD);
+  url.searchParams.set('bl', bl);
+  url.searchParams.set('hl', hl);
+  url.searchParams.set('soc-app', '1');
+  url.searchParams.set('soc-platform', '1');
+  url.searchParams.set('soc-device', '1');
+  url.searchParams.set('rt', 'c');
+  return url.toString();
+}
+
+/**
+ * Build the f.req POST body for search pagination via batchexecute.
+ *
+ * Structure mirrors real CWS requests:
+ *   [[["zTyKYc", "[[null,[null,null,null,[\"query\",[10,\"token\"]]]]]", null, "generic"]]]
+ *
+ * Inner payload encodes the search query, page size (10), and pagination token.
+ */
+function buildSearchRpcBody(query: string, token: string): string {
+  const innerPayload = [[null, [null, null, null, [query, [SEARCH_PAGE_SIZE, token]]]]];
+  const innerJson = JSON.stringify(innerPayload);
+  const outerPayload = [[[SEARCH_RPC_METHOD, innerJson, null, 'generic']]];
+  const outerJson = JSON.stringify(outerPayload);
+  return `f.req=${encodeURIComponent(outerJson)}&`;
+}
+
+/**
+ * Parse a batchexecute response to extract the search data JSON string.
+ *
+ * Response format with rt=c uses length-prefixed chunks after a )]}\' prefix:
+ *   )]}'\n
+ *   123\n
+ *   [["wrb.fr","zTyKYc","[...data...]",null,null,null,"generic"]]\n
+ *   34\n
+ *   [["di",456]]\n
+ *   ...
+ *
+ * We find the chunk containing our RPC method and extract the data string.
+ */
+function parseBatchExecuteResponse(text: string): string {
+  // Strip the security prefix )]}' (or variations)
+  const prefixPattern = /^\)?\]?\}?'?\n/;
+  const cleaned = text.replace(prefixPattern, '');
+
+  // Try length-prefixed format first (rt=c)
+  const lines = cleaned.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    // Check if this line contains our RPC method response
+    if (line.includes(`"${SEARCH_RPC_METHOD}"`)) {
+      try {
+        const parsed = JSON.parse(line);
+        if (Array.isArray(parsed)) {
+          for (const entry of parsed) {
+            if (
+              Array.isArray(entry) &&
+              entry[1] === SEARCH_RPC_METHOD &&
+              typeof entry[2] === 'string'
+            ) {
+              return entry[2];
+            }
+          }
+        }
+      } catch {
+        // Not valid JSON on this line, continue
+      }
+    }
+  }
+
+  // Fallback: try parsing the whole thing as JSON (non-chunked format)
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      for (const entry of parsed) {
+        if (Array.isArray(entry)) {
+          // Could be nested: [[["wrb.fr","zTyKYc","..."...]]]
+          const flat = Array.isArray(entry[0]) ? entry[0] : entry;
+          if (flat[1] === SEARCH_RPC_METHOD && typeof flat[2] === 'string') {
+            return flat[2];
+          }
+        }
+      }
+    }
+  } catch {
+    // Not valid JSON
+  }
+
+  throw new Error(
+    `${SEARCH_RPC_METHOD} response not found in batchexecute result`
+  );
+}
+
+/**
+ * Wrap raw search data JSON in synthetic AF_initDataCallback HTML
+ * so the existing extension search parser can process it unchanged.
+ */
+function wrapInSyntheticHtml(dataJsonString: string): string {
+  return `<script>AF_initDataCallback({key: 'ds:1', hash: '1', data:${dataJsonString}});</script>`;
+}
+
+/**
+ * Handle paginated search (page 2+) using CWS batchexecute RPC.
+ *
+ * Flow:
+ * 1. Get the build label (from cache or by fetching the initial search page)
+ * 2. Construct a batchexecute POST request with the search query and pagination token
+ * 3. Parse the RPC response and wrap it in synthetic HTML
+ * 4. Return the same response format as page 1 for seamless parser compatibility
+ */
+async function handleSearchPagination(
+  query: string,
+  token: string,
+  hl: string,
+  origin: string | null
+): Promise<Response> {
+  // Get build label (cached or fresh)
+  let bl = await getCachedBuildLabel();
+
+  if (!bl) {
+    // Fetch initial search page to extract build label
+    const initialResult = await fetchCWS(
+      `${CWS_SEARCH_PATH}/${encodeURIComponent(query)}`,
+      hl
+    );
+    bl = extractBuildLabel(initialResult.body);
+    if (!bl) {
+      return errorResponse(
+        'Failed to extract build label from CWS for pagination',
+        502,
+        origin
+      );
+    }
+    await cacheBuildLabel(bl);
+  }
+
+  // Construct and send batchexecute request
+  const batchUrl = buildBatchExecuteUrl(bl, hl);
+  const body = buildSearchRpcBody(query, token);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CWS_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(batchUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'User-Agent': USER_AGENT,
+        Accept: '*/*',
+      },
+      signal: controller.signal,
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      return errorResponse(
+        `CWS batchexecute returned HTTP ${response.status}`,
+        502,
+        origin
+      );
+    }
+
+    // Parse the RPC response to extract search data
+    const dataJsonString = parseBatchExecuteResponse(responseText);
+
+    // Wrap in synthetic HTML for parser compatibility
+    const syntheticHtml = wrapInSyntheticHtml(dataJsonString);
+
+    const cwsUrl = `${CWS_BASE}${CWS_SEARCH_PATH}/${encodeURIComponent(query)}?hl=${hl}&token=${encodeURIComponent(token)}`;
+
+    return jsonResponse(
+      {
+        url: cwsUrl,
+        status: 200,
+        html: syntheticHtml,
+        htmlLength: syntheticHtml.length,
+        fetchedAt: new Date().toISOString(),
+      },
+      200,
+      origin
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    if (message.includes('aborted')) {
+      return errorResponse('CWS pagination request timed out', 504, origin);
+    }
+    return errorResponse(`CWS pagination failed: ${message}`, 502, origin);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // --- Route Handlers ---
 
 async function handleDetail(
@@ -236,22 +493,27 @@ async function handleSearch(
     );
   }
 
-  try {
-    let path = `${CWS_SEARCH_PATH}/${encodeURIComponent(query)}`;
-    if (token) {
-      path += `?token=${encodeURIComponent(token)}`;
-    }
+  // Page 2+: use batchexecute RPC for pagination
+  // CWS does NOT support URL-based pagination (?token=). Instead, subsequent
+  // pages must be fetched via a POST to the batchexecute RPC endpoint.
+  if (token) {
+    return handleSearchPagination(query, token, hl, origin);
+  }
 
+  // Page 1: normal GET fetch (server-rendered HTML with AF_initDataCallback)
+  try {
+    const path = `${CWS_SEARCH_PATH}/${encodeURIComponent(query)}`;
     const result = await fetchCWS(path, hl);
 
-    let cwsUrl = `${CWS_BASE}${CWS_SEARCH_PATH}/${encodeURIComponent(query)}?hl=${hl}`;
-    if (token) {
-      cwsUrl += `&token=${encodeURIComponent(token)}`;
+    // Cache build label from this page for future pagination requests
+    const bl = extractBuildLabel(result.body);
+    if (bl) {
+      await cacheBuildLabel(bl);
     }
 
     return jsonResponse(
       {
-        url: cwsUrl,
+        url: `${CWS_BASE}${CWS_SEARCH_PATH}/${encodeURIComponent(query)}?hl=${hl}`,
         status: result.status,
         html: result.body,
         htmlLength: result.body.length,
