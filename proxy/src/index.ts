@@ -222,6 +222,7 @@ async function handleSearch(
 ): Promise<Response> {
   const query = url.searchParams.get('q');
   const hl = url.searchParams.get('hl') || 'en';
+  const token = url.searchParams.get('token');
 
   if (!query) {
     return errorResponse('Missing required parameter: q', 400, origin);
@@ -236,14 +237,21 @@ async function handleSearch(
   }
 
   try {
-    const result = await fetchCWS(
-      `${CWS_SEARCH_PATH}/${encodeURIComponent(query)}`,
-      hl
-    );
+    let path = `${CWS_SEARCH_PATH}/${encodeURIComponent(query)}`;
+    if (token) {
+      path += `?token=${encodeURIComponent(token)}`;
+    }
+
+    const result = await fetchCWS(path, hl);
+
+    let cwsUrl = `${CWS_BASE}${CWS_SEARCH_PATH}/${encodeURIComponent(query)}?hl=${hl}`;
+    if (token) {
+      cwsUrl += `&token=${encodeURIComponent(token)}`;
+    }
 
     return jsonResponse(
       {
-        url: `${CWS_BASE}${CWS_SEARCH_PATH}/${encodeURIComponent(query)}?hl=${hl}`,
+        url: cwsUrl,
         status: result.status,
         html: result.body,
         htmlLength: result.body.length,

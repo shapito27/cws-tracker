@@ -285,6 +285,36 @@ describe('Search endpoint', () => {
       expect(response.status).toBe(502);
     }
   });
+
+  it('forwards pagination token to CWS or returns 502', async () => {
+    const token = 'QVVzVDJnaFVJODBFQTdRa2hYWVNSTUZpa1BzOHpxUVhwM2dURzZLYTN0Y3hFaEVtTXhsSE5QamU5MllyRzhab1ZRPT0=';
+    const response = await callWorker(
+      makeRequest(`/search?q=ad+blocker&token=${encodeURIComponent(token)}`, {
+        apiKey: 'test-key-1',
+      })
+    );
+    const body = await getJson(response);
+
+    if (response.status === 200) {
+      expect(body.url).toContain('token=');
+      expect(body.url).toContain('ad%20blocker');
+    } else {
+      expect(response.status).toBe(502);
+    }
+  });
+
+  it('works without pagination token (page 1)', async () => {
+    const response = await callWorker(
+      makeRequest('/search?q=ad+blocker', { apiKey: 'test-key-1' })
+    );
+    const body = await getJson(response);
+
+    if (response.status === 200) {
+      expect(body.url).not.toContain('token=');
+    } else {
+      expect(response.status).toBe(502);
+    }
+  });
 });
 
 describe('Routing', () => {
