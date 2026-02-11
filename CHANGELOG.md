@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.16.0] - 2026-02-08
+
+### Added
+- Scan logging: persist request/response details for every CWS fetch during scanning
+  - New `scan_logs` IndexedDB table (schema v3) with `timestamp` and `jobId` indexes
+  - `ScanLog` type captures: timestamp, request URL, HTTP status, 100-char response preview, duration, job type/detail, error info
+  - Log levels: `info` (success), `warn` (HTTP 4xx), `error` (failures/network errors)
+  - Proxy API keys automatically redacted (`[REDACTED]`) in logged URLs
+  - DB methods: `saveScanLog()`, `getRecentScanLogs()`, `getScanLogsByJob()`, `cleanupOldScanLogs()`
+  - Automated 7-day retention cleanup in daily scan alarm
+  - 21 new tests (895 total passing, zero type errors)
+
 ## [0.15.2] - 2026-02-07
 
 ### Fixed
