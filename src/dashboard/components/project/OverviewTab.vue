@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { Project, Extension, EventRecord, Keyword } from '@/shared/types';
+import type { Project, Extension, EventRecord, Keyword, ListingSnapshot } from '@/shared/types';
 import type { RankChartSeries } from '../../composables/useRankings';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
@@ -9,6 +9,7 @@ import { useSettings } from '../../composables/useSettings';
 import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import RankChart from '../charts/RankChart.vue';
+import UsersReviewsChart from '../charts/UsersReviewsChart.vue';
 import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
 
 const props = defineProps<{
@@ -19,10 +20,18 @@ const { getExtensionsByProject, getLatestSnapshot } = useExtensions();
 const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
 
+interface ExtensionWithSnapshot {
+  extension: Extension;
+  snapshot: ListingSnapshot | undefined;
+  isOwn: boolean;
+}
+
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const keywords = ref<Keyword[]>([]);
+const extensionRows = ref<ExtensionWithSnapshot[]>([]);
+const snapshotHistory = ref<ListingSnapshot[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
 
@@ -35,6 +44,27 @@ onMounted(async () => {
   try {
     await loadSettings();
     extensions.value = await getExtensionsByProject(props.project.id);
+
+    // Load latest snapshot for all extensions (own + competitors)
+    const rows: ExtensionWithSnapshot[] = [];
+    for (const ext of extensions.value) {
+      const snapshot = await getLatestSnapshot(ext.id);
+      rows.push({
+        extension: ext,
+        snapshot,
+        isOwn: ext.id === props.project.ownExtensionId,
+      });
+    }
+    // Own extension first, then competitors
+    rows.sort((a, b) => (a.isOwn === b.isOwn ? 0 : a.isOwn ? -1 : 1));
+    extensionRows.value = rows;
+
+    // Load snapshot history for own extension (users/reviews trend chart)
+    snapshotHistory.value = await db.getListingSnapshots(
+      props.project.ownExtensionId,
+      daysAgo(30),
+      today()
+    );
 
     // Load keyword position history for own extension
     keywords.value = await db.getKeywordsByProject(props.project.id);
@@ -124,6 +154,11 @@ function getNextScan(): string {
   return `${nextDate.toLocaleDateString()} ~${timeStr}`;
 }
 
+function formatRating(rating: number | null | undefined): string {
+  if (rating === null || rating === undefined) return '--';
+  return rating.toFixed(1);
+}
+
 function formatTime(isoString: string): string {
   const date = new Date(isoString);
   if (isNaN(date.getTime())) return '--:--:--';
@@ -141,55 +176,98 @@ function formatTime(isoString: string): string {
   </div>
 
   <div v-else>
-    <!-- Metric cards -->
-    <div class="grid grid-cols-2 gap-4 lg:grid-cols-4 mb-8">
-      <div class="rounded-lg border border-gray-200 bg-white p-4">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Extensions</p>
-        <p class="mt-1 text-2xl font-bold text-gray-900">
-          {{ 1 + project.competitorIds.length }}
-        </p>
+    <!-- Status bar -->
+    <div class="flex flex-wrap items-center gap-4 mb-6">
+      <div class="flex items-center gap-6 text-sm text-gray-600">
+        <span><span class="font-semibold text-gray-900">{{ project.keywordIds.length }}</span> Keywords</span>
+        <span :title="getLastScannedTooltip()">Last scan: <span class="font-semibold text-gray-900">{{ lastScanned }}</span></span>
+        <span>
+          Next:
+          <span
+            class="font-semibold"
+            :class="scanStatus.isRunning ? 'text-blue-600' : settings.dailyScanEnabled ? 'text-gray-900' : 'text-gray-400'"
+          >{{ getNextScan() }}</span>
+        </span>
       </div>
-      <div class="rounded-lg border border-gray-200 bg-white p-4">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Keywords</p>
-        <p class="mt-1 text-2xl font-bold text-gray-900">
-          {{ project.keywordIds.length }}
-        </p>
-      </div>
-      <div class="rounded-lg border border-gray-200 bg-white p-4" :title="getLastScannedTooltip()">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Scan</p>
-        <p class="mt-1 text-lg font-bold text-gray-900">
-          {{ lastScanned }}
-        </p>
-      </div>
-      <div class="rounded-lg border border-gray-200 bg-white p-4">
-        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Next Scan</p>
-        <p
-          class="mt-1 text-lg font-bold"
-          :class="scanStatus.isRunning ? 'text-blue-600' : settings.dailyScanEnabled ? 'text-gray-900' : 'text-gray-400'"
+      <div class="ml-auto flex items-center gap-3">
+        <button
+          class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          :disabled="scanStatus.isRunning"
+          @click="requestRefresh(project.id)"
         >
-          {{ getNextScan() }}
-        </p>
+          {{ scanStatus.isRunning ? 'Scanning...' : 'Scan Now' }}
+        </button>
+        <span v-if="scanStatus.isRunning && scanStatus.total > 0" class="text-sm text-gray-500">
+          {{ scanStatus.completed }}/{{ scanStatus.total }}
+        </span>
+      </div>
+    </div>
+    <p v-if="scanStatus.isRunning && scanStatus.nextProcessingAt" class="mb-4 text-xs text-gray-500">
+      Next job at {{ formatTime(scanStatus.nextProcessingAt) }}
+    </p>
+    <p v-if="scanStatus.lastError" class="mb-4 text-sm text-red-600">
+      Scan error: {{ scanStatus.lastError }}
+    </p>
+
+    <!-- Extensions comparison table -->
+    <div class="mb-8">
+      <h3 class="text-base font-semibold text-gray-900 mb-3">Extensions</h3>
+      <div v-if="extensionRows.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
+        <p class="text-sm text-gray-500">No extensions tracked yet.</p>
+      </div>
+      <div v-else class="overflow-x-auto rounded-lg border border-gray-200">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Extension</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Users</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Reviews</th>
+              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Rating</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 bg-white">
+            <tr
+              v-for="row in extensionRows"
+              :key="row.extension.id"
+              :class="row.isOwn ? 'bg-blue-50/50' : ''"
+            >
+              <td class="px-4 py-3 whitespace-nowrap">
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-medium text-gray-900 truncate max-w-xs">
+                    {{ row.extension.name || row.extension.id }}
+                  </span>
+                  <span
+                    v-if="row.isOwn"
+                    class="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
+                  >You</span>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-right text-sm text-gray-900 whitespace-nowrap">
+                {{ row.snapshot?.userCount ?? '--' }}
+              </td>
+              <td class="px-4 py-3 text-right text-sm text-gray-900 whitespace-nowrap">
+                {{ row.snapshot?.reviewCount != null ? row.snapshot.reviewCount.toLocaleString() : '--' }}
+              </td>
+              <td class="px-4 py-3 text-right text-sm whitespace-nowrap">
+                <span v-if="row.snapshot && row.snapshot.rating !== null" class="flex items-center justify-end gap-1">
+                  <span class="text-gray-900">{{ formatRating(row.snapshot.rating) }}</span>
+                  <span class="text-yellow-500">&#9733;</span>
+                </span>
+                <span v-else class="text-gray-400">--</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- Quick actions -->
+    <!-- Users & Reviews chart -->
     <div class="mb-8">
-      <button
-        class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        :disabled="scanStatus.isRunning"
-        @click="requestRefresh(project.id)"
-      >
-        {{ scanStatus.isRunning ? 'Scan Running...' : 'Scan This Project' }}
-      </button>
-      <span v-if="scanStatus.isRunning && scanStatus.total > 0" class="ml-3 text-sm text-gray-500">
-        {{ scanStatus.completed }}/{{ scanStatus.total }} jobs
-      </span>
-      <p v-if="scanStatus.isRunning && scanStatus.nextProcessingAt" class="mt-1 text-xs text-gray-500">
-        Next job at {{ formatTime(scanStatus.nextProcessingAt) }}
-      </p>
-      <p v-if="scanStatus.lastError" class="mt-2 text-sm text-red-600">
-        Scan error: {{ scanStatus.lastError }}
-      </p>
+      <h3 class="text-base font-semibold text-gray-900 mb-3">Users & Reviews (Last 30 Days)</h3>
+      <div v-if="snapshotHistory.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
+        <p class="text-sm text-gray-500">No listing data yet. Run a scan to track users and reviews.</p>
+      </div>
+      <UsersReviewsChart v-else :snapshots="snapshotHistory" />
     </div>
 
     <!-- Keyword positions chart (own extension only) -->
