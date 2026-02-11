@@ -304,10 +304,24 @@ watch([selectedKeywordId, dateRange], async () => {
                 class="border-b border-gray-100"
               >
                 <td class="py-2 pr-4">
-                  <span :class="ext.id === project.ownExtensionId ? 'font-semibold text-blue-700' : 'text-gray-700'">
-                    {{ ext.name || ext.id }}
-                  </span>
-                  <span v-if="ext.id === project.ownExtensionId" class="ml-1 text-xs text-blue-500">(yours)</span>
+                  <div class="flex items-center gap-2">
+                    <img
+                      v-if="ext.iconUrl"
+                      :src="ext.iconUrl"
+                      :alt="ext.name || ext.id"
+                      class="h-5 w-5 rounded"
+                    />
+                    <span
+                      v-else
+                      class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-gray-200 text-[9px] font-bold text-gray-500"
+                    >
+                      {{ (ext.name || ext.id).charAt(0).toUpperCase() }}
+                    </span>
+                    <span :class="ext.id === project.ownExtensionId ? 'font-semibold text-blue-700' : 'text-gray-700'">
+                      {{ ext.name || ext.id }}
+                    </span>
+                    <span v-if="ext.id === project.ownExtensionId" class="text-xs text-blue-500">(yours)</span>
+                  </div>
                 </td>
                 <td class="py-2 pr-4 font-mono text-gray-800">
                   {{ getPosition(ext.id) }}
