@@ -8,12 +8,6 @@ const props = defineProps<{
   ownExtensionId: string;
 }>();
 
-/** Short label for x-axis (first initial + truncated name). */
-function shortLabel(name: string, maxLen: number): string {
-  if (name.length <= maxLen) return name;
-  return name.slice(0, maxLen - 1) + '\u2026';
-}
-
 const chartOptions = computed(() => ({
   chart: {
     type: 'bar' as const,
@@ -30,13 +24,9 @@ const chartOptions = computed(() => ({
   },
   dataLabels: { enabled: false },
   xaxis: {
-    categories: props.data.map((d) => shortLabel(d.name, 14)),
+    categories: props.data.map((_d, i) => `#${i + 1}`),
     labels: {
-      style: { fontSize: '10px', colors: '#6b7280' },
-      rotate: -45,
-      rotateAlways: props.data.length > 4,
-      trim: true,
-      maxHeight: 80,
+      style: { fontSize: '11px', fontWeight: 600, colors: '#6b7280' },
     },
   },
   yaxis: {
@@ -53,6 +43,12 @@ const chartOptions = computed(() => ({
   },
   grid: { borderColor: '#e5e7eb', strokeDashArray: 4 },
   tooltip: {
+    x: {
+      formatter: (_val: number, opts: { dataPointIndex: number }) => {
+        const item = props.data[opts.dataPointIndex];
+        return item ? item.name : '';
+      },
+    },
     y: {
       formatter: (val: number) => `${val} keyword${val !== 1 ? 's' : ''}`,
     },
@@ -87,28 +83,31 @@ const chartSeries = computed(() => [
         :options="chartOptions"
         :series="chartSeries"
       />
-      <!-- Extension reference: icon + full name mapped to chart labels -->
-      <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-gray-100 pt-3">
+      <!-- Numbered extension reference legend -->
+      <div class="mt-3 grid gap-1.5 border-t border-gray-100 pt-3" :class="data.length <= 4 ? 'grid-cols-1' : 'grid-cols-2'">
         <div
-          v-for="item in data"
+          v-for="(item, idx) in data"
           :key="item.extensionId"
-          class="inline-flex items-center gap-1.5 text-[11px]"
+          class="flex items-center gap-2 text-[11px]"
           :class="item.extensionId === ownExtensionId ? 'text-blue-700 font-medium' : 'text-gray-600'"
         >
+          <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded bg-gray-100 text-[10px] font-bold text-gray-500">
+            {{ idx + 1 }}
+          </span>
           <img
             v-if="item.iconUrl"
             :src="item.iconUrl"
             :alt="item.name"
-            class="h-4 w-4 rounded"
+            class="h-4 w-4 shrink-0 rounded"
           />
           <span
             v-else
-            class="inline-flex h-4 w-4 items-center justify-center rounded bg-gray-200 text-[8px] font-bold text-gray-500"
+            class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-gray-200 text-[8px] font-bold text-gray-500"
           >
             {{ item.name.charAt(0).toUpperCase() }}
           </span>
-          <span>{{ item.name }}</span>
-          <span v-if="item.extensionId === ownExtensionId" class="text-[10px] text-blue-400">(yours)</span>
+          <span class="truncate" :title="item.name">{{ item.name }}</span>
+          <span v-if="item.extensionId === ownExtensionId" class="shrink-0 text-[10px] text-blue-400">(yours)</span>
         </div>
       </div>
     </template>
