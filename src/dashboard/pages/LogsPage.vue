@@ -92,6 +92,53 @@ function jobTypeLabel(type: string): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Request detail helpers
+// ---------------------------------------------------------------------------
+
+interface ParsedRequestParams {
+  baseUrl: string;
+  params: Array<{ key: string; value: string }>;
+}
+
+function parseRequestUrl(url: string): ParsedRequestParams {
+  try {
+    const parsed = new URL(url);
+    const params: Array<{ key: string; value: string }> = [];
+    parsed.searchParams.forEach((value, key) => {
+      params.push({ key, value });
+    });
+    return {
+      baseUrl: `${parsed.origin}${parsed.pathname}`,
+      params,
+    };
+  } catch {
+    return { baseUrl: url, params: [] };
+  }
+}
+
+/** Cache parsed URLs keyed by log id to avoid re-parsing in template. */
+const parsedUrls = computed<Map<number, ParsedRequestParams>>(() => {
+  const map = new Map<number, ParsedRequestParams>();
+  for (const log of filteredLogs.value) {
+    map.set(log.id, parseRequestUrl(log.requestUrl));
+  }
+  return map;
+});
+
+function getParsedUrl(logId: number): ParsedRequestParams {
+  return parsedUrls.value.get(logId) ?? { baseUrl: '', params: [] };
+}
+
+function isPaginationRequest(log: SavedScanLog): boolean {
+  return log.pageNumber !== undefined && log.pageNumber !== null && log.pageNumber > 1;
+}
+
+function getPageLabel(log: SavedScanLog): string | null {
+  if (log.pageNumber === undefined || log.pageNumber === null) return null;
+  return `Page ${log.pageNumber}`;
+}
+
 /** Group logs by date for date separator headers. */
 interface LogGroup {
   date: string;
@@ -212,7 +259,7 @@ const groupedLogs = computed<LogGroup[]>(() => {
             v-for="log in group.logs"
             :key="log.id"
             class="rounded-lg border border-gray-200 border-l-4 bg-white"
-            :class="rowBorderClass(log.level)"
+            :class="[rowBorderClass(log.level), isPaginationRequest(log) ? 'ml-6' : '']"
           >
             <!-- Row header -->
             <div
@@ -228,6 +275,11 @@ const groupedLogs = computed<LogGroup[]>(() => {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
               </button>
+
+              <!-- HTTP method badge -->
+              <span class="inline-flex shrink-0 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-xs font-medium text-blue-700">
+                {{ log.httpMethod ?? 'GET' }}
+              </span>
 
               <!-- Time -->
               <span class="shrink-0 font-mono text-xs text-gray-500">{{ formatTime(log.timestamp) }}</span>
@@ -248,6 +300,14 @@ const groupedLogs = computed<LogGroup[]>(() => {
               <!-- Job detail -->
               <span class="min-w-0 flex-1 truncate text-sm text-gray-900">{{ log.jobDetail }}</span>
 
+              <!-- Pagination page badge -->
+              <span
+                v-if="getPageLabel(log)"
+                class="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
+              >
+                {{ getPageLabel(log) }}
+              </span>
+
               <!-- HTTP status -->
               <span class="shrink-0 font-mono text-xs" :class="statusClass(log.responseStatus)">
                 {{ log.responseStatus ?? '---' }}
@@ -265,10 +325,38 @@ const groupedLogs = computed<LogGroup[]>(() => {
               class="border-t border-gray-100 bg-gray-50 px-4 py-3 text-xs"
             >
               <div class="space-y-2">
-                <!-- URL -->
+                <!-- Request: method + base URL -->
                 <div>
-                  <span class="font-medium text-gray-500">URL</span>
-                  <p class="mt-0.5 break-all font-mono text-gray-700">{{ log.requestUrl }}</p>
+                  <span class="font-medium text-gray-500">Request</span>
+                  <p class="mt-0.5 break-all font-mono text-gray-700">
+                    <span class="font-semibold">{{ log.httpMethod ?? 'GET' }}</span>
+                    {{ getParsedUrl(log.id).baseUrl }}
+                  </p>
+                </div>
+
+                <!-- Query parameters table -->
+                <div v-if="getParsedUrl(log.id).params.length > 0">
+                  <span class="font-medium text-gray-500">Parameters</span>
+                  <div class="mt-1 overflow-hidden rounded border border-gray-200 bg-white">
+                    <div
+                      v-for="param in getParsedUrl(log.id).params"
+                      :key="param.key"
+                      class="flex border-b border-gray-100 last:border-b-0"
+                    >
+                      <span class="w-20 shrink-0 border-r border-gray-100 px-2 py-1 font-mono font-medium text-gray-600">
+                        {{ param.key }}
+                      </span>
+                      <span class="min-w-0 flex-1 break-all px-2 py-1 font-mono text-gray-700">
+                        {{ param.value }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Page info -->
+                <div v-if="log.pageNumber !== undefined && log.pageNumber !== null">
+                  <span class="font-medium text-gray-500">Page</span>
+                  <span class="ml-1 text-gray-600">{{ log.pageNumber }} of 3</span>
                 </div>
 
                 <!-- Error -->

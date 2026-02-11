@@ -92,6 +92,36 @@ describe('CWSDatabase - Scan Log Methods', () => {
       const saved = await db.scan_logs.get(id);
       expect(saved!.responseStatus).toBeNull();
     });
+
+    it('stores httpMethod and pageNumber when provided', async () => {
+      const id = await db.saveScanLog(makeScanLog({
+        httpMethod: 'GET',
+        pageNumber: 2,
+      }));
+      const saved = await db.scan_logs.get(id);
+      expect(saved!.httpMethod).toBe('GET');
+      expect(saved!.pageNumber).toBe(2);
+    });
+
+    it('works without httpMethod and pageNumber (backwards compat)', async () => {
+      // Simulate a pre-0.17.0 log entry without the new fields
+      const oldLog: ScanLog = {
+        timestamp: new Date().toISOString(),
+        jobId: 1,
+        jobType: 'listing_scan',
+        level: 'info',
+        requestUrl: 'https://chromewebstore.google.com/detail/test',
+        responseStatus: 200,
+        responsePreview: '<html>...',
+        durationMs: 350,
+        jobDetail: 'Scanning extension testtest...',
+        error: null,
+      };
+      const id = await db.saveScanLog(oldLog);
+      const saved = await db.scan_logs.get(id);
+      expect(saved!.httpMethod).toBeUndefined();
+      expect(saved!.pageNumber).toBeUndefined();
+    });
   });
 
   describe('getRecentScanLogs', () => {

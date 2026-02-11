@@ -2,6 +2,16 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.17.0] - 2026-02-11
+
+### Enhanced
+- Scan Logs page: richer request details and clearer pagination UX
+  - HTTP method badge (GET) displayed in each log row header
+  - Page number tracking for paginated keyword scan requests (page 1/2/3)
+  - Pagination requests visually indented with "Page N" pill badge in indigo
+  - Request parameters shown in structured key-value table in expanded details
+  - New optional `httpMethod` and `pageNumber` fields on `ScanLog` (non-indexed, backwards compatible)
+
 ## [0.16.0] - 2026-02-08
 
 ### Added
