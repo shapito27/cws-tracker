@@ -163,7 +163,10 @@ export async function runPaginationDiagnostic(
       break;
     }
 
-    // Short delay between pages
+    // Short delay between pages.
+    // setTimeout is acceptable here: this diagnostic runs synchronously within
+    // a message handler, keeping the SW alive during active async work.
+    // Production scan pipeline uses chrome.alarms (see queue-processor.ts).
     if (page < maxPages - 1 && nextToken) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }

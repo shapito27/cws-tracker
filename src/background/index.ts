@@ -83,7 +83,7 @@ chrome.runtime.onMessage.addListener(
  */
 async function handleMessage(
   message: DashboardMessage
-): Promise<Record<string, unknown>> {
+): Promise<{ ok: boolean; [key: string]: unknown }> {
   switch (message.type) {
     case 'TRIGGER_REFRESH':
       await triggerManualRefresh(message.projectId);
@@ -101,11 +101,16 @@ async function handleMessage(
       await cancelScan();
       return { ok: true };
 
-    case 'TEST_PAGINATION':
-      return await runPaginationDiagnostic(
+    case 'TEST_PAGINATION': {
+      if (!message.keyword || message.keyword.trim().length === 0) {
+        return { ok: false, error: 'Missing keyword parameter' };
+      }
+      const result = await runPaginationDiagnostic(
         message.keyword,
-        message.maxPages
-      ) as unknown as Record<string, unknown>;
+        Math.min(message.maxPages ?? 2, 5)
+      );
+      return { ...result };
+    }
 
     default:
       // Unknown message type — ignore gracefully
