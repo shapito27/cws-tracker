@@ -67,11 +67,6 @@ function getCellClasses(pos: number | null | undefined): string {
   return 'bg-red-100 text-red-700';
 }
 
-function truncateName(name: string, maxLen: number): string {
-  if (name.length <= maxLen) return name;
-  return name.slice(0, maxLen - 1) + '\u2026';
-}
-
 function getBestPositionLabel(extId: string): string {
   const best = bestPositions.value.get(extId);
   if (best === null || best === undefined) return '';
@@ -118,7 +113,7 @@ function getBestPositionLabel(extId: string): string {
                 >
                   {{ (ext.name || ext.id).charAt(0).toUpperCase() }}
                 </span>
-                <span>{{ truncateName(ext.name || ext.id, 16) }}</span>
+                <span class="whitespace-nowrap">{{ ext.name || ext.id }}</span>
                 <span v-if="ext.id === ownExtensionId" class="text-[10px] text-blue-400">(yours)</span>
                 <span v-if="getBestPositionLabel(ext.id)" class="text-[9px] font-normal text-gray-400">
                   {{ getBestPositionLabel(ext.id) }}
