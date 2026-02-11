@@ -356,7 +356,7 @@ const groupedLogs = computed<LogGroup[]>(() => {
                 <!-- Page info -->
                 <div v-if="log.pageNumber !== undefined && log.pageNumber !== null">
                   <span class="font-medium text-gray-500">Page</span>
-                  <span class="ml-1 text-gray-600">{{ log.pageNumber }} of 3</span>
+                  <span class="ml-1 text-gray-600">{{ log.pageNumber }}</span>
                 </div>
 
                 <!-- Error -->

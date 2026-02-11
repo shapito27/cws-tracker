@@ -636,12 +636,18 @@ describe('Queue Processor', () => {
       await processNextJob(deps);
 
       const logs = await testDb.scan_logs.toArray();
-      expect(logs).toHaveLength(1);
+      // 2 logs: fetch log + per-page diagnostic log
+      expect(logs).toHaveLength(2);
       expect(logs[0].level).toBe('info');
       expect(logs[0].jobType).toBe('keyword_scan');
       expect(logs[0].jobDetail).toContain('ad blocker');
       expect(logs[0].httpMethod).toBe('GET');
       expect(logs[0].pageNumber).toBe(1);
+      // Second log is the per-page diagnostic
+      expect(logs[1].level).toBe('info');
+      expect(logs[1].jobDetail).toContain('Page 1');
+      expect(logs[1].httpMethod).toBe('GET');
+      expect(logs[1].pageNumber).toBe(1);
     });
 
     it('HTTP error: writes scan log with error level', async () => {
@@ -786,26 +792,36 @@ describe('Queue Processor', () => {
         },
       });
 
-      const fetchPage = vi.fn().mockResolvedValue(
-        new Response('mock-search-results', { status: 200 })
+      // Must create a new Response per call — Response body can only be read once
+      const fetchPage = vi.fn().mockImplementation(() =>
+        Promise.resolve(new Response('mock-search-results', { status: 200 }))
       );
       const deps = createDeps({ fetchPage });
 
       await processNextJob(deps);
 
       const logs = await testDb.scan_logs.toArray();
-      expect(logs).toHaveLength(2);
+      // 4 logs: fetch page 1 + diagnostic page 1 + fetch page 2 + diagnostic page 2
+      expect(logs).toHaveLength(4);
 
-      // First page
+      // First page fetch log
       expect(logs[0].httpMethod).toBe('GET');
       expect(logs[0].pageNumber).toBe(1);
       expect(logs[0].jobType).toBe('keyword_scan');
 
-      // Second page
-      expect(logs[1].httpMethod).toBe('GET');
-      expect(logs[1].pageNumber).toBe(2);
-      expect(logs[1].jobType).toBe('keyword_scan');
-      expect(logs[1].requestUrl).toContain('page2-token');
+      // First page diagnostic log
+      expect(logs[1].jobDetail).toContain('Page 1');
+      expect(logs[1].pageNumber).toBe(1);
+
+      // Second page fetch log
+      expect(logs[2].httpMethod).toBe('GET');
+      expect(logs[2].pageNumber).toBe(2);
+      expect(logs[2].jobType).toBe('keyword_scan');
+      expect(logs[2].requestUrl).toContain('page2-token');
+
+      // Second page diagnostic log
+      expect(logs[3].jobDetail).toContain('Page 2');
+      expect(logs[3].pageNumber).toBe(2);
     }, 10_000);
 
     it('HTTP 404 on listing_scan: writes warn-level log (not error)', async () => {

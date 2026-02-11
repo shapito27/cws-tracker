@@ -20,6 +20,7 @@ import {
   ALARM_DAILY_SCAN,
   ALARM_PROCESS_QUEUE,
 } from '@/background/scheduler';
+import { runPaginationDiagnostic } from '@/background/pagination-diagnostic';
 import { db } from '@/shared/db/database';
 import type { DashboardMessage } from '@/shared/types';
 
@@ -82,7 +83,7 @@ chrome.runtime.onMessage.addListener(
  */
 async function handleMessage(
   message: DashboardMessage
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; [key: string]: unknown }> {
   switch (message.type) {
     case 'TRIGGER_REFRESH':
       await triggerManualRefresh(message.projectId);
@@ -99,6 +100,17 @@ async function handleMessage(
     case 'CANCEL_SCAN':
       await cancelScan();
       return { ok: true };
+
+    case 'TEST_PAGINATION': {
+      if (!message.keyword || message.keyword.trim().length === 0) {
+        return { ok: false, error: 'Missing keyword parameter' };
+      }
+      const result = await runPaginationDiagnostic(
+        message.keyword,
+        Math.min(message.maxPages ?? 2, 5)
+      );
+      return { ...result };
+    }
 
     default:
       // Unknown message type — ignore gracefully
