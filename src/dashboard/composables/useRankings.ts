@@ -89,6 +89,7 @@ export interface HeatmapCell {
 export interface CoverageData {
   extensionId: string;
   name: string;
+  iconUrl: string | null;
   top3: number;
   top10: number;
   top20: number;
@@ -201,6 +202,7 @@ export function buildCoverageData(
     return {
       extensionId: ext.id,
       name: ext.name || ext.id,
+      iconUrl: ext.iconUrl,
       ...c,
     };
   });

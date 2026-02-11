@@ -8,6 +8,12 @@ const props = defineProps<{
   ownExtensionId: string;
 }>();
 
+/** Short label for x-axis (first initial + truncated name). */
+function shortLabel(name: string, maxLen: number): string {
+  if (name.length <= maxLen) return name;
+  return name.slice(0, maxLen - 1) + '\u2026';
+}
+
 const chartOptions = computed(() => ({
   chart: {
     type: 'bar' as const,
@@ -24,7 +30,7 @@ const chartOptions = computed(() => ({
   },
   dataLabels: { enabled: false },
   xaxis: {
-    categories: props.data.map((d) => d.name),
+    categories: props.data.map((d) => shortLabel(d.name, 14)),
     labels: {
       style: { fontSize: '10px', colors: '#6b7280' },
       rotate: -45,
@@ -74,12 +80,37 @@ const chartSeries = computed(() => [
     <div v-if="data.length === 0" class="py-6 text-center text-sm text-gray-400">
       No coverage data available yet.
     </div>
-    <VueApexCharts
-      v-else
-      type="bar"
-      :height="300"
-      :options="chartOptions"
-      :series="chartSeries"
-    />
+    <template v-else>
+      <VueApexCharts
+        type="bar"
+        :height="300"
+        :options="chartOptions"
+        :series="chartSeries"
+      />
+      <!-- Extension reference: icon + full name mapped to chart labels -->
+      <div class="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 border-t border-gray-100 pt-3">
+        <div
+          v-for="item in data"
+          :key="item.extensionId"
+          class="inline-flex items-center gap-1.5 text-[11px]"
+          :class="item.extensionId === ownExtensionId ? 'text-blue-700 font-medium' : 'text-gray-600'"
+        >
+          <img
+            v-if="item.iconUrl"
+            :src="item.iconUrl"
+            :alt="item.name"
+            class="h-4 w-4 rounded"
+          />
+          <span
+            v-else
+            class="inline-flex h-4 w-4 items-center justify-center rounded bg-gray-200 text-[8px] font-bold text-gray-500"
+          >
+            {{ item.name.charAt(0).toUpperCase() }}
+          </span>
+          <span>{{ item.name }}</span>
+          <span v-if="item.extensionId === ownExtensionId" class="text-[10px] text-blue-400">(yours)</span>
+        </div>
+      </div>
+    </template>
   </div>
 </template>
