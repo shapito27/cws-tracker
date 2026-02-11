@@ -634,10 +634,14 @@ describe('Queue Processor', () => {
       await processNextJob(deps);
 
       const logs = await testDb.scan_logs.toArray();
-      expect(logs).toHaveLength(1);
+      // 2 logs: fetch log + per-page diagnostic log
+      expect(logs).toHaveLength(2);
       expect(logs[0].level).toBe('info');
       expect(logs[0].jobType).toBe('keyword_scan');
       expect(logs[0].jobDetail).toContain('ad blocker');
+      // Second log is the per-page diagnostic
+      expect(logs[1].level).toBe('info');
+      expect(logs[1].jobDetail).toContain('Page 1');
     });
 
     it('HTTP error: writes scan log with error level', async () => {
