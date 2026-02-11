@@ -641,22 +641,31 @@ export default {
       );
     }
 
-    // Check cache first
+    // Paginated search requests (with token) must bypass cache entirely.
+    // caches.default shares the Cloudflare CDN cache, which may ignore query
+    // string differences depending on zone settings, causing page 2+ to get
+    // page 1's cached response. Paginated results are transient and benefit
+    // little from caching anyway.
+    const isPaginatedSearch = pathname === '/search' && url.searchParams.has('token');
+
+    // Check cache first (skip for paginated search)
     const cache = caches.default;
     const cacheKey = new Request(url.toString(), request);
-    const cachedResponse = await cache.match(cacheKey);
-    if (cachedResponse) {
-      // Re-add CORS headers since cached response may not have the right origin
-      const newHeaders = new Headers(cachedResponse.headers);
-      const cors = corsHeaders(origin);
-      for (const [k, v] of Object.entries(cors)) {
-        newHeaders.set(k, v);
+    if (!isPaginatedSearch) {
+      const cachedResponse = await cache.match(cacheKey);
+      if (cachedResponse) {
+        // Re-add CORS headers since cached response may not have the right origin
+        const newHeaders = new Headers(cachedResponse.headers);
+        const cors = corsHeaders(origin);
+        for (const [k, v] of Object.entries(cors)) {
+          newHeaders.set(k, v);
+        }
+        newHeaders.set('X-Cache', 'HIT');
+        return new Response(cachedResponse.body, {
+          status: cachedResponse.status,
+          headers: newHeaders,
+        });
       }
-      newHeaders.set('X-Cache', 'HIT');
-      return new Response(cachedResponse.body, {
-        status: cachedResponse.status,
-        headers: newHeaders,
-      });
     }
 
     // Route
@@ -673,8 +682,8 @@ export default {
       );
     }
 
-    // Cache successful responses
-    if (response.status === 200) {
+    // Cache successful responses (skip for paginated search)
+    if (response.status === 200 && !isPaginatedSearch) {
       const cacheResponse = response.clone();
       const cacheHeaders = new Headers(cacheResponse.headers);
       cacheHeaders.set('Cache-Control', `s-maxage=${CACHE_TTL_SECONDS}`);
