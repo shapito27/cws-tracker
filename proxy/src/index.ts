@@ -434,6 +434,7 @@ async function handleSearchPagination(
         Referer: `${CWS_BASE}/`,
         'X-Same-Domain': '1',
       },
+      body,
       signal: controller.signal,
     });
 
