@@ -115,7 +115,14 @@ async function fetchCWSPage(
 
     const response = await fetchPage(proxyUrl.toString());
     if (!response.ok) {
-      throw new HttpError(response.status, response.statusText);
+      let errorDetail = response.statusText;
+      try {
+        const body = await response.json() as { error?: string };
+        if (body.error) errorDetail = body.error;
+      } catch {
+        // Body not JSON - use statusText
+      }
+      throw new HttpError(response.status, errorDetail);
     }
     const data = await response.json() as { html: string; status: number };
     return { html: data.html, cwsStatus: data.status };
@@ -453,7 +460,20 @@ async function processKeywordScan(
     } catch (error) {
       // Page 1 failure: propagate (no partial data to save)
       if (page === 0) throw error;
-      // Page 2+ failure: stop pagination, save what we have
+      // Page 2+ failure: log and stop pagination, save what we have
+      const errMsg = error instanceof Error ? error.message : String(error);
+      await writeScanLog({
+        timestamp: new Date().toISOString(),
+        jobId: job.id ?? null,
+        jobType: job.type,
+        level: 'warn',
+        requestUrl: buildRequestUrl('search', params, settings),
+        responseStatus: null,
+        responsePreview: '',
+        durationMs: 0,
+        jobDetail: `Page ${page + 1} fetch failed for "${keyword}": ${errMsg}`,
+        error: errMsg,
+      });
       break;
     }
 
@@ -462,7 +482,19 @@ async function processKeywordScan(
       if (page === 0) {
         throw new HttpError(cwsStatus, `CWS returned HTTP ${cwsStatus}`);
       }
-      // Page 2+ HTTP error: stop pagination, save what we have
+      // Page 2+ HTTP error: log and stop pagination, save what we have
+      await writeScanLog({
+        timestamp: new Date().toISOString(),
+        jobId: job.id ?? null,
+        jobType: job.type,
+        level: 'warn',
+        requestUrl: buildRequestUrl('search', params, settings),
+        responseStatus: cwsStatus,
+        responsePreview: html.slice(0, SCAN_LOG_PREVIEW_LENGTH),
+        durationMs: 0,
+        jobDetail: `Page ${page + 1} HTTP ${cwsStatus} for "${keyword}"`,
+        error: `CWS returned HTTP ${cwsStatus}`,
+      });
       break;
     }
 
@@ -472,7 +504,20 @@ async function processKeywordScan(
     } catch (error) {
       // Page 1 parse failure: propagate
       if (page === 0) throw error;
-      // Page 2+ parse failure: stop pagination, save what we have
+      // Page 2+ parse failure: log and stop pagination, save what we have
+      const errMsg = error instanceof Error ? error.message : String(error);
+      await writeScanLog({
+        timestamp: new Date().toISOString(),
+        jobId: job.id ?? null,
+        jobType: job.type,
+        level: 'warn',
+        requestUrl: buildRequestUrl('search', params, settings),
+        responseStatus: cwsStatus,
+        responsePreview: html.slice(0, SCAN_LOG_PREVIEW_LENGTH),
+        durationMs: 0,
+        jobDetail: `Page ${page + 1} parse failed for "${keyword}": ${errMsg}`,
+        error: errMsg,
+      });
       break;
     }
 
@@ -495,6 +540,24 @@ async function processKeywordScan(
     // Stop early if all tracked extensions found or no more pages
     const foundExtIds = new Set(allResults.map((r) => r.extensionId));
     const allFound = trackedExtIds.every((id) => foundExtIds.has(id));
+    const trackedFound = trackedExtIds.filter((id) => foundExtIds.has(id));
+
+    // Log per-page diagnostics
+    const stopReason = allFound ? 'all_tracked_found' : !nextToken ? 'no_more_pages' : null;
+    await writeScanLog({
+      timestamp: new Date().toISOString(),
+      jobId: job.id ?? null,
+      jobType: job.type,
+      level: 'info',
+      requestUrl: buildRequestUrl('search', params, settings),
+      responseStatus: cwsStatus,
+      responsePreview: '',
+      durationMs: 0,
+      jobDetail: `Page ${page + 1} for "${keyword}": ${searchData.results.length} results, ` +
+        `${trackedFound.length}/${trackedExtIds.length} tracked found` +
+        (stopReason ? `, stopping: ${stopReason}` : ', continuing'),
+      error: null,
+    });
 
     if (allFound || !nextToken) {
       break;
