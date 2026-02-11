@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import type { Project, Extension, Keyword, EventRecord, RankSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
@@ -54,6 +54,7 @@ const rankDeltas = ref<Map<string, RankDelta>>(new Map());
 const showAudit = ref(false);
 const auditKeywordId = ref<number | undefined>(undefined);
 const auditCompetitorId = ref<string | undefined>(undefined);
+const auditPanelRef = ref<HTMLElement | null>(null);
 
 /** Which event types are currently visible as annotations. */
 const visibleEventTypes = ref<Set<string>>(new Set(ALL_EVENT_TYPES));
@@ -71,6 +72,9 @@ function openAudit(competitorId: string): void {
   auditKeywordId.value = selectedKeywordId.value ?? undefined;
   auditCompetitorId.value = competitorId;
   showAudit.value = true;
+  nextTick(() => {
+    auditPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
 }
 
 function closeAudit(): void {
@@ -331,6 +335,25 @@ watch([selectedKeywordId, dateRange], async () => {
               </tr>
             </tbody>
           </table>
+
+          <!-- Audit Tool panel - directly below the positions table for context -->
+          <Transition
+            enter-active-class="transition-all duration-300 ease-out"
+            enter-from-class="opacity-0 -translate-y-2"
+            enter-to-class="opacity-100 translate-y-0"
+            leave-active-class="transition-all duration-200 ease-in"
+            leave-from-class="opacity-100 translate-y-0"
+            leave-to-class="opacity-0 -translate-y-2"
+          >
+            <div v-if="showAudit" ref="auditPanelRef" class="mt-4">
+              <AuditTool
+                :project="project"
+                :pre-selected-keyword-id="auditKeywordId"
+                :pre-selected-competitor-id="auditCompetitorId"
+                @close="closeAudit"
+              />
+            </div>
+          </Transition>
         </div>
       </div>
 
@@ -357,15 +380,6 @@ watch([selectedKeywordId, dateRange], async () => {
         />
       </div>
 
-      <!-- Audit Tool panel -->
-      <div v-if="showAudit" class="mt-6">
-        <AuditTool
-          :project="project"
-          :pre-selected-keyword-id="auditKeywordId"
-          :pre-selected-competitor-id="auditCompetitorId"
-          @close="closeAudit"
-        />
-      </div>
     </div>
   </div>
 </template>
