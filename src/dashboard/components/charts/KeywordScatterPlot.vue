@@ -97,17 +97,35 @@ const chartSeries = computed(() => {
   ];
 });
 
-/** Maximum x-axis value with padding. */
+/** Dynamic x-axis range based on data spread with padding. */
+const xMin = computed(() => {
+  const values = rankedPoints.value.map((p) => p.totalResults);
+  if (values.length === 0) return 0;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  // Add 15% padding below the minimum, but never go below 0
+  return Math.max(0, Math.floor(min - Math.max(range * 0.15, max * 0.05)));
+});
+
 const xMax = computed(() => {
-  const max = Math.max(...rankedPoints.value.map((p) => p.totalResults), 0);
-  return Math.ceil(max * 1.1) || 100;
+  const values = rankedPoints.value.map((p) => p.totalResults);
+  if (values.length === 0) return 100;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min;
+  // Add 15% padding above the maximum
+  return Math.ceil(max + Math.max(range * 0.15, max * 0.05));
 });
 
 const chartOptions = computed(() => ({
   chart: {
     type: 'scatter' as const,
     height: 400,
-    toolbar: { show: true },
+    toolbar: {
+      show: true,
+      offsetY: 24,
+    },
     zoom: { enabled: true },
     animations: { enabled: true, easing: 'easeinout' as const, speed: 300 },
   },
@@ -117,7 +135,7 @@ const chartOptions = computed(() => ({
       style: { fontSize: '12px', fontWeight: '600', color: '#374151' },
     },
     labels: { style: { fontSize: '10px', colors: '#6b7280' } },
-    min: 0,
+    min: xMin.value,
     max: xMax.value,
     tickAmount: 6,
   },
@@ -145,37 +163,13 @@ const chartOptions = computed(() => ({
     QUADRANT_COLORS.needsWork,
   ],
   markers: {
-    size: 10,
+    size: 8,
     strokeWidth: 2,
     strokeColors: '#ffffff',
-    hover: { sizeOffset: 4 },
+    hover: { sizeOffset: 3 },
   },
   dataLabels: {
-    enabled: true,
-    textAnchor: 'start' as const,
-    offsetX: 8,
-    offsetY: -6,
-    style: {
-      fontSize: '10px',
-      fontWeight: '500',
-      colors: ['#374151'],
-    },
-    background: {
-      enabled: true,
-      foreColor: '#374151',
-      borderRadius: 2,
-      padding: 3,
-      borderWidth: 0,
-      opacity: 0.85,
-      dropShadow: { enabled: false },
-    },
-    formatter: (_val: number, opts: { w: { config: { series: Array<{ data: Array<{ meta: string }> }> } }; seriesIndex: number; dataPointIndex: number }) => {
-      const series = opts.w.config.series[opts.seriesIndex];
-      const point = series?.data?.[opts.dataPointIndex];
-      if (!point?.meta) return '';
-      const text = point.meta as string;
-      return text.length > 16 ? text.slice(0, 14) + '…' : text;
-    },
+    enabled: false,
   },
   tooltip: {
     custom: ({ seriesIndex, dataPointIndex }: { seriesIndex: number; dataPointIndex: number }) => {
@@ -240,8 +234,10 @@ const chartOptions = computed(() => ({
         borderColor: '#f59e0b',
         strokeDashArray: 4,
         label: {
-          text: 'Top 10 threshold',
-          position: 'front' as const,
+          text: 'Top 10',
+          position: 'right' as const,
+          textAnchor: 'end' as const,
+          offsetX: -8,
           style: { fontSize: '10px', color: '#92400e', background: '#fef3c7', padding: { left: 4, right: 4, top: 2, bottom: 2 } },
         },
       },
