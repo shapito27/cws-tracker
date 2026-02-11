@@ -91,9 +91,19 @@ export interface CancelScanMessage {
   type: 'CANCEL_SCAN';
 }
 
+/** Request to run a pagination diagnostic test against the real proxy. */
+export interface TestPaginationMessage {
+  type: 'TEST_PAGINATION';
+  /** Search keyword to test (e.g. "check broken links"). */
+  keyword: string;
+  /** Max pages to fetch (default 2). */
+  maxPages?: number;
+}
+
 /** Union of all messages the Dashboard/Popup can send to the Service Worker. */
 export type DashboardMessage =
   | TriggerRefreshMessage
   | PauseScanMessage
   | ResumeScanMessage
-  | CancelScanMessage;
+  | CancelScanMessage
+  | TestPaginationMessage;
