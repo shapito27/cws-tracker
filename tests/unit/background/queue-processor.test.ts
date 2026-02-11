@@ -66,7 +66,7 @@ vi.mock('@/background/parsers/index', () => {
         };
       },
     }),
-    getSearchParser: () => ({
+    getSearchParser: vi.fn(() => ({
       version: 'v1',
       parse: () => ({
         results: [
@@ -98,7 +98,7 @@ vi.mock('@/background/parsers/index', () => {
         totalCount: 120,
         nextPageToken: null,
       }),
-    }),
+    })),
     ParserError: MockParserError,
   };
 });
@@ -619,6 +619,8 @@ describe('Queue Processor', () => {
       expect(logs[0].durationMs).toBeGreaterThanOrEqual(0);
       expect(logs[0].error).toBeNull();
       expect(logs[0].requestUrl).toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+      expect(logs[0].httpMethod).toBe('GET');
+      expect(logs[0].pageNumber).toBeNull();
     });
 
     it('keyword_scan success: writes scan log', async () => {
@@ -639,9 +641,13 @@ describe('Queue Processor', () => {
       expect(logs[0].level).toBe('info');
       expect(logs[0].jobType).toBe('keyword_scan');
       expect(logs[0].jobDetail).toContain('ad blocker');
+      expect(logs[0].httpMethod).toBe('GET');
+      expect(logs[0].pageNumber).toBe(1);
       // Second log is the per-page diagnostic
       expect(logs[1].level).toBe('info');
       expect(logs[1].jobDetail).toContain('Page 1');
+      expect(logs[1].httpMethod).toBe('GET');
+      expect(logs[1].pageNumber).toBe(1);
     });
 
     it('HTTP error: writes scan log with error level', async () => {
@@ -732,6 +738,91 @@ describe('Queue Processor', () => {
       const parsed = new Date(logs[0].timestamp);
       expect(parsed.toISOString()).toBe(logs[0].timestamp);
     });
+
+    it('keyword_scan with pagination: logs page numbers for each request', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      const { getSearchParser } = await import('@/background/parsers/index');
+      await seedProject();
+      await testDb.enqueueJobs([makeKeywordJob()]);
+
+      // Mock parser: page 1 returns only competitor (not own extension), page 2 returns own extension
+      let parseCallCount = 0;
+      vi.mocked(getSearchParser).mockReturnValue({
+        version: 'v1',
+        parse: () => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              results: [
+                {
+                  extensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                  name: 'Other Extension',
+                  iconUrl: 'https://example.com/icon2.png',
+                  rating: 4.0,
+                  ratingCount: 50,
+                  shortDescription: 'Another test',
+                  userCount: 5000,
+                  category: 'productivity',
+                  isFeatured: false,
+                  position: 1,
+                },
+              ],
+              totalCount: 30,
+              nextPageToken: 'page2-token',
+            };
+          }
+          return {
+            results: [
+              {
+                extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                name: 'Test Extension',
+                iconUrl: 'https://example.com/icon.png',
+                rating: 4.5,
+                ratingCount: 100,
+                shortDescription: 'A test',
+                userCount: 10000,
+                category: 'productivity',
+                isFeatured: false,
+                position: 1,
+              },
+            ],
+            totalCount: 30,
+            nextPageToken: null,
+          };
+        },
+      });
+
+      // Must create a new Response per call — Response body can only be read once
+      const fetchPage = vi.fn().mockImplementation(() =>
+        Promise.resolve(new Response('mock-search-results', { status: 200 }))
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      // 4 logs: fetch page 1 + diagnostic page 1 + fetch page 2 + diagnostic page 2
+      expect(logs).toHaveLength(4);
+
+      // First page fetch log
+      expect(logs[0].httpMethod).toBe('GET');
+      expect(logs[0].pageNumber).toBe(1);
+      expect(logs[0].jobType).toBe('keyword_scan');
+
+      // First page diagnostic log
+      expect(logs[1].jobDetail).toContain('Page 1');
+      expect(logs[1].pageNumber).toBe(1);
+
+      // Second page fetch log
+      expect(logs[2].httpMethod).toBe('GET');
+      expect(logs[2].pageNumber).toBe(2);
+      expect(logs[2].jobType).toBe('keyword_scan');
+      expect(logs[2].requestUrl).toContain('page2-token');
+
+      // Second page diagnostic log
+      expect(logs[3].jobDetail).toContain('Page 2');
+      expect(logs[3].pageNumber).toBe(2);
+    }, 10_000);
 
     it('HTTP 404 on listing_scan: writes warn-level log (not error)', async () => {
       const { processNextJob } = await import('@/background/queue-processor');

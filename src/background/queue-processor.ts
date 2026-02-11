@@ -190,7 +190,9 @@ async function fetchCWSPageWithLogging(
   params: { id?: string; q?: string; token?: string },
   settings: Settings,
   fetchPage: (url: string) => Promise<Response>,
-  job: QueueJob
+  job: QueueJob,
+  httpMethod: string = 'GET',
+  pageNumber: number | null = null
 ): Promise<CWSFetchResult> {
   const requestUrl = buildRequestUrl(type, params, settings);
   const jobDetail = getJobDescription(job);
@@ -212,6 +214,8 @@ async function fetchCWSPageWithLogging(
       durationMs,
       jobDetail,
       error: null,
+      httpMethod,
+      pageNumber,
     });
 
     return result;
@@ -231,6 +235,8 @@ async function fetchCWSPageWithLogging(
       durationMs,
       jobDetail,
       error: errorMessage,
+      httpMethod,
+      pageNumber,
     });
 
     throw error;
@@ -453,7 +459,8 @@ async function processKeywordScan(
 
     try {
       const result = await fetchCWSPageWithLogging(
-        'search', params, settings, deps.fetchPage, job
+        'search', params, settings, deps.fetchPage, job,
+        'GET', page + 1
       );
       html = result.html;
       cwsStatus = result.cwsStatus;
@@ -473,6 +480,8 @@ async function processKeywordScan(
         durationMs: 0,
         jobDetail: `Page ${page + 1} fetch failed for "${keyword}": ${errMsg}`,
         error: errMsg,
+        httpMethod: 'GET',
+        pageNumber: page + 1,
       });
       break;
     }
@@ -494,6 +503,8 @@ async function processKeywordScan(
         durationMs: 0,
         jobDetail: `Page ${page + 1} HTTP ${cwsStatus} for "${keyword}"`,
         error: `CWS returned HTTP ${cwsStatus}`,
+        httpMethod: 'GET',
+        pageNumber: page + 1,
       });
       break;
     }
@@ -517,6 +528,8 @@ async function processKeywordScan(
         durationMs: 0,
         jobDetail: `Page ${page + 1} parse failed for "${keyword}": ${errMsg}`,
         error: errMsg,
+        httpMethod: 'GET',
+        pageNumber: page + 1,
       });
       break;
     }
@@ -557,6 +570,8 @@ async function processKeywordScan(
         `${trackedFound.length}/${trackedExtIds.length} tracked found` +
         (stopReason ? `, stopping: ${stopReason}` : ', continuing'),
       error: null,
+      httpMethod: 'GET',
+      pageNumber: page + 1,
     });
 
     if (allFound || !nextToken) {

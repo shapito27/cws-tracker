@@ -324,6 +324,10 @@ export interface ScanLog {
   jobDetail: string;
   /** Error message if the request failed. */
   error: string | null;
+  /** HTTP method used for the request (e.g. 'GET'). Optional for backwards compat with pre-0.17.0 logs. */
+  httpMethod?: string;
+  /** 1-indexed page number for paginated keyword scan requests. null/undefined for non-paginated. */
+  pageNumber?: number | null;
 }
 
 // ---------------------------------------------------------------------------
