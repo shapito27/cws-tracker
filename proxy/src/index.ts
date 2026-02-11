@@ -441,24 +441,8 @@ async function handleSearchPagination(
     const responseText = await response.text();
 
     if (!response.ok) {
-      // Include detailed diagnostics for debugging 400/500 errors
-      const snippet = responseText.substring(0, 1000);
-      const respHeaders: Record<string, string> = {};
-      response.headers.forEach((v, k) => { respHeaders[k] = v; });
-      return jsonResponse(
-        {
-          error: `CWS batchexecute returned HTTP ${response.status}`,
-          cwsStatus: response.status,
-          responseSnippet: snippet,
-          requestUrl: batchUrl,
-          requestBodyPreview: body.substring(0, 300),
-          responseHeaders: respHeaders,
-          sessionParams: {
-            bl: sessionParams.bl,
-            sid: sessionParams.sid ? '***' : '(empty)',
-            at: sessionParams.at ? '***' : '(empty)',
-          },
-        },
+      return errorResponse(
+        `CWS batchexecute returned HTTP ${response.status}`,
         502,
         origin
       );
