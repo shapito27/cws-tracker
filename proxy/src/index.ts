@@ -283,9 +283,10 @@ function buildBatchExecuteUrl(
  * Build the f.req POST body for search pagination via batchexecute.
  *
  * Structure mirrors real CWS requests:
- *   [[["zTyKYc", "[[null,[null,null,null,[\"query\",[10,\"token\"]]]]]", null, "generic"]]]
+ *   [[["zTyKYc", "[[null,[null,null,null,[\"query\",[10,\"token\"],null,[\"EXTENSION\"]]]]]", null, "generic"]]]
  *
- * Inner payload encodes the search query, page size (10), and pagination token.
+ * Inner payload encodes the search query, page size (10), pagination token,
+ * and the EXTENSION type filter (required for CWS to return extension results).
  * The `at` CSRF token is appended to the body when available.
  */
 function buildSearchRpcBody(
@@ -293,7 +294,7 @@ function buildSearchRpcBody(
   token: string,
   at: string
 ): string {
-  const innerPayload = [[null, [null, null, null, [query, [SEARCH_PAGE_SIZE, token]]]]];
+  const innerPayload = [[null, [null, null, null, [query, [SEARCH_PAGE_SIZE, token], null, ['EXTENSION']]]]];
   const innerJson = JSON.stringify(innerPayload);
   const outerPayload = [[[SEARCH_RPC_METHOD, innerJson, null, 'generic']]];
   const outerJson = JSON.stringify(outerPayload);

@@ -172,6 +172,60 @@ describe('searchParserV1', () => {
     });
   });
 
+  describe('page 2 batchexecute response (synthetic HTML)', () => {
+    let result: SearchData;
+
+    beforeAll(() => {
+      const html = loadFixture('cws-search-page2-batchexecute.html');
+      result = searchParserV1.parse(html);
+    });
+
+    it('returns 10 results', () => {
+      expect(result.results.length).toBe(10);
+    });
+
+    it('first result is Broken Link Checker', () => {
+      expect(result.results[0].extensionId).toBe('dmfgbagojglecgaheiaggkhjemlfoclf');
+      expect(result.results[0].name).toBe('Broken Link Checker');
+    });
+
+    it('positions are 1-based and sequential', () => {
+      result.results.forEach((entry, idx) => {
+        expect(entry.position).toBe(idx + 1);
+      });
+    });
+
+    it('all extension IDs are valid 32-char lowercase', () => {
+      result.results.forEach((entry) => {
+        expect(entry.extensionId).toMatch(/^[a-z]{32}$/);
+      });
+    });
+
+    it('returns total count of 153', () => {
+      expect(result.totalCount).toBe(153);
+    });
+
+    it('returns a next page token', () => {
+      expect(result.nextPageToken).toBeTruthy();
+      expect(typeof result.nextPageToken).toBe('string');
+    });
+
+    it('all results have all required fields', () => {
+      result.results.forEach((entry) => {
+        expect(entry).toHaveProperty('extensionId');
+        expect(entry).toHaveProperty('name');
+        expect(entry).toHaveProperty('iconUrl');
+        expect(entry).toHaveProperty('rating');
+        expect(entry).toHaveProperty('ratingCount');
+        expect(entry).toHaveProperty('shortDescription');
+        expect(entry).toHaveProperty('userCount');
+        expect(entry).toHaveProperty('category');
+        expect(entry).toHaveProperty('isFeatured');
+        expect(entry).toHaveProperty('position');
+      });
+    });
+  });
+
   describe('edge cases', () => {
     it('throws ParserError for empty HTML', () => {
       expect(() => searchParserV1.parse('')).toThrow(ParserError);
