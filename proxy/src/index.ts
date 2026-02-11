@@ -266,7 +266,7 @@ function buildBatchExecuteUrl(
 ): string {
   const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
   url.searchParams.set('rpcids', SEARCH_RPC_METHOD);
-  url.searchParams.set('source-path', `/search/${encodeURIComponent(query)}`);
+  url.searchParams.set('source-path', `/search/${query}`);
   if (params.sid) {
     url.searchParams.set('f.sid', params.sid);
   }
@@ -440,8 +440,24 @@ async function handleSearchPagination(
     const responseText = await response.text();
 
     if (!response.ok) {
-      return errorResponse(
-        `CWS batchexecute returned HTTP ${response.status}`,
+      // Include detailed diagnostics for debugging 400/500 errors
+      const snippet = responseText.substring(0, 1000);
+      const respHeaders: Record<string, string> = {};
+      response.headers.forEach((v, k) => { respHeaders[k] = v; });
+      return jsonResponse(
+        {
+          error: `CWS batchexecute returned HTTP ${response.status}`,
+          cwsStatus: response.status,
+          responseSnippet: snippet,
+          requestUrl: batchUrl,
+          requestBodyPreview: body.substring(0, 300),
+          responseHeaders: respHeaders,
+          sessionParams: {
+            bl: sessionParams.bl,
+            sid: sessionParams.sid ? '***' : '(empty)',
+            at: sessionParams.at ? '***' : '(empty)',
+          },
+        },
         502,
         origin
       );
