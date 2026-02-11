@@ -17,9 +17,15 @@ export default defineConfig({
     },
   },
   build: {
+    chunkSizeWarningLimit: 700,
     rollupOptions: {
       input: {
         dashboard: resolve(__dirname, 'src/dashboard/index.html'),
+      },
+      output: {
+        manualChunks: {
+          apexcharts: ['apexcharts', 'vue3-apexcharts'],
+        },
       },
     },
   },

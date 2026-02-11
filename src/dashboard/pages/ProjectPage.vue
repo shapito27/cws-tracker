@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { Project } from '@/shared/types';
 import { db } from '@/shared/db/database';
-import OverviewTab from '../components/project/OverviewTab.vue';
-import RankingsTab from '../components/project/RankingsTab.vue';
-import ExtensionsTab from '../components/project/ExtensionsTab.vue';
-import KeywordsTab from '../components/project/KeywordsTab.vue';
-import EventsTab from '../components/project/EventsTab.vue';
-import ListingCompare from '../components/comparison/ListingCompare.vue';
-import KeywordAnalysis from '../components/tables/KeywordAnalysis.vue';
+
+const OverviewTab = defineAsyncComponent(() => import('../components/project/OverviewTab.vue'));
+const RankingsTab = defineAsyncComponent(() => import('../components/project/RankingsTab.vue'));
+const ExtensionsTab = defineAsyncComponent(() => import('../components/project/ExtensionsTab.vue'));
+const KeywordsTab = defineAsyncComponent(() => import('../components/project/KeywordsTab.vue'));
+const EventsTab = defineAsyncComponent(() => import('../components/project/EventsTab.vue'));
+const ListingCompare = defineAsyncComponent(() => import('../components/comparison/ListingCompare.vue'));
+const KeywordAnalysis = defineAsyncComponent(() => import('../components/tables/KeywordAnalysis.vue'));
 
 const route = useRoute();
 const router = useRouter();
