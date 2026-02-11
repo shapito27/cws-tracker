@@ -92,6 +92,11 @@ npx tsc --noEmit       # Type check
 
 Load in Chrome: `npm run build` -> chrome://extensions -> Load unpacked -> select `dist/`
 
+**Proxy (Cloudflare Worker):**
+```bash
+cd proxy && npx wrangler deploy   # Deploy proxy — always use npx, not bare wrangler
+```
+
 ## Feature Workflow
 
 For every feature (task group in TODO.md):
