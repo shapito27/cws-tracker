@@ -20,6 +20,7 @@ import {
   ALARM_DAILY_SCAN,
   ALARM_PROCESS_QUEUE,
 } from '@/background/scheduler';
+import { runPaginationDiagnostic } from '@/background/pagination-diagnostic';
 import { db } from '@/shared/db/database';
 import type { DashboardMessage } from '@/shared/types';
 
@@ -82,7 +83,7 @@ chrome.runtime.onMessage.addListener(
  */
 async function handleMessage(
   message: DashboardMessage
-): Promise<{ ok: boolean }> {
+): Promise<Record<string, unknown>> {
   switch (message.type) {
     case 'TRIGGER_REFRESH':
       await triggerManualRefresh(message.projectId);
@@ -99,6 +100,12 @@ async function handleMessage(
     case 'CANCEL_SCAN':
       await cancelScan();
       return { ok: true };
+
+    case 'TEST_PAGINATION':
+      return await runPaginationDiagnostic(
+        message.keyword,
+        message.maxPages
+      ) as unknown as Record<string, unknown>;
 
     default:
       // Unknown message type — ignore gracefully
