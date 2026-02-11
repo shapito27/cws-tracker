@@ -20,17 +20,11 @@ const { getExtensionsByProject, getLatestSnapshot } = useExtensions();
 const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
 
-interface ExtensionWithSnapshot {
-  extension: Extension;
-  snapshot: ListingSnapshot | undefined;
-  isOwn: boolean;
-}
-
 const extensions = ref<Extension[]>([]);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const keywords = ref<Keyword[]>([]);
-const extensionRows = ref<ExtensionWithSnapshot[]>([]);
+const ownSnapshot = ref<ListingSnapshot | undefined>(undefined);
 const snapshotHistory = ref<ListingSnapshot[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
@@ -45,19 +39,8 @@ onMounted(async () => {
     await loadSettings();
     extensions.value = await getExtensionsByProject(props.project.id);
 
-    // Load latest snapshot for all extensions (own + competitors)
-    const rows: ExtensionWithSnapshot[] = [];
-    for (const ext of extensions.value) {
-      const snapshot = await getLatestSnapshot(ext.id);
-      rows.push({
-        extension: ext,
-        snapshot,
-        isOwn: ext.id === props.project.ownExtensionId,
-      });
-    }
-    // Own extension first, then competitors
-    rows.sort((a, b) => (a.isOwn === b.isOwn ? 0 : a.isOwn ? -1 : 1));
-    extensionRows.value = rows;
+    // Load latest snapshot for own extension
+    ownSnapshot.value = await getLatestSnapshot(props.project.ownExtensionId);
 
     // Load snapshot history for own extension (users/reviews trend chart)
     snapshotHistory.value = await db.getListingSnapshots(
@@ -154,11 +137,6 @@ function getNextScan(): string {
   return `${nextDate.toLocaleDateString()} ~${timeStr}`;
 }
 
-function formatRating(rating: number | null | undefined): string {
-  if (rating === null || rating === undefined) return '--';
-  return rating.toFixed(1);
-}
-
 function formatTime(isoString: string): string {
   const date = new Date(isoString);
   if (isNaN(date.getTime())) return '--:--:--';
@@ -178,7 +156,9 @@ function formatTime(isoString: string): string {
   <div v-else>
     <!-- Status bar -->
     <div class="flex flex-wrap items-center gap-4 mb-6">
-      <div class="flex items-center gap-6 text-sm text-gray-600">
+      <div class="flex flex-wrap items-center gap-6 text-sm text-gray-600">
+        <span>Users: <span class="font-semibold text-gray-900">{{ ownSnapshot?.userCount ?? '--' }}</span></span>
+        <span>Reviews: <span class="font-semibold text-gray-900">{{ ownSnapshot?.reviewCount != null ? ownSnapshot.reviewCount.toLocaleString() : '--' }}</span></span>
         <span><span class="font-semibold text-gray-900">{{ project.keywordIds.length }}</span> Keywords</span>
         <span :title="getLastScannedTooltip()">Last scan: <span class="font-semibold text-gray-900">{{ lastScanned }}</span></span>
         <span>
@@ -208,58 +188,6 @@ function formatTime(isoString: string): string {
     <p v-if="scanStatus.lastError" class="mb-4 text-sm text-red-600">
       Scan error: {{ scanStatus.lastError }}
     </p>
-
-    <!-- Extensions comparison table -->
-    <div class="mb-8">
-      <h3 class="text-base font-semibold text-gray-900 mb-3">Extensions</h3>
-      <div v-if="extensionRows.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
-        <p class="text-sm text-gray-500">No extensions tracked yet.</p>
-      </div>
-      <div v-else class="overflow-x-auto rounded-lg border border-gray-200">
-        <table class="min-w-full divide-y divide-gray-200">
-          <thead class="bg-gray-50">
-            <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">Extension</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Users</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Reviews</th>
-              <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wide">Rating</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200 bg-white">
-            <tr
-              v-for="row in extensionRows"
-              :key="row.extension.id"
-              :class="row.isOwn ? 'bg-blue-50/50' : ''"
-            >
-              <td class="px-4 py-3 whitespace-nowrap">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium text-gray-900 truncate max-w-xs">
-                    {{ row.extension.name || row.extension.id }}
-                  </span>
-                  <span
-                    v-if="row.isOwn"
-                    class="inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700"
-                  >You</span>
-                </div>
-              </td>
-              <td class="px-4 py-3 text-right text-sm text-gray-900 whitespace-nowrap">
-                {{ row.snapshot?.userCount ?? '--' }}
-              </td>
-              <td class="px-4 py-3 text-right text-sm text-gray-900 whitespace-nowrap">
-                {{ row.snapshot?.reviewCount != null ? row.snapshot.reviewCount.toLocaleString() : '--' }}
-              </td>
-              <td class="px-4 py-3 text-right text-sm whitespace-nowrap">
-                <span v-if="row.snapshot && row.snapshot.rating !== null" class="flex items-center justify-end gap-1">
-                  <span class="text-gray-900">{{ formatRating(row.snapshot.rating) }}</span>
-                  <span class="text-yellow-500">&#9733;</span>
-                </span>
-                <span v-else class="text-gray-400">--</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
 
     <!-- Users & Reviews chart -->
     <div class="mb-8">
