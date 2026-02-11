@@ -183,7 +183,9 @@ async function fetchCWSPageWithLogging(
   params: { id?: string; q?: string; token?: string },
   settings: Settings,
   fetchPage: (url: string) => Promise<Response>,
-  job: QueueJob
+  job: QueueJob,
+  httpMethod: string = 'GET',
+  pageNumber: number | null = null
 ): Promise<CWSFetchResult> {
   const requestUrl = buildRequestUrl(type, params, settings);
   const jobDetail = getJobDescription(job);
@@ -205,6 +207,8 @@ async function fetchCWSPageWithLogging(
       durationMs,
       jobDetail,
       error: null,
+      httpMethod,
+      pageNumber,
     });
 
     return result;
@@ -224,6 +228,8 @@ async function fetchCWSPageWithLogging(
       durationMs,
       jobDetail,
       error: errorMessage,
+      httpMethod,
+      pageNumber,
     });
 
     throw error;
@@ -446,7 +452,8 @@ async function processKeywordScan(
 
     try {
       const result = await fetchCWSPageWithLogging(
-        'search', params, settings, deps.fetchPage, job
+        'search', params, settings, deps.fetchPage, job,
+        'GET', page + 1
       );
       html = result.html;
       cwsStatus = result.cwsStatus;

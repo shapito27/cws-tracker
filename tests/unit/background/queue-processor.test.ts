@@ -66,7 +66,7 @@ vi.mock('@/background/parsers/index', () => {
         };
       },
     }),
-    getSearchParser: () => ({
+    getSearchParser: vi.fn(() => ({
       version: 'v1',
       parse: () => ({
         results: [
@@ -98,7 +98,7 @@ vi.mock('@/background/parsers/index', () => {
         totalCount: 120,
         nextPageToken: null,
       }),
-    }),
+    })),
     ParserError: MockParserError,
   };
 });
@@ -619,6 +619,8 @@ describe('Queue Processor', () => {
       expect(logs[0].durationMs).toBeGreaterThanOrEqual(0);
       expect(logs[0].error).toBeNull();
       expect(logs[0].requestUrl).toContain('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
+      expect(logs[0].httpMethod).toBe('GET');
+      expect(logs[0].pageNumber).toBeNull();
     });
 
     it('keyword_scan success: writes scan log', async () => {
@@ -638,6 +640,8 @@ describe('Queue Processor', () => {
       expect(logs[0].level).toBe('info');
       expect(logs[0].jobType).toBe('keyword_scan');
       expect(logs[0].jobDetail).toContain('ad blocker');
+      expect(logs[0].httpMethod).toBe('GET');
+      expect(logs[0].pageNumber).toBe(1);
     });
 
     it('HTTP error: writes scan log with error level', async () => {
@@ -728,6 +732,81 @@ describe('Queue Processor', () => {
       const parsed = new Date(logs[0].timestamp);
       expect(parsed.toISOString()).toBe(logs[0].timestamp);
     });
+
+    it('keyword_scan with pagination: logs page numbers for each request', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      const { getSearchParser } = await import('@/background/parsers/index');
+      await seedProject();
+      await testDb.enqueueJobs([makeKeywordJob()]);
+
+      // Mock parser: page 1 returns only competitor (not own extension), page 2 returns own extension
+      let parseCallCount = 0;
+      vi.mocked(getSearchParser).mockReturnValue({
+        version: 'v1',
+        parse: () => {
+          parseCallCount++;
+          if (parseCallCount === 1) {
+            return {
+              results: [
+                {
+                  extensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+                  name: 'Other Extension',
+                  iconUrl: 'https://example.com/icon2.png',
+                  rating: 4.0,
+                  ratingCount: 50,
+                  shortDescription: 'Another test',
+                  userCount: 5000,
+                  category: 'productivity',
+                  isFeatured: false,
+                  position: 1,
+                },
+              ],
+              totalCount: 30,
+              nextPageToken: 'page2-token',
+            };
+          }
+          return {
+            results: [
+              {
+                extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                name: 'Test Extension',
+                iconUrl: 'https://example.com/icon.png',
+                rating: 4.5,
+                ratingCount: 100,
+                shortDescription: 'A test',
+                userCount: 10000,
+                category: 'productivity',
+                isFeatured: false,
+                position: 1,
+              },
+            ],
+            totalCount: 30,
+            nextPageToken: null,
+          };
+        },
+      });
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response('mock-search-results', { status: 200 })
+      );
+      const deps = createDeps({ fetchPage });
+
+      await processNextJob(deps);
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs).toHaveLength(2);
+
+      // First page
+      expect(logs[0].httpMethod).toBe('GET');
+      expect(logs[0].pageNumber).toBe(1);
+      expect(logs[0].jobType).toBe('keyword_scan');
+
+      // Second page
+      expect(logs[1].httpMethod).toBe('GET');
+      expect(logs[1].pageNumber).toBe(2);
+      expect(logs[1].jobType).toBe('keyword_scan');
+      expect(logs[1].requestUrl).toContain('page2-token');
+    }, 10_000);
 
     it('HTTP 404 on listing_scan: writes warn-level log (not error)', async () => {
       const { processNextJob } = await import('@/background/queue-processor');
