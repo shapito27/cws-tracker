@@ -4,6 +4,7 @@ import type { Project, Extension, RankSnapshot } from '@/shared/types';
 import { useKeywords } from '../../composables/useKeywords';
 import { useExtensions } from '../../composables/useExtensions';
 import { db } from '@/shared/db/database';
+import ExtensionIcon from '../ExtensionIcon.vue';
 
 const props = defineProps<{
   project: Project;
@@ -122,9 +123,12 @@ function getPositionClass(keywordId: number, extensionId: string): string {
               :key="ext.id"
               class="px-4 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500"
             >
-              <span :class="ext.id === project.ownExtensionId ? 'text-blue-600' : ''">
-                {{ ext.name || ext.id.slice(0, 8) + '...' }}
-              </span>
+              <div class="flex items-center justify-center gap-1">
+                <ExtensionIcon :icon-url="ext.iconUrl" :name="ext.name || ext.id" size="xs" />
+                <span :class="ext.id === project.ownExtensionId ? 'text-blue-600' : ''">
+                  {{ ext.name || ext.id.slice(0, 8) + '...' }}
+                </span>
+              </div>
             </th>
             <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wide text-gray-500">Actions</th>
           </tr>
