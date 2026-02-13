@@ -25,6 +25,7 @@ export interface ExtensionRow {
   extensionId: string;
   name: string;
   iconUrl: string | null;
+  projectId: number;
   projectName: string;
   /** Map of date (YYYY-MM-DD) -> DayCell */
   days: Map<string, DayCell>;
@@ -55,11 +56,14 @@ export function useExtensionSnapshots() {
         return;
       }
 
-      // Collect unique own extension IDs with their project names
-      const ownExtensions = new Map<string, string>();
+      // Collect unique own extension IDs with their project names and IDs
+      const ownExtensions = new Map<string, { projectName: string; projectId: number }>();
       for (const project of projects) {
         if (!ownExtensions.has(project.ownExtensionId)) {
-          ownExtensions.set(project.ownExtensionId, project.name);
+          ownExtensions.set(project.ownExtensionId, {
+            projectName: project.name,
+            projectId: project.id!,
+          });
         }
       }
 
@@ -67,7 +71,7 @@ export function useExtensionSnapshots() {
       const endDate = today();
       const newRows: ExtensionRow[] = [];
 
-      for (const [extId, projectName] of ownExtensions) {
+      for (const [extId, { projectName, projectId }] of ownExtensions) {
         const ext = await db.getExtension(extId);
         if (!ext) continue;
 
@@ -112,6 +116,7 @@ export function useExtensionSnapshots() {
           extensionId: extId,
           name: ext.name || extId,
           iconUrl: ext.iconUrl,
+          projectId,
           projectName,
           days,
         });
