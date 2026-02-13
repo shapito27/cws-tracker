@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import type { Project, Extension, Keyword, ListingSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
+import ExtensionIcon from '../ExtensionIcon.vue';
 import {
   highlightKeywords,
   computePermissionDiff,
@@ -135,6 +136,11 @@ function getExtName(id: string): string {
   return ext?.name || id.slice(0, 12) + '...';
 }
 
+function getExtIconUrl(id: string): string | null {
+  const ext = extensions.value.find(e => e.id === id);
+  return ext?.iconUrl ?? null;
+}
+
 function getColor(id: string): string {
   const idx = selectedIds.value.indexOf(id);
   return EXTENSION_COLORS[idx >= 0 ? idx : 0];
@@ -187,6 +193,7 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
               class="h-2.5 w-2.5 rounded-full"
               :style="{ backgroundColor: getColor(ext.id) }"
             />
+            <ExtensionIcon :icon-url="ext.iconUrl" :name="ext.name || ext.id" size="xs" />
             <span
               v-if="ext.id === project.ownExtensionId"
               class="inline-flex rounded-full bg-blue-100 px-1.5 py-0.5 text-xs font-medium text-blue-800"
@@ -214,7 +221,10 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
             class="rounded-lg border-t-4 bg-white p-3 shadow-sm"
             :style="{ borderTopColor: getColor(id) }"
           >
-            <p class="text-sm font-semibold text-gray-900">{{ getExtName(id) }}</p>
+            <div class="flex items-center gap-1.5">
+              <ExtensionIcon :icon-url="getExtIconUrl(id)" :name="getExtName(id)" size="sm" />
+              <p class="text-sm font-semibold text-gray-900">{{ getExtName(id) }}</p>
+            </div>
             <p class="text-xs text-gray-400 font-mono">{{ id }}</p>
           </div>
         </div>
@@ -510,7 +520,10 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
                       :style="{ color: getColor(id) }"
                       colspan="3"
                     >
-                      {{ getExtName(id) }}
+                      <div class="inline-flex items-center gap-1">
+                        <ExtensionIcon :icon-url="getExtIconUrl(id)" :name="getExtName(id)" size="xs" />
+                        {{ getExtName(id) }}
+                      </div>
                     </th>
                   </template>
                 </tr>
