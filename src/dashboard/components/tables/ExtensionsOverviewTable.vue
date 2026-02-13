@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue';
-import { RouterLink } from 'vue-router';
 import {
   useExtensionSnapshots,
   type DateRange,
@@ -266,22 +265,23 @@ function formatDateHeader(dateStr: string): string {
                 >
                   {{ row.name.charAt(0).toUpperCase() }}
                 </div>
-                <div class="min-w-0">
-                  <router-link
-                    :to="{ name: 'project', params: { id: String(row.projectId) } }"
-                    class="block truncate text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                <router-link
+                  :to="{ name: 'project', params: { id: String(row.projectId) } }"
+                  class="block min-w-0 group"
+                >
+                  <span
+                    class="block truncate text-sm font-medium text-blue-600 group-hover:text-blue-800 group-hover:underline"
                     :title="row.name"
                   >
                     {{ row.name }}
-                  </router-link>
-                  <router-link
-                    :to="{ name: 'project', params: { id: String(row.projectId) } }"
-                    class="block text-[10px] text-gray-400 truncate hover:text-gray-600"
+                  </span>
+                  <span
+                    class="block text-[10px] text-gray-400 truncate group-hover:text-gray-600"
                     :title="row.projectName"
                   >
                     {{ row.projectName }}
-                  </router-link>
-                </div>
+                  </span>
+                </router-link>
               </div>
             </td>
 
