@@ -4,6 +4,7 @@ import type { Project, Extension, Keyword, ListingSnapshot, RankSnapshot } from 
 import { db } from '@/shared/db/database';
 import { useKeywords } from '../../composables/useKeywords';
 import { useExtensions } from '../../composables/useExtensions';
+import ExtensionIcon from '../ExtensionIcon.vue';
 import {
   buildKeywordFrequencyMatrix,
   hasLowerDensity,
@@ -166,9 +167,12 @@ const sections = [
                   class="px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-gray-500"
                   colspan="3"
                 >
-                  <span :class="isOwnExtension(ext.id) ? 'text-blue-600' : ''">
-                    {{ getExtensionName(ext.id) }}
-                  </span>
+                  <div class="inline-flex items-center justify-center gap-1">
+                    <ExtensionIcon :icon-url="ext.iconUrl" :name="ext.name || ext.id" size="xs" />
+                    <span :class="isOwnExtension(ext.id) ? 'text-blue-600' : ''">
+                      {{ getExtensionName(ext.id) }}
+                    </span>
+                  </div>
                 </th>
               </tr>
               <tr class="bg-gray-50">
