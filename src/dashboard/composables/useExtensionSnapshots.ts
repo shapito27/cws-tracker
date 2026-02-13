@@ -59,10 +59,11 @@ export function useExtensionSnapshots() {
       // Collect unique own extension IDs with their project names and IDs
       const ownExtensions = new Map<string, { projectName: string; projectId: number }>();
       for (const project of projects) {
+        if (!project.id) continue;
         if (!ownExtensions.has(project.ownExtensionId)) {
           ownExtensions.set(project.ownExtensionId, {
             projectName: project.name,
-            projectId: project.id!,
+            projectId: project.id,
           });
         }
       }
