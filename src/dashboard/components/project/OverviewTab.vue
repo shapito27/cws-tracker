@@ -21,6 +21,7 @@ const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
 
 const extensions = ref<Extension[]>([]);
+const ownExtension = ref<Extension | undefined>(undefined);
 const recentEvents = ref<EventRecord[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const keywords = ref<Keyword[]>([]);
@@ -28,6 +29,10 @@ const ownSnapshot = ref<ListingSnapshot | undefined>(undefined);
 const snapshotHistory = ref<ListingSnapshot[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
+
+const cwsUrl = computed(() =>
+  `https://chromewebstore.google.com/detail/-/${props.project.ownExtensionId}`
+);
 
 onMounted(async () => {
   if (!props.project.id) {
@@ -38,6 +43,7 @@ onMounted(async () => {
   try {
     await loadSettings();
     extensions.value = await getExtensionsByProject(props.project.id);
+    ownExtension.value = extensions.value.find(e => e.id === props.project.ownExtensionId);
 
     // Load latest snapshot for own extension
     ownSnapshot.value = await getLatestSnapshot(props.project.ownExtensionId);
@@ -154,33 +160,146 @@ function formatTime(isoString: string): string {
   </div>
 
   <div v-else>
-    <!-- Status bar -->
-    <div class="flex flex-wrap items-center gap-4 mb-6">
-      <div class="flex flex-wrap items-center gap-6 text-sm text-gray-600">
-        <span>Users: <span class="font-semibold text-gray-900">{{ ownSnapshot?.userCount ?? '--' }}</span></span>
-        <span>Reviews: <span class="font-semibold text-gray-900">{{ ownSnapshot?.reviewCount != null ? ownSnapshot.reviewCount.toLocaleString() : '--' }}</span></span>
-        <span><span class="font-semibold text-gray-900">{{ project.keywordIds.length }}</span> Keywords</span>
-        <span :title="getLastScannedTooltip()">Last scan: <span class="font-semibold text-gray-900">{{ lastScanned }}</span></span>
-        <span>
-          Next:
-          <span
-            class="font-semibold"
-            :class="scanStatus.isRunning ? 'text-blue-600' : settings.dailyScanEnabled ? 'text-gray-900' : 'text-gray-400'"
-          >{{ getNextScan() }}</span>
-        </span>
-      </div>
-      <div class="ml-auto flex items-center gap-3">
-        <button
-          class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          :disabled="scanStatus.isRunning"
-          @click="requestRefresh(project.id)"
+    <!-- Extension header card -->
+    <div class="rounded-lg border border-gray-200 bg-white p-5 mb-6">
+      <div class="flex items-start gap-4">
+        <!-- Extension icon -->
+        <img
+          v-if="ownExtension?.iconUrl"
+          :src="ownExtension.iconUrl"
+          :alt="ownSnapshot?.title || ownExtension?.name || 'Extension'"
+          class="h-14 w-14 rounded-lg flex-shrink-0"
+        />
+        <div
+          v-else
+          class="flex h-14 w-14 items-center justify-center rounded-lg bg-blue-100 text-lg font-bold text-blue-600 flex-shrink-0"
         >
-          {{ scanStatus.isRunning ? 'Scanning...' : 'Scan Now' }}
-        </button>
-        <span v-if="scanStatus.isRunning && scanStatus.total > 0" class="text-sm text-gray-500">
-          {{ scanStatus.completed }}/{{ scanStatus.total }}
-        </span>
+          {{ (ownSnapshot?.title || ownExtension?.name || '?').charAt(0).toUpperCase() }}
+        </div>
+
+        <!-- Extension info -->
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-3">
+            <h3 class="text-lg font-semibold text-gray-900 truncate">
+              {{ ownSnapshot?.title || ownExtension?.name || project.ownExtensionId }}
+            </h3>
+            <a
+              :href="cwsUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex-shrink-0"
+              title="Open in Chrome Web Store"
+            >
+              <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h5a.75.75 0 0 1 0 1.5h-5Z" clip-rule="evenodd" />
+                <path fill-rule="evenodd" d="M6.194 12.753a.75.75 0 0 0 1.06.053L16.5 4.44v2.81a.75.75 0 0 0 1.5 0v-4.5a.75.75 0 0 0-.75-.75h-4.5a.75.75 0 0 0 0 1.5h2.553l-9.056 8.194a.75.75 0 0 0-.053 1.06Z" clip-rule="evenodd" />
+              </svg>
+              Chrome Web Store
+            </a>
+          </div>
+
+          <!-- Badges and metadata row -->
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <!-- Rating -->
+            <span v-if="ownSnapshot?.rating != null" class="inline-flex items-center gap-1 text-sm text-gray-600">
+              <svg class="h-4 w-4 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401Z" clip-rule="evenodd" />
+              </svg>
+              {{ ownSnapshot.rating.toFixed(1) }}
+              <span v-if="ownSnapshot.ratingCount" class="text-gray-400">({{ ownSnapshot.ratingCount.toLocaleString() }})</span>
+            </span>
+
+            <span v-if="ownSnapshot?.rating != null" class="text-gray-300">|</span>
+
+            <!-- Version -->
+            <span v-if="ownSnapshot?.version" class="text-sm text-gray-500">
+              v{{ ownSnapshot.version }}
+            </span>
+
+            <span v-if="ownSnapshot?.version" class="text-gray-300">|</span>
+
+            <!-- Developer -->
+            <span v-if="ownSnapshot?.developerName" class="text-sm text-gray-500">
+              by {{ ownSnapshot.developerName }}
+            </span>
+
+            <!-- Featured badge -->
+            <span
+              v-if="ownSnapshot?.badgeFlags?.featured"
+              class="inline-flex items-center gap-1 rounded-full bg-yellow-50 border border-yellow-200 px-2 py-0.5 text-xs font-medium text-yellow-700"
+            >
+              <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401Z" clip-rule="evenodd" />
+              </svg>
+              Featured
+            </span>
+
+            <!-- Developer verified -->
+            <span
+              v-if="ownSnapshot?.developerVerified"
+              class="inline-flex items-center gap-1 rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-xs font-medium text-green-700"
+            >
+              <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path fill-rule="evenodd" d="M16.403 12.652a3 3 0 0 0 0-5.304 3 3 0 0 0-3.75-3.751 3 3 0 0 0-5.305 0 3 3 0 0 0-3.751 3.75 3 3 0 0 0 0 5.305 3 3 0 0 0 3.75 3.751 3 3 0 0 0 5.305 0 3 3 0 0 0 3.751-3.75Zm-2.546-4.46a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd" />
+              </svg>
+              Verified Publisher
+            </span>
+
+            <!-- Translation count -->
+            <span
+              v-if="ownSnapshot?.translationCount"
+              class="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-xs font-medium text-blue-700"
+            >
+              <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M7.75 2.75a.75.75 0 0 0-1.5 0v1.258a32.987 32.987 0 0 0-3.599.278.75.75 0 1 0 .198 1.487A31.545 31.545 0 0 1 8.7 5.545 19.381 19.381 0 0 1 7.257 9.22a19.378 19.378 0 0 1-1.307-2.353.75.75 0 0 0-1.397.547c.5 1.27 1.18 2.45 1.997 3.532a20.924 20.924 0 0 1-4.241 3.31.75.75 0 1 0 .78 1.28 22.404 22.404 0 0 0 4.52-3.635 22.403 22.403 0 0 0 4.52 3.635.75.75 0 0 0 .78-1.28 20.932 20.932 0 0 1-4.241-3.31c.816-1.082 1.496-2.263 1.997-3.532a.75.75 0 0 0-1.397-.547 19.38 19.38 0 0 1-1.306 2.353c-.648-.935-1.2-1.942-1.638-3.014A31.52 31.52 0 0 1 14 5.773a.75.75 0 1 0 .198-1.487 32.99 32.99 0 0 0-3.599-.278V2.75Z" />
+                <path d="M13 8a.75.75 0 0 1 .671.415l4.25 8.5a.75.75 0 1 1-1.342.67L15.322 15h-4.644l-1.257 2.585a.75.75 0 1 1-1.342-.67l4.25-8.5A.75.75 0 0 1 13 8Zm-1.822 5.5h3.644L13 10.28 11.178 13.5Z" />
+              </svg>
+              {{ ownSnapshot.translationCount }} languages
+            </span>
+          </div>
+        </div>
       </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+      <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <p class="text-xs text-gray-500">Users</p>
+        <p class="text-lg font-semibold text-gray-900">{{ ownSnapshot?.userCount ?? '--' }}</p>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <p class="text-xs text-gray-500">Reviews</p>
+        <p class="text-lg font-semibold text-gray-900">{{ ownSnapshot?.reviewCount != null ? ownSnapshot.reviewCount.toLocaleString() : '--' }}</p>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <p class="text-xs text-gray-500">Keywords</p>
+        <p class="text-lg font-semibold text-gray-900">{{ project.keywordIds.length }}</p>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white px-4 py-3" :title="getLastScannedTooltip()">
+        <p class="text-xs text-gray-500">Last Scan</p>
+        <p class="text-lg font-semibold text-gray-900">{{ lastScanned }}</p>
+      </div>
+      <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
+        <p class="text-xs text-gray-500">Next Scan</p>
+        <p
+          class="text-lg font-semibold"
+          :class="scanStatus.isRunning ? 'text-blue-600' : settings.dailyScanEnabled ? 'text-gray-900' : 'text-gray-400'"
+        >{{ getNextScan() }}</p>
+      </div>
+    </div>
+
+    <!-- Scan actions -->
+    <div class="flex items-center gap-3 mb-6">
+      <button
+        class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        :disabled="scanStatus.isRunning"
+        @click="requestRefresh(project.id)"
+      >
+        {{ scanStatus.isRunning ? 'Scanning...' : 'Scan Now' }}
+      </button>
+      <span v-if="scanStatus.isRunning && scanStatus.total > 0" class="text-sm text-gray-500">
+        {{ scanStatus.completed }}/{{ scanStatus.total }}
+      </span>
     </div>
     <p v-if="scanStatus.isRunning && scanStatus.nextProcessingAt" class="mb-4 text-xs text-gray-500">
       Next job at {{ formatTime(scanStatus.nextProcessingAt) }}
