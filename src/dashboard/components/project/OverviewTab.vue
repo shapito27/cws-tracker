@@ -8,6 +8,8 @@ import { useServiceWorker } from '../../composables/useServiceWorker';
 import { useSettings } from '../../composables/useSettings';
 import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
+import { EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
+import ExtensionIcon from '../ExtensionIcon.vue';
 import RankChart from '../charts/RankChart.vue';
 import UsersReviewsChart from '../charts/UsersReviewsChart.vue';
 import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
@@ -147,6 +149,20 @@ function formatTime(isoString: string): string {
   const date = new Date(isoString);
   if (isNaN(date.getTime())) return '--:--:--';
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function getExtensionName(extensionId: string): string {
+  const ext = extensions.value.find((e) => e.id === extensionId);
+  return ext?.name || extensionId.slice(0, 12) + '...';
+}
+
+function getExtensionIconUrl(extensionId: string): string | null {
+  const ext = extensions.value.find((e) => e.id === extensionId);
+  return ext?.iconUrl ?? null;
+}
+
+function isOwnExtension(extensionId: string): boolean {
+  return extensionId === props.project.ownExtensionId;
 }
 </script>
 
@@ -348,16 +364,40 @@ function formatTime(isoString: string): string {
         <div
           v-for="event in recentEvents"
           :key="event.id"
-          class="rounded-md border border-gray-200 bg-white px-4 py-3"
+          class="rounded-lg border border-gray-200 bg-white px-4 py-3"
         >
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-gray-900">{{ event.note }}</span>
-            <span class="text-xs text-gray-500">{{ event.date }}</span>
-          </div>
-          <div class="mt-1 flex items-center gap-2">
-            <span class="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
-              {{ event.type.replace('_', ' ') }}
-            </span>
+          <div class="flex items-start gap-3">
+            <!-- Extension icon -->
+            <ExtensionIcon
+              :icon-url="getExtensionIconUrl(event.extensionId)"
+              :name="getExtensionName(event.extensionId)"
+              size="md"
+              class="mt-0.5"
+            />
+            <!-- Event content -->
+            <div class="flex-1 min-w-0">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-sm text-gray-900">{{ event.note }}</p>
+                <span class="shrink-0 text-xs text-gray-400">{{ event.date }}</span>
+              </div>
+              <div class="mt-1.5 flex items-center gap-2">
+                <span
+                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
+                  :class="getEventTypeBadgeClass(event.type)"
+                >
+                  {{ EVENT_TYPE_LABELS[event.type] }}
+                </span>
+                <span class="text-xs text-gray-500">
+                  {{ getExtensionName(event.extensionId) }}
+                </span>
+                <span
+                  v-if="isOwnExtension(event.extensionId)"
+                  class="inline-flex rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600"
+                >
+                  You
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
