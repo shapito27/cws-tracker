@@ -6,6 +6,7 @@ import { useExtensions } from '../../composables/useExtensions';
 import { ALL_EVENT_TYPES, EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
 import DiffView from '../comparison/DiffView.vue';
 import PermissionsDiff from '../comparison/PermissionsDiff.vue';
+import ExtensionIcon from '../ExtensionIcon.vue';
 
 const props = defineProps<{
   project: Project;
@@ -46,6 +47,11 @@ const filteredEvents = computed(() => {
 function getExtensionName(extensionId: string): string {
   const ext = extensions.value.find((e) => e.id === extensionId);
   return ext?.name || extensionId.slice(0, 12) + '...';
+}
+
+function getExtensionIconUrl(extensionId: string): string | null {
+  const ext = extensions.value.find((e) => e.id === extensionId);
+  return ext?.iconUrl ?? null;
 }
 
 function toggleExpand(eventId: number): void {
@@ -162,7 +168,8 @@ function parsePermissions(value: string | null): string[] {
               >
                 {{ EVENT_TYPE_LABELS[event.type] }}
               </span>
-              <span class="text-xs text-gray-500">
+              <span class="inline-flex items-center gap-1 text-xs text-gray-500">
+                <ExtensionIcon :icon-url="getExtensionIconUrl(event.extensionId)" :name="getExtensionName(event.extensionId)" size="xs" />
                 {{ getExtensionName(event.extensionId) }}
               </span>
             </div>
