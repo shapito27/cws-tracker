@@ -5,6 +5,7 @@ import { useKeywords } from '../../composables/useKeywords';
 import { useExtensions } from '../../composables/useExtensions';
 import { db } from '@/shared/db/database';
 import ExtensionIcon from '../ExtensionIcon.vue';
+import KeywordSuggestionsPanel from './KeywordSuggestionsPanel.vue';
 
 const props = defineProps<{
   project: Project;
@@ -61,6 +62,17 @@ async function handleRemove(keywordId: number): Promise<void> {
   confirmRemoveId.value = null;
   emit('updated');
   await loadData();
+}
+
+async function handleAddSuggestion(text: string): Promise<void> {
+  try {
+    await addKeyword(props.project.id!, text);
+    emit('updated');
+    await loadData();
+  } catch (e) {
+    // Silently ignore duplicates when adding from suggestions
+    console.warn('Failed to add suggested keyword:', e);
+  }
 }
 
 function getPosition(keywordId: number, extensionId: string): string {
@@ -155,6 +167,14 @@ function getPositionClass(keywordId: number, extensionId: string): string {
           </tr>
         </tbody>
       </table>
+    </div>
+
+    <!-- Keyword Suggestions from autocomplete -->
+    <div v-if="keywords.length > 0" class="mt-6">
+      <KeywordSuggestionsPanel
+        :keywords="keywords"
+        @add-keyword="handleAddSuggestion"
+      />
     </div>
 
     <!-- Confirm remove dialog -->
