@@ -15,7 +15,6 @@ const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
 
 const showCreateModal = ref(false);
-const createName = ref('');
 const createExtensionInput = ref('');
 const createError = ref<string | null>(null);
 const creating = ref(false);
@@ -45,6 +44,7 @@ watch(
   (isRunning, wasRunning) => {
     if (wasRunning && !isRunning) {
       loadExtensions();
+      loadProjects();
     }
   }
 );
@@ -144,14 +144,12 @@ async function handleCreate(): Promise<void> {
   createError.value = null;
   creating.value = true;
   try {
-    const project = await createProject(
-      createName.value,
-      createExtensionInput.value
-    );
+    const project = await createProject(createExtensionInput.value);
     showCreateModal.value = false;
-    createName.value = '';
     createExtensionInput.value = '';
     router.push({ name: 'project', params: { id: String(project.id) } });
+    // Trigger scan so listing name populates the project name
+    requestRefresh(project.id);
   } catch (e) {
     createError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -161,7 +159,6 @@ async function handleCreate(): Promise<void> {
 
 function openCreateModal(): void {
   createError.value = null;
-  createName.value = '';
   createExtensionInput.value = '';
   showCreateModal.value = true;
 }
@@ -309,17 +306,6 @@ function formatTime(isoString: string): string {
               </p>
             </div>
 
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-1">
-                Project Name
-              </label>
-              <input
-                v-model="createName"
-                type="text"
-                placeholder="My Extension (optional, defaults to extension ID)"
-                class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            </div>
           </div>
 
           <div v-if="createError" class="mt-3 rounded-md bg-red-50 p-3">

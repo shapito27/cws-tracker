@@ -863,4 +863,70 @@ describe('Queue Processor', () => {
       expect(result.delayMs).toBeLessThanOrEqual(70_000);
     });
   });
+
+  describe('project name backfill', () => {
+    it('updates project name when it matches the extension ID (auto-generated)', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      const extId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+      // Create project with name = extensionId (auto-generated default)
+      await testDb.saveProject({
+        id: 1,
+        name: extId,
+        ownExtensionId: extId,
+        competitorIds: [],
+        keywordIds: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await testDb.saveExtension({
+        id: extId,
+        name: '',
+        iconUrl: null,
+        addedAt: new Date(),
+        lastScannedAt: null,
+        status: 'active',
+        projectRefs: [1],
+      });
+
+      await testDb.enqueueJobs([makeListingJob(extId)]);
+      const deps = createDeps();
+      await processNextJob(deps);
+
+      // Verify project name was updated from the parsed listing
+      const project = await testDb.getProject(1);
+      expect(project!.name).toBe('Test Extension');
+    });
+
+    it('does not overwrite a non-default project name', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      const extId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+      await testDb.saveProject({
+        id: 1,
+        name: 'My Custom Name',
+        ownExtensionId: extId,
+        competitorIds: [],
+        keywordIds: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await testDb.saveExtension({
+        id: extId,
+        name: '',
+        iconUrl: null,
+        addedAt: new Date(),
+        lastScannedAt: null,
+        status: 'active',
+        projectRefs: [1],
+      });
+
+      await testDb.enqueueJobs([makeListingJob(extId)]);
+      const deps = createDeps();
+      await processNextJob(deps);
+
+      const project = await testDb.getProject(1);
+      expect(project!.name).toBe('My Custom Name');
+    });
+  });
 });
