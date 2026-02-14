@@ -624,8 +624,8 @@ async function detectRankChanges(
         .toArray();
       const rankEventIds = existingEvents
         .filter((e) => e.type === 'rank_change' && e.note.includes(`for "${keyword}"`))
-        .map((e) => e.id!)
-        .filter((id) => id !== undefined);
+        .map((e) => e.id)
+        .filter((id): id is number => id !== undefined);
       if (rankEventIds.length > 0) {
         await db.events.bulkDelete(rankEventIds);
       }
