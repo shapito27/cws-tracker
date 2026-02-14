@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.18.0] - 2026-02-14
+
+### Added
+- Search autocomplete tracking (Phase 5.1): track whether CWS recommends extensions in search suggestions
+  - New `autocomplete-v1` parser for CWS `QcU9bc` batchexecute RPC responses
+  - Two suggestion types: extension suggestions (with ID, name, icon, position) and text suggestions (keyword discovery)
+  - `autocomplete_scan` job type in queue builder (priority 40, runs after keyword scans)
+  - Proxy `/autocomplete?q={query}&hl={locale}` endpoint (no auth required from CWS)
+  - DB schema v4: `autocomplete_snapshots` and `autocomplete_keyword_suggestions` tables
+  - `useAutocomplete.ts` dashboard composable with position tracking, history, and coverage data
+  - Spike results documented in `SPIKE_RESULTS.md`
+
 ## [0.17.0] - 2026-02-11
 
 ### Enhanced

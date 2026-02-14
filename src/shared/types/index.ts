@@ -43,7 +43,7 @@ export type EventType =
   | 'rank_change';
 
 /** Queue job variants. */
-export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit';
+export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan';
 
 /** Lifecycle states of a queue job. */
 export type QueueJobStatus = 'pending' | 'running' | 'completed' | 'failed';
@@ -258,11 +258,18 @@ export interface TranslationAuditPayload {
   locale: string;
 }
 
+/** Payload for an autocomplete_scan job. */
+export interface AutocompleteScanPayload {
+  keywordId: number;
+  keyword: string;
+}
+
 /** Discriminated union of all possible job payloads. */
 export type QueueJobPayload =
   | ListingScanPayload
   | KeywordScanPayload
-  | TranslationAuditPayload;
+  | TranslationAuditPayload
+  | AutocompleteScanPayload;
 
 /**
  * A queued job in IndexedDB. Survives service worker restarts.
@@ -409,5 +416,48 @@ export interface TranslationSnapshot {
   /** Detected language of the content (best-effort heuristic). */
   detectedLanguage: string | null;
   manipulationFlags: ManipulationFlags;
+  scannedAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Search autocomplete tracking (Phase 5.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * A point-in-time record of which extensions CWS recommends in autocomplete
+ * for a given keyword. Tracks whether a tracked extension appears as a
+ * suggestion when users type the keyword into the CWS search box.
+ *
+ * Dexie indexes: `++id`, `[keywordId+extensionId+date]`, `[keywordId+date]`
+ */
+export interface AutocompleteSnapshot {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  keywordId: number;
+  /** The tracked extension that appeared in autocomplete. */
+  extensionId: string;
+  /** Indexed date: YYYY-MM-DD. */
+  date: string;
+  /** 1-based position in the autocomplete dropdown (1-10). */
+  position: number;
+  /** Extension name as shown in autocomplete (may differ from listing title). */
+  suggestedName: string;
+  scannedAt: Date;
+}
+
+/**
+ * Text-only keyword suggestions from CWS autocomplete for keyword discovery.
+ * Stored per keyword per day.
+ *
+ * Dexie indexes: `++id`, `[keywordId+date]`
+ */
+export interface AutocompleteKeywordSuggestion {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  keywordId: number;
+  /** Indexed date: YYYY-MM-DD. */
+  date: string;
+  /** Text suggestions returned by CWS autocomplete. */
+  suggestions: string[];
   scannedAt: Date;
 }
