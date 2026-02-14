@@ -112,3 +112,41 @@ export interface SearchParser {
   readonly version: string;
   parse(html: string): SearchData;
 }
+
+// ---------------------------------------------------------------------------
+// Autocomplete (search suggestions)
+// ---------------------------------------------------------------------------
+
+/** A single extension suggestion from CWS search autocomplete. */
+export interface AutocompleteSuggestionExtension {
+  type: 'extension';
+  name: string;
+  extensionId: string;
+  iconUrl: string;
+  /** 1-based position in the autocomplete dropdown. */
+  position: number;
+}
+
+/** A text-only suggestion from CWS search autocomplete. */
+export interface AutocompleteSuggestionText {
+  type: 'text';
+  text: string;
+  /** 1-based position in the autocomplete dropdown. */
+  position: number;
+}
+
+/** A single autocomplete suggestion (extension or text). */
+export type AutocompleteSuggestion =
+  | AutocompleteSuggestionExtension
+  | AutocompleteSuggestionText;
+
+/** Parsed data from a CWS search autocomplete response. */
+export interface AutocompleteData {
+  suggestions: AutocompleteSuggestion[];
+}
+
+/** Interface that all autocomplete parsers must implement. */
+export interface AutocompleteParser {
+  readonly version: string;
+  parse(json: string): AutocompleteData;
+}

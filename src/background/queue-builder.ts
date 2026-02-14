@@ -23,6 +23,9 @@ export const PRIORITY_COMPETITOR_LISTING = 20;
 /** Priority for keyword search scans. */
 export const PRIORITY_KEYWORD_SCAN = 30;
 
+/** Priority for autocomplete scans (after keyword scans). */
+export const PRIORITY_AUTOCOMPLETE_SCAN = 40;
+
 /** Default maximum retries for queue jobs. */
 const DEFAULT_MAX_RETRIES = 3;
 
@@ -83,6 +86,12 @@ export function buildDailyScanJobs(
     jobs.push(createKeywordScanJob(keyword, now));
   }
 
+  // --- Autocomplete scan jobs ---
+  // One job per keyword (runs after keyword scans, lower priority).
+  for (const keyword of keywords) {
+    jobs.push(createAutocompleteScanJob(keyword, now));
+  }
+
   return jobs;
 }
 
@@ -118,6 +127,24 @@ function createKeywordScanJob(
     payload: { keywordId: keyword.id!, keyword: keyword.text },
     status: 'pending',
     priority: PRIORITY_KEYWORD_SCAN,
+    retryCount: 0,
+    maxRetries: DEFAULT_MAX_RETRIES,
+    scheduledAt,
+    startedAt: null,
+    completedAt: null,
+    error: null,
+  };
+}
+
+function createAutocompleteScanJob(
+  keyword: Keyword,
+  scheduledAt: Date
+): QueueJob {
+  return {
+    type: 'autocomplete_scan',
+    payload: { keywordId: keyword.id!, keyword: keyword.text },
+    status: 'pending',
+    priority: PRIORITY_AUTOCOMPLETE_SCAN,
     retryCount: 0,
     maxRetries: DEFAULT_MAX_RETRIES,
     scheduledAt,

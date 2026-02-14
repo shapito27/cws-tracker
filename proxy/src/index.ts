@@ -7,6 +7,7 @@
  * Endpoints:
  *   GET /detail?id={extensionId}&hl={locale}
  *   GET /search?q={query}&hl={locale}
+ *   GET /autocomplete?q={query}&hl={locale}
  *   GET /health
  *
  * Security:
@@ -29,6 +30,7 @@ const CWS_SEARCH_PATH = '/search';
 // Batchexecute RPC endpoint for CWS pagination
 const BATCHEXECUTE_PATH = '/_/ChromeWebStoreConsumerFeUi/data/batchexecute';
 const SEARCH_RPC_METHOD = 'zTyKYc';
+const AUTOCOMPLETE_RPC_METHOD = 'QcU9bc';
 const SEARCH_PAGE_SIZE = 10;
 
 // Cache key prefix for build label used in batchexecute requests
@@ -478,6 +480,186 @@ async function handleSearchPagination(
   }
 }
 
+// --- Autocomplete (search suggestions) ---
+
+/**
+ * Build the batchexecute URL for CWS autocomplete.
+ * Unlike search pagination, autocomplete works without session params (no sid, no at).
+ * Only the build label (bl) is needed, and even that is optional.
+ */
+function buildAutocompleteBatchUrl(
+  bl: string | null,
+  query: string,
+  hl: string
+): string {
+  const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
+  url.searchParams.set('rpcids', AUTOCOMPLETE_RPC_METHOD);
+  url.searchParams.set('source-path', `/search/${encodeURIComponent(query)}`);
+  if (bl) {
+    url.searchParams.set('bl', bl);
+  }
+  url.searchParams.set('hl', hl);
+  url.searchParams.set('soc-app', '1');
+  url.searchParams.set('soc-platform', '1');
+  url.searchParams.set('soc-device', '1');
+  url.searchParams.set('rt', 'c');
+  return url.toString();
+}
+
+/**
+ * Build the f.req POST body for autocomplete via batchexecute.
+ * Much simpler than search: just the query string, no pagination, no type filter.
+ */
+function buildAutocompleteRpcBody(query: string): string {
+  const innerJson = JSON.stringify([query]);
+  const outerPayload = [[[AUTOCOMPLETE_RPC_METHOD, innerJson, null, 'generic']]];
+  const outerJson = JSON.stringify(outerPayload);
+  return `f.req=${encodeURIComponent(outerJson)}&`;
+}
+
+/**
+ * Parse a batchexecute response to extract autocomplete data JSON string.
+ * Same length-prefixed format as search, but with a different RPC method.
+ */
+function parseAutocompleteBatchResponse(text: string): string {
+  const prefixPattern = /^\)?\]?\}?'?\n/;
+  const cleaned = text.replace(prefixPattern, '');
+
+  const lines = cleaned.split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    if (line.includes(`"${AUTOCOMPLETE_RPC_METHOD}"`)) {
+      try {
+        const parsed = JSON.parse(line);
+        if (Array.isArray(parsed)) {
+          for (const entry of parsed) {
+            if (
+              Array.isArray(entry) &&
+              entry[1] === AUTOCOMPLETE_RPC_METHOD &&
+              typeof entry[2] === 'string'
+            ) {
+              return entry[2];
+            }
+          }
+        }
+      } catch {
+        // Not valid JSON on this line, continue
+      }
+    }
+  }
+
+  // Fallback: non-chunked format
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      for (const entry of parsed) {
+        if (Array.isArray(entry)) {
+          const flat = Array.isArray(entry[0]) ? entry[0] : entry;
+          if (flat[1] === AUTOCOMPLETE_RPC_METHOD && typeof flat[2] === 'string') {
+            return flat[2];
+          }
+        }
+      }
+    }
+  } catch {
+    // Not valid JSON
+  }
+
+  throw new Error(
+    `${AUTOCOMPLETE_RPC_METHOD} response not found in batchexecute result`
+  );
+}
+
+/**
+ * Handle autocomplete requests.
+ *
+ * Flow:
+ * 1. Get build label (from cache or fresh fetch)
+ * 2. POST to batchexecute with QcU9bc RPC method
+ * 3. Parse response and return the raw autocomplete JSON
+ */
+async function handleAutocomplete(
+  url: URL,
+  origin: string | null
+): Promise<Response> {
+  const query = url.searchParams.get('q');
+  const hl = url.searchParams.get('hl') || 'en';
+
+  if (!query) {
+    return errorResponse('Missing required parameter: q', 400, origin);
+  }
+
+  if (query.length > MAX_SEARCH_QUERY_LENGTH) {
+    return errorResponse(
+      `Search query too long. Max ${MAX_SEARCH_QUERY_LENGTH} characters.`,
+      400,
+      origin
+    );
+  }
+
+  // Try to get build label from cache (not strictly required for autocomplete)
+  let bl: string | null = null;
+  const sessionParams = await getCachedSessionParams();
+  if (sessionParams) {
+    bl = sessionParams.bl;
+  }
+
+  const batchUrl = buildAutocompleteBatchUrl(bl, query, hl);
+  const body = buildAutocompleteRpcBody(query);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), CWS_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(batchUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        'User-Agent': USER_AGENT,
+        Accept: '*/*',
+        Origin: CWS_BASE,
+        Referer: `${CWS_BASE}/`,
+        'X-Same-Domain': '1',
+      },
+      body,
+      signal: controller.signal,
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      return errorResponse(
+        `CWS autocomplete batchexecute returned HTTP ${response.status}`,
+        502,
+        origin
+      );
+    }
+
+    const dataJsonString = parseAutocompleteBatchResponse(responseText);
+
+    return jsonResponse(
+      {
+        query,
+        hl,
+        data: dataJsonString,
+        fetchedAt: new Date().toISOString(),
+      },
+      200,
+      origin
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    if (message.includes('aborted')) {
+      return errorResponse('CWS autocomplete request timed out', 504, origin);
+    }
+    return errorResponse(`CWS autocomplete failed: ${message}`, 502, origin);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 // --- Route Handlers ---
 
 async function handleDetail(
@@ -648,11 +830,12 @@ export default {
     // page 1's cached response. Paginated results are transient and benefit
     // little from caching anyway.
     const isPaginatedSearch = pathname === '/search' && url.searchParams.has('token');
+    const isAutocomplete = pathname === '/autocomplete';
 
     // Check cache first (skip for paginated search)
     const cache = caches.default;
     const cacheKey = new Request(url.toString(), request);
-    if (!isPaginatedSearch) {
+    if (!isPaginatedSearch && !isAutocomplete) {
       const cachedResponse = await cache.match(cacheKey);
       if (cachedResponse) {
         // Re-add CORS headers since cached response may not have the right origin
@@ -675,16 +858,18 @@ export default {
       response = await handleDetail(url, origin);
     } else if (pathname === '/search') {
       response = await handleSearch(url, origin);
+    } else if (pathname === '/autocomplete') {
+      response = await handleAutocomplete(url, origin);
     } else {
       response = errorResponse(
-        'Not found. Available endpoints: /detail, /search, /health',
+        'Not found. Available endpoints: /detail, /search, /autocomplete, /health',
         404,
         origin
       );
     }
 
     // Cache successful responses (skip for paginated search)
-    if (response.status === 200 && !isPaginatedSearch) {
+    if (response.status === 200 && !isPaginatedSearch && !isAutocomplete) {
       const cacheResponse = response.clone();
       const cacheHeaders = new Headers(cacheResponse.headers);
       cacheHeaders.set('Cache-Control', `s-maxage=${CACHE_TTL_SECONDS}`);

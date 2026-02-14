@@ -23,14 +23,17 @@ import { SettingsManager } from '@/shared/utils/settings';
 import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
 import { today } from '@/shared/utils/dates';
 import { detectChanges } from '@/background/event-detector';
-import { getListingParser, getSearchParser, ParserError } from '@/background/parsers/index';
-import type { ListingData, SearchData, SearchResultEntry } from '@/background/parsers/types';
+import { getListingParser, getSearchParser, getAutocompleteParser, ParserError } from '@/background/parsers/index';
+import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension } from '@/background/parsers/types';
 import type {
   QueueJob,
   ListingScanPayload,
   KeywordScanPayload,
+  AutocompleteScanPayload,
   ListingSnapshot,
   RankSnapshot,
+  AutocompleteSnapshot,
+  AutocompleteKeywordSuggestion,
   EventRecord,
   Extension,
   Keyword,
@@ -324,6 +327,9 @@ async function executeJob(
     case 'keyword_scan':
       await processKeywordScan(job, deps);
       break;
+    case 'autocomplete_scan':
+      await processAutocompleteScan(job, deps);
+      break;
     default:
       throw new Error(`Unsupported job type: ${job.type}`);
   }
@@ -596,6 +602,177 @@ async function processKeywordScan(
   await db.saveRankSnapshots(rankSnapshots);
 }
 
+/**
+ * Process an autocomplete_scan job:
+ * 1. Fetch CWS autocomplete suggestions via proxy
+ * 2. Parse response with autocomplete parser
+ * 3. For each tracked extension that appears, record autocomplete position
+ * 4. Save text suggestions for keyword discovery
+ */
+async function processAutocompleteScan(
+  job: QueueJob,
+  deps: ProcessorDeps
+): Promise<void> {
+  const payload = job.payload as AutocompleteScanPayload;
+  const { keywordId, keyword } = payload;
+
+  const settings = await deps.settings.getWithDefaults();
+
+  // Find the keyword record to get its projectId
+  const keywordRecord = await db.keywords.get(keywordId);
+  if (!keywordRecord) {
+    throw new Error(`Keyword ${keywordId} not found in database`);
+  }
+
+  // Get the project to find all tracked extensions
+  const project = await db.getProject(keywordRecord.projectId);
+  if (!project) {
+    throw new Error(`Project ${keywordRecord.projectId} not found in database`);
+  }
+
+  const trackedExtIds = new Set([project.ownExtensionId, ...project.competitorIds]);
+  const dateStr = today();
+
+  // Fetch autocomplete data
+  const data = await fetchAutocompleteWithLogging(
+    keyword, settings, deps.fetchPage, job
+  );
+
+  // Parse response
+  const parser = getAutocompleteParser();
+  const autocompleteData = parser.parse(data);
+
+  // Build autocomplete snapshots for tracked extensions that appear
+  const snapshots: AutocompleteSnapshot[] = [];
+  const textSuggestions: string[] = [];
+
+  for (const suggestion of autocompleteData.suggestions) {
+    if (suggestion.type === 'extension' && trackedExtIds.has(suggestion.extensionId)) {
+      snapshots.push({
+        keywordId,
+        extensionId: suggestion.extensionId,
+        date: dateStr,
+        position: suggestion.position,
+        suggestedName: suggestion.name,
+        scannedAt: new Date(),
+      });
+    }
+    if (suggestion.type === 'text') {
+      textSuggestions.push(suggestion.text);
+    }
+  }
+
+  // Save autocomplete snapshots (position tracking for tracked extensions)
+  if (snapshots.length > 0) {
+    await db.saveAutocompleteSnapshots(snapshots);
+  }
+
+  // Save text suggestions (keyword discovery)
+  if (textSuggestions.length > 0) {
+    await db.saveAutocompleteSuggestions({
+      keywordId,
+      date: dateStr,
+      suggestions: textSuggestions,
+      scannedAt: new Date(),
+    });
+  }
+}
+
+/**
+ * Fetch autocomplete data from the proxy, with logging.
+ */
+async function fetchAutocompleteWithLogging(
+  keyword: string,
+  settings: Settings,
+  fetchPage: (url: string) => Promise<Response>,
+  job: QueueJob
+): Promise<string> {
+  if (!settings.proxyUrl) {
+    throw new Error('Autocomplete scan requires a proxy URL to be configured');
+  }
+
+  const proxyUrl = new URL('/autocomplete', settings.proxyUrl);
+  proxyUrl.searchParams.set('q', keyword);
+  if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
+
+  const requestUrl = proxyUrl.toString().replace(
+    settings.proxyApiKey || '',
+    settings.proxyApiKey ? '[REDACTED]' : ''
+  );
+  const jobDetail = `Autocomplete for "${keyword}"`;
+  const start = Date.now();
+
+  try {
+    const response = await fetchPage(proxyUrl.toString());
+    const durationMs = Date.now() - start;
+
+    if (!response.ok) {
+      let errorDetail = response.statusText;
+      try {
+        const body = await response.json() as { error?: string };
+        if (body.error) errorDetail = body.error;
+      } catch {
+        // Body not JSON - use statusText
+      }
+
+      await writeScanLog({
+        timestamp: new Date().toISOString(),
+        jobId: job.id ?? null,
+        jobType: job.type,
+        level: 'error',
+        requestUrl,
+        responseStatus: response.status,
+        responsePreview: '',
+        durationMs,
+        jobDetail,
+        error: errorDetail,
+        httpMethod: 'GET',
+      });
+
+      throw new HttpError(response.status, errorDetail);
+    }
+
+    const responseData = await response.json() as { data: string };
+
+    await writeScanLog({
+      timestamp: new Date().toISOString(),
+      jobId: job.id ?? null,
+      jobType: job.type,
+      level: 'info',
+      requestUrl,
+      responseStatus: 200,
+      responsePreview: responseData.data.slice(0, SCAN_LOG_PREVIEW_LENGTH),
+      durationMs,
+      jobDetail,
+      error: null,
+      httpMethod: 'GET',
+    });
+
+    return responseData.data;
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+
+    const durationMs = Date.now() - start;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    await writeScanLog({
+      timestamp: new Date().toISOString(),
+      jobId: job.id ?? null,
+      jobType: job.type,
+      level: 'error',
+      requestUrl,
+      responseStatus: null,
+      responsePreview: '',
+      durationMs,
+      jobDetail,
+      error: errorMessage,
+      httpMethod: 'GET',
+    });
+
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Error Handling
 // ---------------------------------------------------------------------------
@@ -781,6 +958,10 @@ function getJobDescription(job: QueueJob): string {
   if (job.type === 'keyword_scan') {
     const payload = job.payload as KeywordScanPayload;
     return `Searching "${payload.keyword}"`;
+  }
+  if (job.type === 'autocomplete_scan') {
+    const payload = job.payload as AutocompleteScanPayload;
+    return `Autocomplete "${payload.keyword}"`;
   }
   return `Processing ${job.type}`;
 }

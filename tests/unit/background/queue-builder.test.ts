@@ -8,6 +8,7 @@ import {
   PRIORITY_OWN_LISTING,
   PRIORITY_COMPETITOR_LISTING,
   PRIORITY_KEYWORD_SCAN,
+  PRIORITY_AUTOCOMPLETE_SCAN,
 } from '@/background/queue-builder';
 import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
 
@@ -56,7 +57,7 @@ const EXT_COMP4 = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 // ---------------------------------------------------------------------------
 
 describe('buildDailyScanJobs', () => {
-  it('single project, 1 extension, 2 keywords → 3 jobs', () => {
+  it('single project, 1 extension, 2 keywords → 5 jobs (1 listing + 2 keyword + 2 autocomplete)', () => {
     const projects = [makeProject({ ownExtensionId: EXT_OWN, keywordIds: [1, 2] })];
     const extensions = [makeExtension(EXT_OWN)];
     const keywords = [
@@ -66,7 +67,7 @@ describe('buildDailyScanJobs', () => {
 
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
 
-    expect(jobs).toHaveLength(3);
+    expect(jobs).toHaveLength(5);
 
     // 1 listing scan
     const listingJobs = jobs.filter((j) => j.type === 'listing_scan');
@@ -76,9 +77,13 @@ describe('buildDailyScanJobs', () => {
     // 2 keyword scans
     const keywordJobs = jobs.filter((j) => j.type === 'keyword_scan');
     expect(keywordJobs).toHaveLength(2);
+
+    // 2 autocomplete scans
+    const autocompleteJobs = jobs.filter((j) => j.type === 'autocomplete_scan');
+    expect(autocompleteJobs).toHaveLength(2);
   });
 
-  it('single project, 5 extensions (1 own + 4 competitors), 10 keywords → 15 jobs', () => {
+  it('single project, 5 extensions (1 own + 4 competitors), 10 keywords → 25 jobs', () => {
     const competitors = [EXT_COMP1, EXT_COMP2, EXT_COMP3, EXT_COMP4];
     const projects = [
       makeProject({
@@ -97,9 +102,10 @@ describe('buildDailyScanJobs', () => {
 
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
 
-    expect(jobs).toHaveLength(15);
+    expect(jobs).toHaveLength(25);
     expect(jobs.filter((j) => j.type === 'listing_scan')).toHaveLength(5);
     expect(jobs.filter((j) => j.type === 'keyword_scan')).toHaveLength(10);
+    expect(jobs.filter((j) => j.type === 'autocomplete_scan')).toHaveLength(10);
   });
 
   it('two projects sharing the same competitor → only 1 listing_scan for that extension', () => {
@@ -135,7 +141,7 @@ describe('buildDailyScanJobs', () => {
     expect(comp1Jobs).toHaveLength(1);
   });
 
-  it('two projects with the same keyword text → 2 keyword_scan jobs (no dedup)', () => {
+  it('two projects with the same keyword text → 2 keyword_scan + 2 autocomplete_scan jobs (no dedup)', () => {
     const projects = [
       makeProject({ id: 1, ownExtensionId: EXT_OWN }),
       makeProject({ id: 2, ownExtensionId: EXT_COMP1 }),
@@ -148,11 +154,13 @@ describe('buildDailyScanJobs', () => {
 
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
     const keywordJobs = jobs.filter((j) => j.type === 'keyword_scan');
+    const autocompleteJobs = jobs.filter((j) => j.type === 'autocomplete_scan');
 
     expect(keywordJobs).toHaveLength(2);
+    expect(autocompleteJobs).toHaveLength(2);
   });
 
-  it('priority ordering: own listing < competitor listing < keyword scan', () => {
+  it('priority ordering: own listing < competitor listing < keyword scan < autocomplete scan', () => {
     const projects = [
       makeProject({
         ownExtensionId: EXT_OWN,
@@ -176,14 +184,17 @@ describe('buildDailyScanJobs', () => {
         (j.payload as { extensionId: string }).extensionId === EXT_COMP1
     );
     const kwScan = jobs.find((j) => j.type === 'keyword_scan');
+    const acScan = jobs.find((j) => j.type === 'autocomplete_scan');
 
     expect(ownListing!.priority).toBe(PRIORITY_OWN_LISTING);
     expect(compListing!.priority).toBe(PRIORITY_COMPETITOR_LISTING);
     expect(kwScan!.priority).toBe(PRIORITY_KEYWORD_SCAN);
+    expect(acScan!.priority).toBe(PRIORITY_AUTOCOMPLETE_SCAN);
 
-    // Verify ordering: own < competitor < keyword
+    // Verify ordering: own < competitor < keyword < autocomplete
     expect(ownListing!.priority).toBeLessThan(compListing!.priority);
     expect(compListing!.priority).toBeLessThan(kwScan!.priority);
+    expect(kwScan!.priority).toBeLessThan(acScan!.priority);
   });
 
   it('empty project (no extensions, no keywords) → 0 jobs', () => {
