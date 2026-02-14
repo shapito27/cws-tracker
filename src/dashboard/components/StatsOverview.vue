@@ -97,8 +97,8 @@ watch(
 
       <div class="divide-y divide-gray-50">
         <div
-          v-for="(rc, index) in rankChanges"
-          :key="index"
+          v-for="rc in rankChanges"
+          :key="`${rc.extensionId}-${rc.keywordId}-${rc.date}`"
           class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
         >
           <ExtensionIcon :icon-url="rc.iconUrl" :name="rc.extensionName" size="sm" />
