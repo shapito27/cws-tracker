@@ -7,6 +7,7 @@ import { useRankings } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import { ALL_EVENT_TYPES, EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
 import RankChart from '../charts/RankChart.vue';
+import AutocompleteChart from '../charts/AutocompleteChart.vue';
 import RankHeatmap from '../charts/RankHeatmap.vue';
 import KeywordCoverageChart from '../charts/KeywordCoverageChart.vue';
 import KeywordScatterPlot from '../charts/KeywordScatterPlot.vue';
@@ -18,6 +19,8 @@ import type {
   CoverageData,
   ScatterPoint,
 } from '../../composables/useRankings';
+import { loadAutocompleteHistory } from '../../composables/useAutocomplete';
+import type { AutocompleteChartSeries } from '../../composables/useAutocomplete';
 
 const props = defineProps<{
   project: Project;
@@ -43,6 +46,7 @@ const loading = ref(true);
 const chartLoading = ref(false);
 const chartError = ref<string | null>(null);
 const latestRanks = ref<RankSnapshot[]>([]);
+const acSeries = ref<AutocompleteChartSeries[]>([]);
 
 // New visualization data
 const heatmapCells = ref<HeatmapCell[]>([]);
@@ -162,6 +166,7 @@ async function loadCrossKeywordData(): Promise<void> {
 watch([selectedKeywordId, dateRange], async () => {
   if (selectedKeywordId.value === null) {
     series.value = [];
+    acSeries.value = [];
     events.value = [];
     return;
   }
@@ -177,12 +182,14 @@ watch([selectedKeywordId, dateRange], async () => {
     // Load rank data and events in parallel
     const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
 
-    const [rankSeries, ...eventArrays] = await Promise.all([
+    const [rankSeries, acHistorySeries, ...eventArrays] = await Promise.all([
       loadRankHistory(selectedKeywordId.value, extensions.value, startDate, endDate),
+      loadAutocompleteHistory(selectedKeywordId.value, extensions.value, startDate, endDate),
       ...allExtIds.map((extId) => db.getEvents(extId, startDate, endDate)),
     ]);
 
     series.value = rankSeries;
+    acSeries.value = acHistorySeries;
 
     // Load latest rank positions for the summary table
     if (selectedKeywordId.value !== null) {
@@ -198,6 +205,7 @@ watch([selectedKeywordId, dateRange], async () => {
   } catch (e) {
     chartError.value = e instanceof Error ? e.message : 'Failed to load chart data';
     series.value = [];
+    acSeries.value = [];
     events.value = [];
   } finally {
     chartLoading.value = false;
@@ -369,6 +377,12 @@ watch([selectedKeywordId, dateRange], async () => {
             </div>
           </Transition>
         </div>
+      </div>
+
+      <!-- Autocomplete Position History -->
+      <div v-if="acSeries.some(s => s.data.length > 0)" class="mt-6">
+        <h4 class="mb-2 text-sm font-semibold text-gray-700">Autocomplete Position History</h4>
+        <AutocompleteChart :series="acSeries" />
       </div>
 
       <!-- Rank Position Heatmap (all keywords × all extensions) -->

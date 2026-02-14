@@ -1,59 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
-import type { RankChartSeries } from '../../composables/useRankings';
-import type { EventRecord } from '@/shared/types';
-import { EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
+import type { AutocompleteChartSeries } from '../../composables/useAutocomplete';
 import { CHART_COLORS } from '@/shared/utils/chart-colors';
 
-const props = withDefaults(defineProps<{
-  series: RankChartSeries[];
-  events?: EventRecord[];
-  visibleEventTypes?: Set<string>;
-}>(), {
-  events: () => [],
-  visibleEventTypes: () => new Set<string>(),
-});
-
-/** Build ApexCharts xaxis annotations from visible events. */
-const eventAnnotations = computed(() => {
-  if (props.events.length === 0 || props.visibleEventTypes.size === 0) {
-    return [];
-  }
-
-  // Collect all x-axis dates present in the chart data
-  const chartDates = new Set<string>();
-  for (const s of props.series) {
-    for (const d of s.data) {
-      chartDates.add(d.x);
-    }
-  }
-
-  return props.events
-    .filter((e) => props.visibleEventTypes.has(e.type) && chartDates.has(e.date))
-    .map((e) => ({
-      x: new Date(e.date + 'T00:00:00Z').getTime(),
-      borderColor: EVENT_TYPE_COLORS[e.type],
-      strokeDashArray: 0,
-      label: {
-        text: EVENT_TYPE_LABELS[e.type],
-        borderColor: EVENT_TYPE_COLORS[e.type],
-        style: {
-          color: '#fff',
-          background: EVENT_TYPE_COLORS[e.type],
-          fontSize: '10px',
-          padding: { left: 4, right: 4, top: 2, bottom: 2 },
-        },
-        orientation: 'horizontal' as const,
-        position: 'top' as const,
-      },
-    }));
-});
+const props = defineProps<{
+  series: AutocompleteChartSeries[];
+}>();
 
 const chartOptions = computed(() => ({
   chart: {
     type: 'line' as const,
-    height: 400,
+    height: 320,
     toolbar: { show: true },
     zoom: { enabled: true },
     animations: { enabled: true, easing: 'easeinout' as const, speed: 300 },
@@ -69,22 +27,19 @@ const chartOptions = computed(() => ({
   yaxis: {
     reversed: true,
     min: 1,
-    max: 31,
-    tickAmount: 6,
+    max: 11,
+    tickAmount: 10,
     labels: {
       style: { fontSize: '11px', colors: '#6b7280' },
       formatter: (val: number) => {
-        if (val > 30) return '30+';
+        if (val > 10) return '10+';
         return String(Math.round(val));
       },
     },
     title: {
-      text: 'Position',
+      text: 'AC Position',
       style: { fontSize: '12px', color: '#374151' },
     },
-  },
-  annotations: {
-    xaxis: eventAnnotations.value,
   },
   stroke: {
     curve: 'smooth' as const,
@@ -98,7 +53,7 @@ const chartOptions = computed(() => ({
     shared: true,
     y: {
       formatter: (val: number | null) => {
-        if (val === null || val > 30) return '30+ (not in top 30)';
+        if (val === null || val > 10) return 'Not in autocomplete';
         return `#${val}`;
       },
     },
@@ -113,7 +68,7 @@ const chartOptions = computed(() => ({
     strokeDashArray: 4,
   },
   noData: {
-    text: 'No ranking data available',
+    text: 'No autocomplete data available',
     style: { fontSize: '14px', color: '#6b7280' },
   },
 }));
@@ -123,18 +78,22 @@ const chartSeries = computed(() =>
     name: s.name,
     data: s.data.map((d) => ({
       x: new Date(d.x + 'T00:00:00Z').getTime(),
-      // ApexCharts shows null as gap. For "not ranked", use 31 to show at bottom.
-      y: d.y === null ? 31 : d.y,
+      // null = not in autocomplete, show at 11 (bottom)
+      y: d.y === null ? 11 : d.y,
     })),
   }))
 );
 </script>
 
 <template>
-  <div class="rounded-lg border border-gray-200 bg-white p-4">
+  <div
+    class="rounded-lg border border-gray-200 bg-white p-4"
+    role="region"
+    aria-label="Autocomplete position trends over time"
+  >
     <VueApexCharts
       type="line"
-      :height="400"
+      :height="320"
       :options="chartOptions"
       :series="chartSeries"
     />
@@ -147,6 +106,7 @@ const chartSeries = computed(() =>
         <span
           class="inline-block h-2 w-2 rounded-full"
           :style="{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }"
+          aria-hidden="true"
         />
         {{ s.name }}
       </div>
