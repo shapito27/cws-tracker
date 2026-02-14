@@ -1041,6 +1041,21 @@ async function updateExtensionMetadata(
       status: 'active',
     });
   }
+
+  // Backfill project names: if the project name is still the raw extension ID
+  // (auto-generated default), update it to the human-readable listing name.
+  if (listingData.name) {
+    const projects = await db.getProjectsByOwnExtensionId(extensionId);
+    for (const project of projects) {
+      if (project.name === extensionId) {
+        await db.saveProject({
+          ...project,
+          name: listingData.name,
+          updatedAt: new Date(),
+        });
+      }
+    }
+  }
 }
 
 function getJobDescription(job: QueueJob): string {

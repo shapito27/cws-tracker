@@ -93,6 +93,10 @@ export class CWSDatabase extends Dexie {
     await this.projects.delete(id);
   }
 
+  async getProjectsByOwnExtensionId(extensionId: string): Promise<Project[]> {
+    return this.projects.filter((p) => p.ownExtensionId === extensionId).toArray();
+  }
+
   // ---------------------------------------------------------------------------
   // Extension methods
   // ---------------------------------------------------------------------------

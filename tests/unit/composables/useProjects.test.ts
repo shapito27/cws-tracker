@@ -92,12 +92,11 @@ describe('useProjects', () => {
     it('creates project + extension records in DB', async () => {
       const { createProject } = useProjects();
       const project = await createProject(
-        'My Extension',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
       expect(project.id).toBeDefined();
-      expect(project.name).toBe('My Extension');
+      expect(project.name).toBe('cjpalhdlnbpafiamejdnhcphjbkeiagm');
       expect(project.ownExtensionId).toBe('cjpalhdlnbpafiamejdnhcphjbkeiagm');
       expect(project.competitorIds).toEqual([]);
 
@@ -110,7 +109,6 @@ describe('useProjects', () => {
     it('parses extension ID from full CWS URL', async () => {
       const { createProject } = useProjects();
       const project = await createProject(
-        'Test Project',
         'https://chrome.google.com/webstore/detail/ublock-origin/cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
@@ -120,7 +118,6 @@ describe('useProjects', () => {
     it('parses extension ID from short URL or raw ID', async () => {
       const { createProject } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
@@ -130,14 +127,51 @@ describe('useProjects', () => {
     it('rejects invalid URLs/IDs', async () => {
       const { createProject } = useProjects();
       await expect(
-        createProject('Test', 'not-valid')
+        createProject('not-valid')
       ).rejects.toThrow('Invalid extension URL or ID');
     });
 
-    it('uses extension ID as name when name is empty', async () => {
+    it('uses extension ID as default name for new extensions', async () => {
       const { createProject } = useProjects();
       const project = await createProject(
-        '',
+        'cjpalhdlnbpafiamejdnhcphjbkeiagm'
+      );
+
+      expect(project.name).toBe('cjpalhdlnbpafiamejdnhcphjbkeiagm');
+    });
+
+    it('uses existing extension name when extension already has a name', async () => {
+      await singletonDb.saveExtension({
+        id: 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
+        name: 'uBlock Origin',
+        iconUrl: null,
+        addedAt: new Date(),
+        lastScannedAt: new Date(),
+        status: 'active',
+        projectRefs: [],
+      });
+
+      const { createProject } = useProjects();
+      const project = await createProject(
+        'cjpalhdlnbpafiamejdnhcphjbkeiagm'
+      );
+
+      expect(project.name).toBe('uBlock Origin');
+    });
+
+    it('falls back to extension ID when existing extension has empty name', async () => {
+      await singletonDb.saveExtension({
+        id: 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
+        name: '',
+        iconUrl: null,
+        addedAt: new Date(),
+        lastScannedAt: null,
+        status: 'active',
+        projectRefs: [],
+      });
+
+      const { createProject } = useProjects();
+      const project = await createProject(
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
@@ -149,7 +183,6 @@ describe('useProjects', () => {
     it('adds extension ID to project competitorIds and creates extension record', async () => {
       const { createProject, addCompetitor } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
@@ -169,11 +202,9 @@ describe('useProjects', () => {
     it('adds projectRef to existing extension from another project', async () => {
       const { createProject, addCompetitor } = useProjects();
       const project1 = await createProject(
-        'Project 1',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
       const project2 = await createProject(
-        'Project 2',
         'ogfcmafjalglgifnmanfmnieipoejdcf'
       );
 
@@ -188,7 +219,6 @@ describe('useProjects', () => {
     it('rejects adding the same competitor twice to one project', async () => {
       const { createProject, addCompetitor } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
@@ -201,7 +231,6 @@ describe('useProjects', () => {
     it('rejects adding own extension as competitor', async () => {
       const { createProject, addCompetitor } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
@@ -215,7 +244,6 @@ describe('useProjects', () => {
     it('removes from competitorIds and decrements projectRefs', async () => {
       const { createProject, addCompetitor, removeCompetitor } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
       await addCompetitor(project.id!, 'ogfcmafjalglgifnmanfmnieipoejdcf');
@@ -234,7 +262,6 @@ describe('useProjects', () => {
     it('when projectRefs becomes empty, extension has no refs', async () => {
       const { createProject, addCompetitor, removeCompetitor } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
       await addCompetitor(project.id!, 'ogfcmafjalglgifnmanfmnieipoejdcf');
@@ -250,7 +277,6 @@ describe('useProjects', () => {
     it('removes project and handles all extension cleanup', async () => {
       const { createProject, addCompetitor, deleteProject } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
       await addCompetitor(project.id!, 'ogfcmafjalglgifnmanfmnieipoejdcf');
@@ -272,7 +298,6 @@ describe('useProjects', () => {
     it('deletes keywords belonging to the project', async () => {
       const { createProject, deleteProject } = useProjects();
       const project = await createProject(
-        'Test',
         'cjpalhdlnbpafiamejdnhcphjbkeiagm'
       );
 
@@ -293,8 +318,8 @@ describe('useProjects', () => {
   describe('loadProjects', () => {
     it('loads all projects from DB', async () => {
       const { createProject, loadProjects, projects } = useProjects();
-      await createProject('Project 1', 'cjpalhdlnbpafiamejdnhcphjbkeiagm');
-      await createProject('Project 2', 'ogfcmafjalglgifnmanfmnieipoejdcf');
+      await createProject('cjpalhdlnbpafiamejdnhcphjbkeiagm');
+      await createProject('ogfcmafjalglgifnmanfmnieipoejdcf');
 
       await loadProjects();
       expect(projects.value).toHaveLength(2);
