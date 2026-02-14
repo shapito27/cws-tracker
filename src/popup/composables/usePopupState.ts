@@ -25,6 +25,7 @@ export type ScanStatus = 'idle' | 'running';
 export interface RankChange {
   extensionId: string;
   extensionName: string;
+  iconUrl: string | null;
   keyword: string;
   keywordId: number;
   previousPosition: number | null;
@@ -33,6 +34,10 @@ export interface RankChange {
   change: number | null;
   /** Whether this extension is the user's own (vs a competitor). */
   isOwn: boolean;
+  /** The project ID this rank change belongs to. */
+  projectId: number | null;
+  /** The date of the current rank snapshot (YYYY-MM-DD). */
+  date: string;
 }
 
 export interface PopupState {
@@ -183,15 +188,22 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
     }
 
     if (change !== null && change !== 0) {
+      // Find which project this extension belongs to
+      const ownerProject = projects.find(
+        (p) => p.ownExtensionId === snap.extensionId || p.competitorIds.includes(snap.extensionId)
+      );
       changes.push({
         extensionId: snap.extensionId,
         extensionName: '',
+        iconUrl: null,
         keyword: '',
         keywordId: snap.keywordId,
         previousPosition: prev?.position ?? null,
         currentPosition: snap.position,
         change,
         isOwn: ownExtIds.has(snap.extensionId),
+        projectId: ownerProject?.id ?? null,
+        date: currentDate,
       });
     }
   }
@@ -223,6 +235,7 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
       const ext = extMap.get(c.extensionId);
       const kw = kwMap.get(c.keywordId);
       c.extensionName = ext?.name || c.extensionId.substring(0, 8) + '...';
+      c.iconUrl = ext?.iconUrl ?? null;
       c.keyword = kw?.text || `Keyword #${c.keywordId}`;
     }
   }

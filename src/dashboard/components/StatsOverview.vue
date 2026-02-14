@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { loadRecentRankChanges, type RankChange } from '@/popup/composables/usePopupState';
 import { useServiceWorker } from '../composables/useServiceWorker';
 import { db } from '@/shared/db/database';
+import ExtensionIcon from './ExtensionIcon.vue';
 
 const { scanStatus } = useServiceWorker();
 
@@ -20,16 +21,13 @@ const drops = computed(() =>
   rankChanges.value.filter((rc) => rc.change !== null && rc.change < 0)
 );
 
-const ownChanges = computed(() =>
-  rankChanges.value.filter((rc) => rc.isOwn)
-);
-
-const competitorChanges = computed(() =>
-  rankChanges.value.filter((rc) => !rc.isOwn)
-);
-
 function formatPosition(position: number | null): string {
   return position === null ? '30+' : `#${position}`;
+}
+
+function formatDate(date: string): string {
+  const d = new Date(date + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
 async function loadStats(): Promise<void> {
@@ -97,107 +95,58 @@ watch(
         <h3 class="text-sm font-semibold text-gray-900">Recent Rank Changes</h3>
       </div>
 
-      <!-- Your Extensions -->
-      <div v-if="ownChanges.length > 0">
-        <div class="flex items-center gap-1.5 px-4 pt-3 pb-1">
-          <span class="inline-block h-2 w-2 rounded-full bg-blue-500" />
-          <span class="text-xs font-semibold text-blue-700">Your Extensions</span>
-        </div>
-        <div class="divide-y divide-gray-50">
-          <div
-            v-for="(rc, index) in ownChanges"
-            :key="'own-' + index"
-            class="flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50/50 transition-colors"
-          >
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium text-blue-800 truncate">{{ rc.extensionName }}</p>
-              <p class="text-xs text-gray-500 truncate">"{{ rc.keyword }}"</p>
+      <div class="divide-y divide-gray-50">
+        <div
+          v-for="(rc, index) in rankChanges"
+          :key="index"
+          class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
+        >
+          <ExtensionIcon :icon-url="rc.iconUrl" :name="rc.extensionName" size="sm" />
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-1.5">
+              <router-link
+                v-if="rc.projectId"
+                :to="{ name: 'project', params: { id: rc.projectId } }"
+                class="text-sm font-medium text-gray-900 truncate hover:text-blue-600 hover:underline"
+              >{{ rc.extensionName }}</router-link>
+              <span v-else class="text-sm font-medium text-gray-900 truncate">{{ rc.extensionName }}</span>
             </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <span class="text-xs text-gray-400 tabular-nums">{{ formatPosition(rc.previousPosition) }}</span>
-              <svg class="h-3 w-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-              </svg>
-              <span class="text-xs font-semibold tabular-nums" :class="{
-                'text-green-700': rc.change !== null && rc.change > 0,
-                'text-red-700': rc.change !== null && rc.change < 0,
-                'text-gray-600': rc.currentPosition === null,
-              }">{{ formatPosition(rc.currentPosition) }}</span>
-              <span
-                v-if="rc.change !== null && rc.change > 0"
-                class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700"
-              >
-                <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M6 2L10 8H2L6 2Z" />
-                </svg>
-                {{ rc.change > 30 ? 'New' : '+' + rc.change }}
-              </span>
-              <span
-                v-else-if="rc.change !== null && rc.change < 0"
-                class="inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700"
-              >
-                <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M6 10L2 4H10L6 10Z" />
-                </svg>
-                {{ rc.change < -30 ? 'Out' : Math.abs(rc.change) }}
-              </span>
+            <div class="flex items-center gap-1.5 text-xs text-gray-500">
+              <span class="truncate">"{{ rc.keyword }}"</span>
+              <span class="text-gray-300">&middot;</span>
+              <span class="shrink-0">{{ formatDate(rc.date) }}</span>
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- Competitors -->
-      <div v-if="competitorChanges.length > 0">
-        <div class="flex items-center gap-1.5 px-4 pt-3 pb-1" :class="{ 'border-t border-gray-100': ownChanges.length > 0 }">
-          <span class="inline-block h-2 w-2 rounded-full bg-gray-400" />
-          <span class="text-xs font-semibold text-gray-500">Competitors</span>
-        </div>
-        <div class="divide-y divide-gray-50">
-          <div
-            v-for="(rc, index) in competitorChanges"
-            :key="'comp-' + index"
-            class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
-          >
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-medium text-gray-700 truncate">{{ rc.extensionName }}</p>
-              <p class="text-xs text-gray-400 truncate">"{{ rc.keyword }}"</p>
-            </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <span class="text-xs text-gray-400 tabular-nums">{{ formatPosition(rc.previousPosition) }}</span>
-              <svg class="h-3 w-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-xs text-gray-400 tabular-nums">{{ formatPosition(rc.previousPosition) }}</span>
+            <svg class="h-3 w-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+            </svg>
+            <span class="text-xs font-semibold tabular-nums" :class="{
+              'text-green-700': rc.change !== null && rc.change > 0,
+              'text-red-700': rc.change !== null && rc.change < 0,
+              'text-gray-600': rc.currentPosition === null,
+            }">{{ formatPosition(rc.currentPosition) }}</span>
+            <span
+              v-if="rc.change !== null && rc.change > 0"
+              class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700"
+            >
+              <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M6 2L10 8H2L6 2Z" />
               </svg>
-              <span class="text-xs font-semibold tabular-nums" :class="{
-                'text-green-700': rc.change !== null && rc.change > 0,
-                'text-red-700': rc.change !== null && rc.change < 0,
-                'text-gray-600': rc.currentPosition === null,
-              }">{{ formatPosition(rc.currentPosition) }}</span>
-              <span
-                v-if="rc.change !== null && rc.change > 0"
-                class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700"
-              >
-                <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M6 2L10 8H2L6 2Z" />
-                </svg>
-                {{ rc.change > 30 ? 'New' : '+' + rc.change }}
-              </span>
-              <span
-                v-else-if="rc.change !== null && rc.change < 0"
-                class="inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700"
-              >
-                <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
-                  <path d="M6 10L2 4H10L6 10Z" />
-                </svg>
-                {{ rc.change < -30 ? 'Out' : Math.abs(rc.change) }}
-              </span>
-            </div>
+              {{ rc.change > 30 ? 'New' : '+' + rc.change }}
+            </span>
+            <span
+              v-else-if="rc.change !== null && rc.change < 0"
+              class="inline-flex items-center rounded-full bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-700"
+            >
+              <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
+                <path d="M6 10L2 4H10L6 10Z" />
+              </svg>
+              {{ rc.change < -30 ? 'Out' : Math.abs(rc.change) }}
+            </span>
           </div>
         </div>
-      </div>
-
-      <!-- No changes fallback (shouldn't happen since we check length above) -->
-      <div v-if="rankChanges.length === 0" class="px-4 py-6 text-center">
-        <p class="text-sm text-gray-400">No rank changes detected</p>
       </div>
     </div>
   </div>
