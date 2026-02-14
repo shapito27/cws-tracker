@@ -594,6 +594,79 @@ async function processKeywordScan(
 
   // Save all rank snapshots atomically
   await db.saveRankSnapshots(rankSnapshots);
+
+  // Detect rank changes and create events
+  await detectRankChanges(rankSnapshots, keyword, project.ownExtensionId, deps);
+}
+
+/**
+ * Compare new rank snapshots with previous ones and create rank_change events
+ * for any position changes.
+ */
+async function detectRankChanges(
+  snapshots: RankSnapshot[],
+  keyword: string,
+  ownExtensionId: string,
+  deps: ProcessorDeps
+): Promise<void> {
+  for (const snap of snapshots) {
+    // Find the previous snapshot for this keyword+extension (before today)
+    const previous = await db.rank_snapshots
+      .where('[keywordId+extensionId+date]')
+      .between(
+        [snap.keywordId, snap.extensionId, ''],
+        [snap.keywordId, snap.extensionId, snap.date],
+        true,
+        false // exclude current date
+      )
+      .last();
+
+    if (!previous) continue; // No prior data to compare
+
+    // Skip if position unchanged
+    if (previous.position === snap.position) continue;
+
+    // Both null = both out of top 30, no change
+    if (previous.position === null && snap.position === null) continue;
+
+    const formatPos = (p: number | null): string => p === null ? '30+' : `#${p}`;
+    const isOwn = snap.extensionId === ownExtensionId;
+
+    // Get extension name for a readable note
+    const ext = await db.getExtension(snap.extensionId);
+    const extName = ext?.name || snap.extensionId.slice(0, 8) + '...';
+
+    let note: string;
+    if (previous.position !== null && snap.position !== null) {
+      const delta = previous.position - snap.position;
+      const direction = delta > 0 ? 'improved' : 'dropped';
+      note = `${isOwn ? '' : '[Competitor] '}${extName} ${direction} from ${formatPos(previous.position)} to ${formatPos(snap.position)} for "${keyword}"`;
+    } else if (previous.position === null && snap.position !== null) {
+      note = `${isOwn ? '' : '[Competitor] '}${extName} entered top 30 at ${formatPos(snap.position)} for "${keyword}"`;
+    } else {
+      note = `${isOwn ? '' : '[Competitor] '}${extName} dropped out of top 30 for "${keyword}"`;
+    }
+
+    const event: EventRecord = {
+      extensionId: snap.extensionId,
+      date: snap.date,
+      type: 'rank_change',
+      field: 'position',
+      oldValue: String(previous.position ?? 'null'),
+      newValue: String(snap.position ?? 'null'),
+      note,
+    };
+
+    try {
+      const savedId = await db.saveEvent(event);
+      deps.sendMessage({
+        type: 'NEW_EVENT',
+        event: { ...event, id: savedId },
+      });
+    } catch {
+      // Event saving should not break the scan pipeline
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
