@@ -23,6 +23,7 @@ describe('event-colors', () => {
         'translation_change',
         'screenshot_change',
         'badge_change',
+        'rank_change',
       ];
       for (const type of allTypes) {
         expect(EVENT_TYPE_COLORS[type]).toBeDefined();
@@ -53,6 +54,10 @@ describe('event-colors', () => {
       expect(EVENT_TYPE_COLORS.translation_change).toBe('#6B7280');
       expect(EVENT_TYPE_COLORS.badge_change).toBe('#6B7280');
     });
+
+    it('should use violet for rank_change', () => {
+      expect(EVENT_TYPE_COLORS.rank_change).toBe('#7C3AED');
+    });
   });
 
   describe('EVENT_TYPE_LABELS', () => {
@@ -72,8 +77,8 @@ describe('event-colors', () => {
   });
 
   describe('ALL_EVENT_TYPES', () => {
-    it('should contain all 9 event types', () => {
-      expect(ALL_EVENT_TYPES).toHaveLength(9);
+    it('should contain all 10 event types', () => {
+      expect(ALL_EVENT_TYPES).toHaveLength(10);
     });
 
     it('should include every type that has a color', () => {
@@ -112,6 +117,10 @@ describe('event-colors', () => {
       expect(getEventTypeBadgeClass('screenshot_change')).toBe('bg-gray-100 text-gray-800');
       expect(getEventTypeBadgeClass('translation_change')).toBe('bg-gray-100 text-gray-800');
       expect(getEventTypeBadgeClass('badge_change')).toBe('bg-gray-100 text-gray-800');
+    });
+
+    it('should return violet badge classes for rank_change', () => {
+      expect(getEventTypeBadgeClass('rank_change')).toBe('bg-violet-100 text-violet-800');
     });
 
     it('should return a badge class for every event type', () => {
