@@ -595,8 +595,12 @@ async function processKeywordScan(
   // Save all rank snapshots atomically
   await db.saveRankSnapshots(rankSnapshots);
 
-  // Detect rank changes and create events
-  await detectRankChanges(rankSnapshots, keyword, project.ownExtensionId, deps);
+  // Detect rank changes and create events (must not fail the scan)
+  try {
+    await detectRankChanges(rankSnapshots, keyword, project.ownExtensionId, deps);
+  } catch {
+    // Rank change detection is supplementary — never fail the scan pipeline
+  }
 }
 
 /**
@@ -609,6 +613,25 @@ async function detectRankChanges(
   ownExtensionId: string,
   deps: ProcessorDeps
 ): Promise<void> {
+  // Delete any existing rank_change events for these extensions on today's date
+  // to prevent duplicates on same-day re-scans (mirrors saveRankSnapshots dedup)
+  const dateStr = snapshots[0]?.date;
+  if (dateStr) {
+    for (const snap of snapshots) {
+      const existingEvents = await db.events
+        .where('[extensionId+date]')
+        .equals([snap.extensionId, dateStr])
+        .toArray();
+      const rankEventIds = existingEvents
+        .filter((e) => e.type === 'rank_change' && e.note.includes(`for "${keyword}"`))
+        .map((e) => e.id!)
+        .filter((id) => id !== undefined);
+      if (rankEventIds.length > 0) {
+        await db.events.bulkDelete(rankEventIds);
+      }
+    }
+  }
+
   for (const snap of snapshots) {
     // Find the previous snapshot for this keyword+extension (before today)
     const previous = await db.rank_snapshots
@@ -625,9 +648,6 @@ async function detectRankChanges(
 
     // Skip if position unchanged
     if (previous.position === snap.position) continue;
-
-    // Both null = both out of top 30, no change
-    if (previous.position === null && snap.position === null) continue;
 
     const formatPos = (p: number | null): string => p === null ? '30+' : `#${p}`;
     const isOwn = snap.extensionId === ownExtensionId;
