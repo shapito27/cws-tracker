@@ -4,6 +4,7 @@ import VueApexCharts from 'vue3-apexcharts';
 import type { RankChartSeries } from '../../composables/useRankings';
 import type { EventRecord } from '@/shared/types';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
+import { CHART_COLORS } from '@/shared/utils/chart-colors';
 
 const props = withDefaults(defineProps<{
   series: RankChartSeries[];
@@ -13,19 +14,6 @@ const props = withDefaults(defineProps<{
   events: () => [],
   visibleEventTypes: () => new Set<string>(),
 });
-
-const CHART_COLORS = [
-  '#2563eb', // blue-600
-  '#dc2626', // red-600
-  '#16a34a', // green-600
-  '#9333ea', // purple-600
-  '#ea580c', // orange-600
-  '#0891b2', // cyan-600
-  '#ca8a04', // yellow-600
-  '#db2777', // pink-600
-  '#4f46e5', // indigo-600
-  '#65a30d', // lime-600
-];
 
 /** Build ApexCharts xaxis annotations from visible events. */
 const eventAnnotations = computed(() => {

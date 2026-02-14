@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { AutocompleteKeywordSuggestion, Keyword } from '@/shared/types';
 import { loadKeywordSuggestions } from '../../composables/useAutocomplete';
 
 const props = defineProps<{
   keywords: Keyword[];
-  projectId: number;
 }>();
 
 const emit = defineEmits<{
@@ -20,15 +19,21 @@ const loading = ref(false);
 const uniqueSuggestions = ref<string[]>([]);
 
 /** Tracks which keywords are already tracked (lowercase for comparison). */
-const trackedKeywordsLower = new Set<string>();
+const trackedKeywordsLower = ref<Set<string>>(new Set());
+
+/** Suggestions sorted by date descending (for timeline view). */
+const suggestionsByDate = computed(() =>
+  [...suggestions.value].sort((a, b) => b.date.localeCompare(a.date))
+);
 
 watch(
   () => props.keywords,
   (kws) => {
-    trackedKeywordsLower.clear();
+    const next = new Set<string>();
     for (const kw of kws) {
-      trackedKeywordsLower.add(kw.text.toLowerCase());
+      next.add(kw.text.toLowerCase());
     }
+    trackedKeywordsLower.value = next;
     // Auto-select first keyword if none selected
     if (selectedKeywordId.value === null && kws.length > 0 && kws[0].id !== undefined) {
       selectedKeywordId.value = kws[0].id;
@@ -37,6 +42,8 @@ watch(
   { immediate: true }
 );
 
+let requestId = 0;
+
 watch(selectedKeywordId, async (kwId) => {
   if (kwId === null) {
     suggestions.value = [];
@@ -44,15 +51,19 @@ watch(selectedKeywordId, async (kwId) => {
     return;
   }
 
+  const currentRequestId = ++requestId;
   loading.value = true;
   try {
     const data = await loadKeywordSuggestions(kwId, 30);
+
+    // Ignore stale responses
+    if (currentRequestId !== requestId) return;
+
     suggestions.value = data;
 
     // Collect unique suggestions across all dates, most recent first
     const seen = new Set<string>();
     const unique: string[] = [];
-    // Sort by date descending so the most recent appear first
     const sorted = [...data].sort((a, b) => b.date.localeCompare(a.date));
     for (const entry of sorted) {
       for (const text of entry.suggestions) {
@@ -65,22 +76,27 @@ watch(selectedKeywordId, async (kwId) => {
     }
     uniqueSuggestions.value = unique;
   } catch (e) {
+    if (currentRequestId !== requestId) return;
     console.error('Failed to load keyword suggestions:', e);
     suggestions.value = [];
     uniqueSuggestions.value = [];
   } finally {
-    loading.value = false;
+    if (currentRequestId === requestId) {
+      loading.value = false;
+    }
   }
 });
 
 function isAlreadyTracked(text: string): boolean {
-  return trackedKeywordsLower.has(text.toLowerCase());
+  return trackedKeywordsLower.value.has(text.toLowerCase());
 }
 
 function handleAdd(text: string): void {
   emit('addKeyword', text);
-  // Optimistically add to tracked set
-  trackedKeywordsLower.add(text.toLowerCase());
+  // Optimistically update reactive tracked set
+  const next = new Set(trackedKeywordsLower.value);
+  next.add(text.toLowerCase());
+  trackedKeywordsLower.value = next;
 }
 
 function getSelectedKeywordText(): string {
@@ -96,6 +112,7 @@ function getSelectedKeywordText(): string {
       <select
         v-if="keywords.length > 0"
         v-model="selectedKeywordId"
+        aria-label="Select keyword to view suggestions"
         class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
       >
         <option
@@ -112,7 +129,7 @@ function getSelectedKeywordText(): string {
       Text suggestions CWS returns when users type "{{ getSelectedKeywordText() }}". Use these for keyword discovery.
     </p>
 
-    <div v-if="loading" class="py-4 text-center">
+    <div v-if="loading" class="py-4 text-center" aria-live="polite">
       <p class="text-xs text-gray-400">Loading suggestions...</p>
     </div>
 
@@ -132,6 +149,7 @@ function getSelectedKeywordText(): string {
         <button
           v-if="!isAlreadyTracked(text)"
           class="rounded border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
+          :aria-label="`Track keyword: ${text}`"
           @click="handleAdd(text)"
         >
           + Track
@@ -152,7 +170,7 @@ function getSelectedKeywordText(): string {
       </summary>
       <div class="mt-2 space-y-3">
         <div
-          v-for="entry in [...suggestions].sort((a, b) => b.date.localeCompare(a.date))"
+          v-for="entry in suggestionsByDate"
           :key="entry.date"
           class="border-l-2 border-gray-200 pl-3"
         >
