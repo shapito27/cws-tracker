@@ -436,3 +436,56 @@ Array indices are **identical** across all tested locales (en, ja, es):
 - All other structural fields identical
 
 **Conclusion:** One parser version handles all locales.
+
+---
+
+## Search Autocomplete (Suggestion) API
+
+**Date:** 2026-02-14
+**Endpoint:** `batchexecute` RPC with method `QcU9bc`
+
+### Discovery
+
+CWS exposes a search autocomplete API through the same `batchexecute` RPC system used for search pagination, but with a different RPC method (`QcU9bc` vs `zTyKYc`).
+
+### Request Format
+
+```
+POST /_/ChromeWebStoreConsumerFeUi/data/batchexecute?rpcids=QcU9bc&hl={locale}&soc-app=1&soc-platform=1&soc-device=1&rt=c
+Content-Type: application/x-www-form-urlencoded;charset=UTF-8
+
+f.req=[[[" QcU9bc","[\"{query}\"]",null,"generic"]]]
+```
+
+**Key finding:** No authentication needed. No cookies, no CSRF token (`at`), no session ID (`sid`) required. Build label (`bl`) is optional.
+
+### Response Format
+
+Returns up to **10 suggestions** of two types:
+
+**Extension suggestion** (CWS directly recommends a specific extension):
+```json
+[null, ["Extension Name", "32-char-extension-id", 1, "icon_url"]]
+```
+
+**Text suggestion** (keyword completion):
+```json
+[["Suggested search term"]]
+```
+
+### Characteristics
+
+| Property | Value |
+|----------|-------|
+| Auth required | No |
+| Locale support | Yes (`hl=` parameter, returns localized names) |
+| Max results | 10 |
+| Partial queries | Yes ("brok" returns "broken link checker" extensions) |
+| Response size | < 1KB typical |
+
+### ASO Value
+
+- Extensions in autocomplete bypass search results entirely — users click directly to the listing
+- Tracks whether CWS "recommends" your extension when users type specific keywords
+- Text suggestions reveal CWS's own keyword completions for discovery
+- Position in autocomplete (1-10) is a trackable metric over time

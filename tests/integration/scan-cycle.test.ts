@@ -28,6 +28,8 @@ import type { SchedulerDeps } from '@/background/scheduler';
 
 let mockListingParse: Mock;
 let mockSearchParse: Mock;
+// eslint-disable-next-line prefer-const
+let mockAutocompleteParse: Mock | undefined;
 
 vi.mock('@/background/parsers/index', () => {
   class MockParserError extends Error {
@@ -54,6 +56,13 @@ vi.mock('@/background/parsers/index', () => {
       parse: (html: string) => {
         if (mockSearchParse) return mockSearchParse(html);
         return createDefaultSearchData();
+      },
+    }),
+    getAutocompleteParser: () => ({
+      version: 'v1',
+      parse: (json: string) => {
+        if (mockAutocompleteParse) return mockAutocompleteParse(json);
+        return createDefaultAutocompleteData();
       },
     }),
     ParserError: MockParserError,
@@ -150,6 +159,25 @@ function createDefaultSearchData(overrides: Record<string, unknown> = {}) {
     totalCount: 120,
     nextPageToken: null,
     ...overrides,
+  };
+}
+
+function createDefaultAutocompleteData() {
+  return {
+    suggestions: [
+      {
+        type: 'extension' as const,
+        name: 'Test Extension',
+        extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        iconUrl: 'https://example.com/icon.png',
+        position: 1,
+      },
+      {
+        type: 'text' as const,
+        text: 'ad blocker free',
+        position: 2,
+      },
+    ],
   };
 }
 
@@ -307,12 +335,14 @@ describe('1.10.1 Full scan cycle', () => {
     const allKeywords = await testDb.keywords.toArray();
     const jobs = buildDailyScanJobs(allProjects, allExtensions, allKeywords);
 
-    // Expect 3 listing_scan jobs (1 per extension) + 1 keyword_scan job
-    expect(jobs).toHaveLength(4);
+    // Expect 3 listing_scan + 1 keyword_scan + 1 autocomplete_scan = 5 jobs
+    expect(jobs).toHaveLength(5);
     const listingJobs = jobs.filter((j) => j.type === 'listing_scan');
     const keywordJobs = jobs.filter((j) => j.type === 'keyword_scan');
+    const autocompleteJobs = jobs.filter((j) => j.type === 'autocomplete_scan');
     expect(listingJobs).toHaveLength(3);
     expect(keywordJobs).toHaveLength(1);
+    expect(autocompleteJobs).toHaveLength(1);
 
     // 3. Enqueue jobs
     await testDb.enqueueJobs(jobs);
@@ -335,12 +365,14 @@ describe('1.10.1 Full scan cycle', () => {
     const sendMessage = vi.fn();
     const deps = createProcessorDeps({ fetchPage, sendMessage });
 
-    // 5. Process all 4 jobs one at a time (3 listing + 1 keyword)
-    for (let i = 0; i < 4; i++) {
+    // 5. Process all 5 jobs one at a time (3 listing + 1 keyword + 1 autocomplete)
+    // autocomplete_scan will fail because no proxyUrl is configured - that's OK,
+    // it will be retried and eventually fail permanently
+    for (let i = 0; i < 5; i++) {
       await processNextJob(deps);
     }
 
-    // Verify exactly 4 fetch calls were made
+    // Verify exactly 4 fetch calls were made (autocomplete doesn't fetch without proxy)
     expect(fetchPage.mock.calls.length).toBe(4);
 
     // 6. Verify listing_snapshots saved (1 per extension)
@@ -386,10 +418,10 @@ describe('1.10.1 Full scan cycle', () => {
     const events = await testDb.events.toArray();
     expect(events).toHaveLength(0);
 
-    // 9. Verify all jobs are completed
+    // 9. Verify listing/keyword jobs completed, autocomplete retried (no proxy configured)
     const finalStats = await testDb.getQueueStats();
-    expect(finalStats.completed).toBe(4);
-    expect(finalStats.pending).toBe(0);
+    expect(finalStats.completed).toBe(4); // 3 listing + 1 keyword
+    expect(finalStats.pending).toBe(1); // 1 autocomplete (retry pending)
     expect(finalStats.running).toBe(0);
     expect(finalStats.failed).toBe(0);
 
@@ -1066,7 +1098,7 @@ describe('1.10.7 Multiple projects with shared competitor', () => {
 
     expect(listingJobs).toHaveLength(3); // ext-aaa, ext-bbb, ext-ccc (only 1 for shared)
     expect(keywordJobs).toHaveLength(2);
-    expect(jobs).toHaveLength(5); // 3 listings + 2 keywords
+    expect(jobs).toHaveLength(7); // 3 listings + 2 keywords + 2 autocomplete
 
     // Verify shared competitor has only one listing_scan
     const sharedCompetitorJobs = listingJobs.filter((j) => {
@@ -1162,8 +1194,8 @@ describe('1.10.8 Manual refresh while scan running', () => {
 
     // Old pending jobs should be cleared, new jobs enqueued
     const pendingAfter = await testDb.getPendingCount();
-    // Should have new jobs: 3 listing_scans + 1 keyword_scan = 4
-    expect(pendingAfter).toBe(4);
+    // Should have new jobs: 3 listing_scans + 1 keyword_scan + 1 autocomplete_scan = 5
+    expect(pendingAfter).toBe(5);
 
     // Verify the queue has fresh jobs (retryCount = 0)
     const allJobs = await testDb.queue.where('status').equals('pending').toArray();
@@ -1211,8 +1243,8 @@ describe('1.10.8 Manual refresh while scan running', () => {
     await triggerManualRefresh(1, createSchedulerDeps());
 
     const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
-    // Should only have jobs for project 1: 1 listing_scan + 1 keyword_scan
-    expect(pendingJobs).toHaveLength(2);
+    // Should only have jobs for project 1: 1 listing_scan + 1 keyword_scan + 1 autocomplete_scan
+    expect(pendingJobs).toHaveLength(3);
 
     const listingJobs = pendingJobs.filter((j) => j.type === 'listing_scan');
     const keywordJobs = pendingJobs.filter((j) => j.type === 'keyword_scan');

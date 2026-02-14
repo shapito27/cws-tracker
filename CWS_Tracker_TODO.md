@@ -1128,11 +1128,15 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 5.1 Search Autocomplete Tracking
 
-- [ ] **5.1.1** Investigate CWS autocomplete endpoint (network tab analysis)
-- [ ] **5.1.2** Create autocomplete parser
-- [ ] **5.1.3** Add autocomplete_scan job type
-- [ ] **5.1.4** UI: keyword suggestions from autocomplete
-- [ ] **5.1.5** Track autocomplete changes over time
+- [x] **5.1.1** Investigate CWS autocomplete endpoint (network tab analysis)
+- [x] **5.1.2** Create autocomplete parser (`src/background/parsers/autocomplete-v1.ts`)
+- [x] **5.1.3** Add autocomplete_scan job type (queue builder + processor)
+- [x] **5.1.4** Add proxy `/autocomplete` endpoint
+- [x] **5.1.5** Add DB schema v4: `autocomplete_snapshots` + `autocomplete_keyword_suggestions` tables
+- [x] **5.1.6** Create `useAutocomplete.ts` dashboard composable
+- [ ] **5.1.7** UI: autocomplete position column in keyword rankings table
+- [ ] **5.1.8** UI: autocomplete position history chart
+- [ ] **5.1.9** UI: keyword suggestions panel (text suggestions for discovery)
 
 ### 5.2 New Competitor Alerts
 
