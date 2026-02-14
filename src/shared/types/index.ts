@@ -39,7 +39,8 @@ export type EventType =
   | 'user_milestone'
   | 'translation_change'
   | 'screenshot_change'
-  | 'badge_change';
+  | 'badge_change'
+  | 'rank_change';
 
 /** Queue job variants. */
 export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit';
