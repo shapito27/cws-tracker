@@ -8,7 +8,8 @@
 
 import { listingParserV1 } from './listing-v1.js';
 import { searchParserV1 } from './search-v1.js';
-import type { ListingParser, SearchParser } from './types.js';
+import { autocompleteParserV1 } from './autocomplete-v1.js';
+import type { ListingParser, SearchParser, AutocompleteParser } from './types.js';
 
 const LISTING_PARSERS: Record<string, ListingParser> = {
   'listing-v1': listingParserV1,
@@ -16,6 +17,10 @@ const LISTING_PARSERS: Record<string, ListingParser> = {
 
 const SEARCH_PARSERS: Record<string, SearchParser> = {
   'search-v1': searchParserV1,
+};
+
+const AUTOCOMPLETE_PARSERS: Record<string, AutocompleteParser> = {
+  'autocomplete-v1': autocompleteParserV1,
 };
 
 /**
@@ -64,4 +69,24 @@ export function getAvailableListingParsers(): string[] {
 /** Get all available search parser versions. */
 export function getAvailableSearchParsers(): string[] {
   return Object.keys(SEARCH_PARSERS);
+}
+
+/**
+ * Get an autocomplete parser by version string.
+ * Defaults to the latest version if no version is specified.
+ */
+export function getAutocompleteParser(version?: string): AutocompleteParser {
+  const key = version ? `autocomplete-${version}` : 'autocomplete-v1';
+  const parser = AUTOCOMPLETE_PARSERS[key];
+  if (!parser) {
+    throw new Error(
+      `Unknown autocomplete parser version: "${key}". Available: ${Object.keys(AUTOCOMPLETE_PARSERS).join(', ')}`,
+    );
+  }
+  return parser;
+}
+
+/** Get all available autocomplete parser versions. */
+export function getAvailableAutocompleteParsers(): string[] {
+  return Object.keys(AUTOCOMPLETE_PARSERS);
 }

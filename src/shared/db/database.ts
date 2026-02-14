@@ -23,6 +23,8 @@ import type {
   TranslationSnapshot,
   QueueJobStatus,
   ScanLog,
+  AutocompleteSnapshot,
+  AutocompleteKeywordSuggestion,
 } from '../types';
 import type { CachedAuditResult } from '../utils/keyword-audit';
 
@@ -37,6 +39,8 @@ export class CWSDatabase extends Dexie {
   translation_snapshots!: Table<TranslationSnapshot, number>;
   audit_cache!: Table<CachedAuditResult, number>;
   scan_logs!: Table<ScanLog, number>;
+  autocomplete_snapshots!: Table<AutocompleteSnapshot, number>;
+  autocomplete_keyword_suggestions!: Table<AutocompleteKeywordSuggestion, number>;
 
   constructor(name = 'CWSTrackerDB') {
     super(name);
@@ -60,6 +64,12 @@ export class CWSDatabase extends Dexie {
     // v3: Add scan_logs table for request/response logging
     this.version(3).stores({
       scan_logs: '++id, timestamp, jobId',
+    });
+
+    // v4: Add autocomplete tracking tables (Phase 5.1)
+    this.version(4).stores({
+      autocomplete_snapshots: '++id, [keywordId+extensionId+date], [keywordId+date]',
+      autocomplete_keyword_suggestions: '++id, [keywordId+date]',
     });
   }
 
@@ -421,13 +431,106 @@ export class CWSDatabase extends Dexie {
   }
 
   // ---------------------------------------------------------------------------
+  // Autocomplete snapshot methods
+  // ---------------------------------------------------------------------------
+
+  async getAutocompleteSnapshots(
+    keywordId: number,
+    extensionId: string,
+    startDate: string,
+    endDate: string
+  ): Promise<AutocompleteSnapshot[]> {
+    return this.autocomplete_snapshots
+      .where('[keywordId+extensionId+date]')
+      .between(
+        [keywordId, extensionId, startDate],
+        [keywordId, extensionId, endDate],
+        true,
+        true
+      )
+      .toArray();
+  }
+
+  async getLatestAutocompleteForKeyword(
+    keywordId: number
+  ): Promise<AutocompleteSnapshot[]> {
+    const all = await this.autocomplete_snapshots
+      .where('[keywordId+date]')
+      .between(
+        [keywordId, ''],
+        [keywordId, '\uffff']
+      )
+      .toArray();
+
+    if (all.length === 0) return [];
+
+    const latestDate = all.reduce(
+      (max, s) => (s.date > max ? s.date : max),
+      all[0].date
+    );
+
+    return all.filter((s) => s.date === latestDate);
+  }
+
+  async saveAutocompleteSnapshots(snapshots: AutocompleteSnapshot[]): Promise<void> {
+    await this.transaction('rw', this.autocomplete_snapshots, async () => {
+      // Delete existing snapshots for the same keywordId+extensionId+date combos
+      const idsToDelete: number[] = [];
+      for (const snap of snapshots) {
+        const existing = await this.autocomplete_snapshots
+          .where('[keywordId+extensionId+date]')
+          .equals([snap.keywordId, snap.extensionId, snap.date])
+          .toArray();
+        idsToDelete.push(...existing.map((e) => e.id!));
+      }
+      if (idsToDelete.length > 0) {
+        await this.autocomplete_snapshots.bulkDelete(idsToDelete);
+      }
+      await this.autocomplete_snapshots.bulkPut(snapshots);
+    });
+  }
+
+  async saveAutocompleteSuggestions(
+    suggestion: AutocompleteKeywordSuggestion
+  ): Promise<number> {
+    return this.transaction(
+      'rw',
+      this.autocomplete_keyword_suggestions,
+      async () => {
+        // Delete existing suggestions for the same keywordId+date
+        const existing = await this.autocomplete_keyword_suggestions
+          .where('[keywordId+date]')
+          .equals([suggestion.keywordId, suggestion.date])
+          .toArray();
+        if (existing.length > 0) {
+          await this.autocomplete_keyword_suggestions.bulkDelete(
+            existing.map((e) => e.id!)
+          );
+        }
+        return this.autocomplete_keyword_suggestions.put(suggestion);
+      }
+    );
+  }
+
+  async getAutocompleteSuggestions(
+    keywordId: number,
+    startDate: string,
+    endDate: string
+  ): Promise<AutocompleteKeywordSuggestion[]> {
+    return this.autocomplete_keyword_suggestions
+      .where('[keywordId+date]')
+      .between([keywordId, startDate], [keywordId, endDate], true, true)
+      .toArray();
+  }
+
+  // ---------------------------------------------------------------------------
   // Bulk data management
   // ---------------------------------------------------------------------------
 
   async deleteExtensionData(extensionId: string): Promise<void> {
     await this.transaction(
       'rw',
-      [this.listing_snapshots, this.rank_snapshots, this.events, this.translation_snapshots],
+      [this.listing_snapshots, this.rank_snapshots, this.events, this.translation_snapshots, this.autocomplete_snapshots],
       async () => {
         await this.listing_snapshots.where('extensionId').equals(extensionId).delete();
         await this.rank_snapshots.where('[extensionId+date]')
@@ -439,6 +542,13 @@ export class CWSDatabase extends Dexie {
         await this.translation_snapshots.where('[extensionId+date]')
           .between([extensionId, Dexie.minKey], [extensionId, Dexie.maxKey])
           .delete();
+        // Autocomplete snapshots: filter by extensionId (no extensionId-only index)
+        const acSnaps = await this.autocomplete_snapshots
+          .filter((s) => s.extensionId === extensionId)
+          .toArray();
+        if (acSnaps.length > 0) {
+          await this.autocomplete_snapshots.bulkDelete(acSnaps.map((s) => s.id!));
+        }
       }
     );
   }
@@ -446,7 +556,7 @@ export class CWSDatabase extends Dexie {
   async pruneOldSnapshots(beforeDate: string): Promise<void> {
     await this.transaction(
       'rw',
-      [this.listing_snapshots, this.rank_snapshots, this.translation_snapshots],
+      [this.listing_snapshots, this.rank_snapshots, this.translation_snapshots, this.autocomplete_snapshots, this.autocomplete_keyword_suggestions],
       async () => {
         // For listing_snapshots: filter by date field
         const oldListings = await this.listing_snapshots
@@ -470,6 +580,22 @@ export class CWSDatabase extends Dexie {
           .toArray();
         if (oldTranslations.length > 0) {
           await this.translation_snapshots.bulkDelete(oldTranslations.map((s) => s.id!));
+        }
+
+        // For autocomplete_snapshots: filter by date field
+        const oldAutocomplete = await this.autocomplete_snapshots
+          .filter((s) => s.date < beforeDate)
+          .toArray();
+        if (oldAutocomplete.length > 0) {
+          await this.autocomplete_snapshots.bulkDelete(oldAutocomplete.map((s) => s.id!));
+        }
+
+        // For autocomplete_keyword_suggestions: filter by date field
+        const oldAcSuggestions = await this.autocomplete_keyword_suggestions
+          .filter((s) => s.date < beforeDate)
+          .toArray();
+        if (oldAcSuggestions.length > 0) {
+          await this.autocomplete_keyword_suggestions.bulkDelete(oldAcSuggestions.map((s) => s.id!));
         }
       }
     );

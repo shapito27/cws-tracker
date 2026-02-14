@@ -70,6 +70,12 @@ vi.mock('@/background/parsers/index', () => {
         nextPageToken: null,
       }),
     }),
+    getAutocompleteParser: () => ({
+      version: 'v1',
+      parse: () => ({
+        suggestions: [],
+      }),
+    }),
     ParserError: MockParserError,
   };
 });
@@ -213,9 +219,9 @@ describe('Scheduler', () => {
       const deps = createSchedulerDeps();
       await handleDailyScanAlarm(deps);
 
-      // Should have created 2 jobs: 1 listing_scan + 1 keyword_scan
+      // Should have created 3 jobs: 1 listing_scan + 1 keyword_scan + 1 autocomplete_scan
       const queueCount = await testDb.queue.count();
-      expect(queueCount).toBe(2);
+      expect(queueCount).toBe(3);
 
       // Should have created processQueue alarm
       const alarmCalls = getCalls('alarms.create');
@@ -373,8 +379,8 @@ describe('Scheduler', () => {
       const jobs = await testDb.queue.toArray();
       const pendingJobs = jobs.filter((j) => j.status === 'pending');
 
-      // Should have 2 new jobs (1 listing + 1 keyword)
-      expect(pendingJobs).toHaveLength(2);
+      // Should have 3 new jobs (1 listing + 1 keyword + 1 autocomplete)
+      expect(pendingJobs).toHaveLength(3);
 
       // None should be the old job
       const oldJob = pendingJobs.find(
