@@ -17,7 +17,7 @@ Read before starting any feature:
 - **Bundler:** Vite 5 + @crxjs/vite-plugin (MV3 HMR)
 - **Styling:** Tailwind CSS v4 (uses `@tailwindcss/vite` plugin, NOT the PostCSS-based v3 setup)
 - **Charts:** ApexCharts via `vue3-apexcharts`
-- **Database:** Dexie.js v4 for IndexedDB (currently schema v3, manifest v0.17.0)
+- **Database:** Dexie.js v4 for IndexedDB (currently schema v4, manifest v0.18.0)
 - **Storage:** `chrome.storage.local` for user settings (proxy URL, API keys, scan config)
 - **Testing:** Vitest + fake-indexeddb + jsdom. `@vue/test-utils` for component tests.
 - **Payments:** LemonSqueezy (planned)
@@ -38,10 +38,11 @@ src/
     messaging.ts          # chrome.runtime.onMessage handler
     pagination-diagnostic.ts  # Debug tool for CWS pagination
     parsers/
-      types.ts            # ListingParser / SearchParser interfaces
+      types.ts            # ListingParser / SearchParser / AutocompleteParser interfaces
       parser-factory.ts   # Selects correct parser version
       listing-v1.ts       # Parses CWS extension detail pages
       search-v1.ts        # Parses CWS search results
+      autocomplete-v1.ts  # Parses CWS search autocomplete suggestions (QcU9bc RPC)
       extract.ts          # Shared extraction utilities
   dashboard/              # Full-page Vue app - main UI
     index.html            # Dashboard SPA entry
@@ -53,6 +54,7 @@ src/
       useExtensions.ts    # Extension management
       useKeywords.ts      # Keyword management
       useRankings.ts      # Ranking data queries
+      useAutocomplete.ts  # Autocomplete position tracking and keyword suggestions
       useExtensionSnapshots.ts  # Snapshot data
       useScanLogs.ts      # Scan log queries
       useServiceWorker.ts # SW message communication
@@ -71,7 +73,7 @@ src/
     db/
       database.ts         # CWSDatabase class (extends Dexie) - schema, migrations, all queries
     types/
-      index.ts            # Core types: Project, Extension, Keyword, ListingSnapshot, RankSnapshot, EventRecord, QueueJob
+      index.ts            # Core types: Project, Extension, Keyword, ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord, QueueJob
       messages.ts         # Chrome.runtime message types (SW <-> UI)
       settings.ts         # Settings interface for chrome.storage.local
     utils/                # Pure functions only
@@ -123,14 +125,14 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 - All DB access through `CWSDatabase` class in `src/shared/db/database.ts`. Never use raw `indexedDB.open()`.
 - Singleton instance exported as `db` from `@/shared/db/database`.
 - Dexie handles migrations via `db.version(N).stores({...})` - define schema per version, Dexie diffs automatically.
-- Currently at schema version 3: v1 = core tables, v2 = audit_cache, v3 = scan_logs.
+- Currently at schema version 4: v1 = core tables, v2 = audit_cache, v3 = scan_logs, v4 = autocomplete_snapshots + autocomplete_keyword_suggestions.
 - Never `await` external work (fetch, API calls) inside a `db.transaction()` - it auto-closes.
 - Dates in indexes: `string` (YYYY-MM-DD). `Date` objects only for non-indexed metadata (e.g., `scannedAt`, `startedAt`).
 - DB version increments only on schema changes (separate from manifest version).
 - Upsert pattern: snapshot save methods delete existing records for same compound key before inserting.
 
 **Parsers:**
-- Must implement `ListingParser` or `SearchParser` interface (see `src/background/parsers/types.ts`).
+- Must implement `ListingParser`, `SearchParser`, or `AutocompleteParser` interface (see `src/background/parsers/types.ts`).
 - Versioned. CWS breaks a parser -> create new version, don't modify old.
 - `ParserFactory` in `parser-factory.ts` selects the correct version based on settings.
 - Tested against saved HTML fixtures in `tests/fixtures/`, never mock parser internals.
