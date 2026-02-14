@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { usePopupState } from './composables/usePopupState';
+import iconUrl from '@/assets/icon-48.png';
 
 const {
   scanStatus,
@@ -15,6 +17,9 @@ const {
   requestPause,
   requestResume,
 } = usePopupState();
+
+const ownChanges = computed(() => rankChanges.value.filter((rc) => rc.isOwn));
+const competitorChanges = computed(() => rankChanges.value.filter((rc) => !rc.isOwn));
 
 function formatPosition(position: number | null): string {
   return position === null ? '30+' : String(position);
@@ -37,7 +42,13 @@ function togglePause(): void {
 <template>
   <div class="p-4">
     <!-- Header -->
-    <h1 class="text-lg font-bold text-gray-900 mb-3">CWS Tracker</h1>
+    <div class="flex items-center gap-2 mb-3">
+      <img :src="iconUrl" alt="CWS Tracker" class="h-6 w-6 rounded" />
+      <h1 class="text-lg font-bold text-gray-900">CWS Tracker</h1>
+      <span v-if="subscriptionStatus === 'pro'" class="ml-auto inline-block rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
+        Pro
+      </span>
+    </div>
 
     <!-- Scan Status -->
     <div class="rounded-lg bg-gray-50 p-3 mb-3">
@@ -115,56 +126,110 @@ function togglePause(): void {
         </p>
       </div>
 
-      <!-- Changes list -->
-      <div v-else class="space-y-1.5">
-        <div
-          v-for="(rc, index) in rankChanges"
-          :key="index"
-          class="flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-2"
-        >
-          <div class="min-w-0 flex-1 mr-2">
-            <p class="text-xs truncate" :class="rc.isOwn ? 'font-semibold text-blue-700' : 'font-medium text-gray-800'">
-              {{ rc.extensionName }}
-              <span
-                v-if="rc.isOwn"
-                class="ml-1 inline-flex rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800 align-middle"
-              >Own</span>
-            </p>
-            <p class="text-xs text-gray-500 truncate">
-              "{{ rc.keyword }}"
-            </p>
+      <div v-else class="space-y-2">
+        <!-- Your Extensions group -->
+        <div v-if="ownChanges.length > 0">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-blue-500" />
+            <span class="text-xs font-semibold text-blue-700">Your Extensions</span>
           </div>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <span class="text-xs text-gray-400">
-              {{ formatPosition(rc.previousPosition) }}
-            </span>
-            <span class="text-xs text-gray-300">&rarr;</span>
-            <span class="text-xs font-medium" :class="{
-              'text-gray-600': rc.currentPosition === null,
-            }">
-              {{ formatPosition(rc.currentPosition) }}
-            </span>
-            <!-- Change indicator -->
-            <span
-              v-if="rc.change !== null && rc.change > 0"
-              class="inline-flex items-center text-xs font-medium text-green-600"
-              :title="'Improved by ' + rc.change + ' positions'"
+          <div class="space-y-1">
+            <div
+              v-for="(rc, index) in ownChanges"
+              :key="'own-' + index"
+              class="flex items-center justify-between rounded-md bg-blue-50 border border-blue-100 px-2.5 py-2"
             >
-              <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
-                <path d="M6 2L10 8H2L6 2Z" />
-              </svg>
-              {{ rc.change > 30 ? 'New' : rc.change }}
-            </span>
-            <span
-              v-else-if="rc.change !== null && rc.change < 0"
-              class="inline-flex items-center text-xs font-medium text-red-600"
-              :title="'Dropped by ' + Math.abs(rc.change) + ' positions'"
+              <div class="min-w-0 flex-1 mr-2">
+                <p class="text-xs font-semibold text-blue-800 truncate">
+                  {{ rc.extensionName }}
+                </p>
+                <p class="text-xs text-blue-600/70 truncate">
+                  "{{ rc.keyword }}"
+                </p>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <span class="text-xs text-gray-400">
+                  {{ formatPosition(rc.previousPosition) }}
+                </span>
+                <span class="text-xs text-gray-300">&rarr;</span>
+                <span class="text-xs font-medium">
+                  {{ formatPosition(rc.currentPosition) }}
+                </span>
+                <span
+                  v-if="rc.change !== null && rc.change > 0"
+                  class="inline-flex items-center text-xs font-medium text-green-600"
+                  :title="'Improved by ' + rc.change + ' positions'"
+                >
+                  <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M6 2L10 8H2L6 2Z" />
+                  </svg>
+                  {{ rc.change > 30 ? 'New' : rc.change }}
+                </span>
+                <span
+                  v-else-if="rc.change !== null && rc.change < 0"
+                  class="inline-flex items-center text-xs font-medium text-red-600"
+                  :title="'Dropped by ' + Math.abs(rc.change) + ' positions'"
+                >
+                  <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M6 10L2 4H10L6 10Z" />
+                  </svg>
+                  {{ rc.change < -30 ? 'Out' : Math.abs(rc.change) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Competitors group -->
+        <div v-if="competitorChanges.length > 0">
+          <div class="flex items-center gap-1.5 mb-1">
+            <span class="inline-block h-1.5 w-1.5 rounded-full bg-gray-400" />
+            <span class="text-xs font-semibold text-gray-500">Competitors</span>
+          </div>
+          <div class="space-y-1">
+            <div
+              v-for="(rc, index) in competitorChanges"
+              :key="'comp-' + index"
+              class="flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-2"
             >
-              <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
-                <path d="M6 10L2 4H10L6 10Z" />
-              </svg>
-              {{ rc.change < -30 ? 'Out' : Math.abs(rc.change) }}
-            </span>
+              <div class="min-w-0 flex-1 mr-2">
+                <p class="text-xs font-medium text-gray-700 truncate">
+                  {{ rc.extensionName }}
+                </p>
+                <p class="text-xs text-gray-400 truncate">
+                  "{{ rc.keyword }}"
+                </p>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <span class="text-xs text-gray-400">
+                  {{ formatPosition(rc.previousPosition) }}
+                </span>
+                <span class="text-xs text-gray-300">&rarr;</span>
+                <span class="text-xs font-medium text-gray-600">
+                  {{ formatPosition(rc.currentPosition) }}
+                </span>
+                <span
+                  v-if="rc.change !== null && rc.change > 0"
+                  class="inline-flex items-center text-xs font-medium text-green-600"
+                  :title="'Improved by ' + rc.change + ' positions'"
+                >
+                  <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M6 2L10 8H2L6 2Z" />
+                  </svg>
+                  {{ rc.change > 30 ? 'New' : rc.change }}
+                </span>
+                <span
+                  v-else-if="rc.change !== null && rc.change < 0"
+                  class="inline-flex items-center text-xs font-medium text-red-600"
+                  :title="'Dropped by ' + Math.abs(rc.change) + ' positions'"
+                >
+                  <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
+                    <path d="M6 10L2 4H10L6 10Z" />
+                  </svg>
+                  {{ rc.change < -30 ? 'Out' : Math.abs(rc.change) }}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -198,11 +263,5 @@ function togglePause(): void {
       </div>
     </div>
 
-    <!-- Subscription badge -->
-    <div v-if="subscriptionStatus === 'pro'" class="mt-3 text-center">
-      <span class="inline-block rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
-        Pro
-      </span>
-    </div>
   </div>
 </template>
