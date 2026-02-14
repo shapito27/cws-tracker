@@ -695,10 +695,10 @@ async function fetchAutocompleteWithLogging(
   proxyUrl.searchParams.set('q', keyword);
   if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
 
-  const requestUrl = proxyUrl.toString().replace(
-    settings.proxyApiKey || '',
-    settings.proxyApiKey ? '[REDACTED]' : ''
-  );
+  // Build a redacted URL for logging (reconstruct rather than string-replace)
+  const logUrl = new URL(proxyUrl.toString());
+  if (settings.proxyApiKey) logUrl.searchParams.set('key', '[REDACTED]');
+  const requestUrl = logUrl.toString();
   const jobDetail = `Autocomplete for "${keyword}"`;
   const start = Date.now();
 
