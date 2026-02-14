@@ -70,6 +70,12 @@ vi.mock('@/background/parsers/index', () => {
         nextPageToken: null,
       }),
     }),
+    getAutocompleteParser: () => ({
+      version: 'v1',
+      parse: () => ({
+        suggestions: [],
+      }),
+    }),
     ParserError: MockParserError,
   };
 });
