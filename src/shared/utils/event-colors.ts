@@ -22,6 +22,7 @@ export const EVENT_TYPE_COLORS: Record<EventType, string> = {
   screenshot_change: '#6B7280',   // gray-500
   translation_change: '#6B7280',  // gray-500
   badge_change: '#6B7280',        // gray-500
+  rank_change: '#7C3AED',        // violet-600
 };
 
 /** Human-readable label for each event type. */
@@ -35,10 +36,12 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   translation_change: 'Translation Change',
   screenshot_change: 'Screenshot Change',
   badge_change: 'Badge Change',
+  rank_change: 'Rank Change',
 };
 
 /** All event types in display order. */
 export const ALL_EVENT_TYPES: EventType[] = [
+  'rank_change',
   'permission_change',
   'version_change',
   'rating_milestone',
@@ -57,6 +60,7 @@ const BADGE_CLASS_MAP: Record<string, string> = {
   '#16A34A': 'bg-green-100 text-green-800',
   '#D97706': 'bg-amber-100 text-amber-800',
   '#6B7280': 'bg-gray-100 text-gray-800',
+  '#7C3AED': 'bg-violet-100 text-violet-800',
 };
 
 /** Get Tailwind CSS badge classes for an event type, consistent with chart annotation colors. */
