@@ -173,7 +173,6 @@ function getPositionClass(keywordId: number, extensionId: string): string {
     <div v-if="keywords.length > 0" class="mt-6">
       <KeywordSuggestionsPanel
         :keywords="keywords"
-        :project-id="project.id!"
         @add-keyword="handleAddSuggestion"
       />
     </div>

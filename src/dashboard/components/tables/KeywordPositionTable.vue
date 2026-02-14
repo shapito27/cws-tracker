@@ -44,16 +44,20 @@ async function load(): Promise<void> {
       dateRange.value
     );
 
-    // Load autocomplete positions for own extension across all keywords
+    // Load autocomplete positions for own extension across all keywords in parallel
     const ownExt = await db.extensions.get(props.ownExtensionId);
     const map = new Map<number, number | null>();
     if (ownExt) {
-      for (const kw of props.keywords) {
-        if (kw.id === undefined) continue;
-        const positions = await loadAutocompletePositions(kw.id, [ownExt]);
-        const own = positions.find((p) => p.extensionId === props.ownExtensionId);
-        map.set(kw.id, own?.position ?? null);
-      }
+      const keywordsWithId = props.keywords.filter((kw) => kw.id !== undefined);
+      const positionsArray = await Promise.all(
+        keywordsWithId.map((kw) => loadAutocompletePositions(kw.id!, [ownExt]))
+      );
+      keywordsWithId.forEach((kw, idx) => {
+        const own = positionsArray[idx]?.find(
+          (p) => p.extensionId === props.ownExtensionId
+        );
+        map.set(kw.id!, own?.position ?? null);
+      });
     }
     acPositions.value = map;
   } finally {
@@ -185,9 +189,9 @@ function formatDateHeader(dateStr: string): string {
             <th
               scope="col"
               class="px-2 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-gray-500 whitespace-nowrap border-r border-gray-100"
-              title="Autocomplete position (1-10)"
+              aria-label="Autocomplete position (1 to 10)"
             >
-              AC
+              <abbr title="Autocomplete position (1-10)">AC</abbr>
             </th>
             <th
               v-for="date in dateColumns"
@@ -221,11 +225,12 @@ function formatDateHeader(dateStr: string): string {
                 v-if="getAcPosition(row.keywordId) !== null"
                 class="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold"
                 :class="acBadgeClasses(getAcPosition(row.keywordId))"
+                :aria-label="`Autocomplete position ${getAcPosition(row.keywordId)} for ${row.keywordText}`"
                 :title="`Autocomplete position: #${getAcPosition(row.keywordId)}`"
               >
                 {{ formatAcBadge(getAcPosition(row.keywordId)) }}
               </span>
-              <span v-else class="text-xs text-gray-300">-</span>
+              <span v-else class="text-xs text-gray-300" aria-label="No autocomplete data">-</span>
             </td>
 
             <!-- Day cells -->
@@ -248,11 +253,11 @@ function formatDateHeader(dateStr: string): string {
                   :class="deltaColorClass(getCell(row, date)!.delta)"
                   :title="`${getCell(row, date)!.delta! > 0 ? 'Improved' : 'Dropped'} ${Math.abs(getCell(row, date)!.delta!)} position${Math.abs(getCell(row, date)!.delta!) !== 1 ? 's' : ''}`"
                 >
-                  {{ deltaArrow(getCell(row, date)!.delta) }}
+                  <span aria-hidden="true">{{ deltaArrow(getCell(row, date)!.delta) }}</span>
                   {{ deltaText(getCell(row, date)!.delta) }}
                 </div>
               </template>
-              <span v-else class="text-xs text-gray-300">-</span>
+              <span v-else class="text-xs text-gray-300" aria-label="No data">-</span>
             </td>
           </tr>
         </tbody>
