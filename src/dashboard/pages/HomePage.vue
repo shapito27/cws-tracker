@@ -7,6 +7,7 @@ import { useSettings } from '../composables/useSettings';
 import { db } from '@/shared/db/database';
 import type { Project, Extension } from '@/shared/types';
 import ExtensionsOverviewTable from '../components/tables/ExtensionsOverviewTable.vue';
+import RecentRankChanges from '../components/RecentRankChanges.vue';
 
 const router = useRouter();
 const { projects, loading, loadProjects, createProject } = useProjects();
@@ -271,6 +272,9 @@ function formatTime(isoString: string): string {
         </div>
       </router-link>
     </div>
+
+    <!-- Recent Rank Changes -->
+    <RecentRankChanges v-if="!loading && projects.length > 0" class="mt-8" />
 
     <!-- Extensions Overview Table -->
     <ExtensionsOverviewTable v-if="!loading && projects.length > 0" class="mt-8" />
