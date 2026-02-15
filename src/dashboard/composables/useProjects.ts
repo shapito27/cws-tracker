@@ -48,7 +48,6 @@ export function useProjects() {
   }
 
   async function createProject(
-    name: string,
     ownExtensionInput: string
   ): Promise<Project> {
     const extensionId = parseExtensionId(ownExtensionInput);
@@ -76,9 +75,13 @@ export function useProjects() {
       });
     }
 
+    // Auto-resolve name: use existing extension name if available, otherwise extensionId.
+    // The project name will be backfilled from the listing when the first scan completes.
+    const resolvedName = existing?.name?.trim() ? existing.name : extensionId;
+
     // Create project
     const project: Project = {
-      name: name || extensionId,
+      name: resolvedName,
       ownExtensionId: extensionId,
       competitorIds: [],
       keywordIds: [],
