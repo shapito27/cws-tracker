@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { Project } from '@/shared/types';
 import { db } from '@/shared/db/database';
+import { useServiceWorker } from '../composables/useServiceWorker';
 
 const OverviewTab = defineAsyncComponent(() => import('../components/project/OverviewTab.vue'));
 const RankingsTab = defineAsyncComponent(() => import('../components/project/RankingsTab.vue'));
@@ -14,6 +15,7 @@ const KeywordAnalysis = defineAsyncComponent(() => import('../components/tables/
 
 const route = useRoute();
 const router = useRouter();
+const { scanStatus } = useServiceWorker();
 
 const project = ref<Project | null>(null);
 const loading = ref(true);
@@ -80,6 +82,16 @@ async function loadProject(): Promise<void> {
 onMounted(loadProject);
 
 watch(projectId, loadProject);
+
+// Reload project when a scan completes (e.g., to pick up auto-filled name)
+watch(
+  () => scanStatus.value.isRunning,
+  (isRunning, wasRunning) => {
+    if (wasRunning && !isRunning) {
+      loadProject();
+    }
+  }
+);
 </script>
 
 <template>
