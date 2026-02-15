@@ -77,7 +77,7 @@ export function useProjects() {
 
     // Auto-resolve name: use existing extension name if available, otherwise extensionId.
     // The project name will be backfilled from the listing when the first scan completes.
-    const resolvedName = existing?.name ? existing.name : extensionId;
+    const resolvedName = existing?.name?.trim() ? existing.name : extensionId;
 
     // Create project
     const project: Project = {

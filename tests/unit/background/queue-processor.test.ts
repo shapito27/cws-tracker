@@ -928,5 +928,51 @@ describe('Queue Processor', () => {
       const project = await testDb.getProject(1);
       expect(project!.name).toBe('My Custom Name');
     });
+
+    it('updates only auto-generated names when multiple projects share the same extension', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      const extId = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+      // Project 1: auto-generated name (should update)
+      await testDb.saveProject({
+        id: 1,
+        name: extId,
+        ownExtensionId: extId,
+        competitorIds: [],
+        keywordIds: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Project 2: custom name (should NOT update)
+      await testDb.saveProject({
+        id: 2,
+        name: 'Custom Project',
+        ownExtensionId: extId,
+        competitorIds: [],
+        keywordIds: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      await testDb.saveExtension({
+        id: extId,
+        name: '',
+        iconUrl: null,
+        addedAt: new Date(),
+        lastScannedAt: null,
+        status: 'active',
+        projectRefs: [1, 2],
+      });
+
+      await testDb.enqueueJobs([makeListingJob(extId)]);
+      const deps = createDeps();
+      await processNextJob(deps);
+
+      const project1 = await testDb.getProject(1);
+      const project2 = await testDb.getProject(2);
+      expect(project1!.name).toBe('Test Extension');
+      expect(project2!.name).toBe('Custom Project');
+    });
   });
 });
