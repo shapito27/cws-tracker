@@ -7,7 +7,6 @@ import { useSettings } from '../composables/useSettings';
 import { db } from '@/shared/db/database';
 import type { Project, Extension } from '@/shared/types';
 import ExtensionsOverviewTable from '../components/tables/ExtensionsOverviewTable.vue';
-import StatsOverview from '../components/StatsOverview.vue';
 
 const router = useRouter();
 const { projects, loading, loadProjects, createProject } = useProjects();
@@ -175,9 +174,6 @@ function formatTime(isoString: string): string {
 
 <template>
   <div>
-    <!-- Stats Overview -->
-    <StatsOverview />
-
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-2xl font-bold text-gray-900">Projects</h2>
       <div class="flex items-center gap-3">
