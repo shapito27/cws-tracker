@@ -681,6 +681,7 @@ async function detectRankChanges(
       oldValue: String(previous.position ?? 'null'),
       newValue: String(snap.position ?? 'null'),
       note,
+      detectedAt: new Date(),
     };
 
     try {

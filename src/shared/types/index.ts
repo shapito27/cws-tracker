@@ -235,6 +235,8 @@ export interface EventRecord {
   newValue: string | null;
   /** Human-readable description (e.g. "Title changed from 'X' to 'Y'"). */
   note: string;
+  /** Exact timestamp when the change was detected. Not indexed. Absent on legacy records. */
+  detectedAt?: Date;
 }
 
 // ---------------------------------------------------------------------------
