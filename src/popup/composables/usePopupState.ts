@@ -38,6 +38,8 @@ export interface RankChange {
   projectId: number | null;
   /** The date of the current rank snapshot (YYYY-MM-DD). */
   date: string;
+  /** Exact timestamp of the current rank snapshot scan. */
+  scannedAt: Date;
 }
 
 export interface PopupState {
@@ -204,6 +206,7 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
         isOwn: ownExtIds.has(snap.extensionId),
         projectId: ownerProject?.id ?? null,
         date: currentDate,
+        scannedAt: snap.scannedAt,
       });
     }
   }

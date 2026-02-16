@@ -13,8 +13,16 @@ function formatPosition(position: number | null): string {
   return position === null ? '30+' : `#${position}`;
 }
 
-function formatDate(date: string): string {
-  const d = new Date(date + 'T00:00:00');
+function formatDateTime(rc: RankChange): string {
+  if (rc.scannedAt) {
+    const d = rc.scannedAt instanceof Date ? rc.scannedAt : new Date(rc.scannedAt);
+    if (!isNaN(d.getTime())) {
+      const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+      return `${dateStr}, ${timeStr}`;
+    }
+  }
+  const d = new Date(rc.date + 'T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -67,7 +75,7 @@ watch(
           <div class="flex items-center gap-1.5 text-xs text-gray-500">
             <span class="truncate">"{{ rc.keyword }}"</span>
             <span class="text-gray-300">&middot;</span>
-            <span class="shrink-0">{{ formatDate(rc.date) }}</span>
+            <span class="shrink-0">{{ formatDateTime(rc) }}</span>
           </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
