@@ -223,7 +223,7 @@ function createEvent(
   newValue: string | null,
   note: string
 ): EventRecord {
-  return { extensionId, date, type, field, oldValue, newValue, note };
+  return { extensionId, date, type, field, oldValue, newValue, note, detectedAt: new Date() };
 }
 
 /**

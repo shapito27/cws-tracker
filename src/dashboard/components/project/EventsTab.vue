@@ -30,8 +30,13 @@ onMounted(async () => {
     const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
     allEvents.push(...extEvents);
   }
-  // Sort by date descending
-  allEvents.sort((a, b) => b.date.localeCompare(a.date));
+  // Sort by detectedAt descending (falls back to date string for legacy records)
+  allEvents.sort((a, b) => {
+    const aTime = a.detectedAt?.getTime() ?? 0;
+    const bTime = b.detectedAt?.getTime() ?? 0;
+    if (aTime || bTime) return bTime - aTime;
+    return b.date.localeCompare(a.date);
+  });
   events.value = allEvents;
   loading.value = false;
 });
@@ -91,6 +96,15 @@ function parsePermissions(value: string | null): string[] {
   } catch {
     return [];
   }
+}
+
+function formatEventDateTime(event: EventRecord): string {
+  if (!event.detectedAt) return event.date;
+  const d = event.detectedAt;
+  if (isNaN(d.getTime())) return event.date;
+  const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return `${dateStr}, ${timeStr}`;
 }
 
 </script>
@@ -174,7 +188,7 @@ function parsePermissions(value: string | null): string[] {
               </span>
             </div>
           </div>
-          <span class="shrink-0 text-xs text-gray-500">{{ event.date }}</span>
+          <span class="shrink-0 text-xs text-gray-500">{{ formatEventDateTime(event) }}</span>
         </div>
 
         <!-- Expanded diff detail -->
