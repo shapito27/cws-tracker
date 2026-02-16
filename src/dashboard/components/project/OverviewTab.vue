@@ -75,8 +75,13 @@ onMounted(async () => {
       const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
       events.push(...extEvents);
     }
-    // Sort by date descending, take last 10
-    events.sort((a, b) => b.date.localeCompare(a.date));
+    // Sort by detectedAt descending (falls back to date string for legacy records)
+    events.sort((a, b) => {
+      const aTime = a.detectedAt?.getTime() ?? 0;
+      const bTime = b.detectedAt?.getTime() ?? 0;
+      if (aTime || bTime) return bTime - aTime;
+      return b.date.localeCompare(a.date);
+    });
     recentEvents.value = events.slice(0, 10);
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
@@ -378,7 +383,7 @@ function isOwnExtension(extensionId: string): boolean {
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-sm text-gray-900">{{ event.note }}</p>
-                <span class="shrink-0 text-xs text-gray-400">{{ event.date }}</span>
+                <span class="shrink-0 text-xs text-gray-400">{{ event.detectedAt ? formatRelativeDateTime(event.detectedAt) : event.date }}</span>
               </div>
               <div class="mt-1.5 flex items-center gap-2">
                 <span
