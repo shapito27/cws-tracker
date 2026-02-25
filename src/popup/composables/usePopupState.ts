@@ -22,6 +22,11 @@ import type { SubscriptionStatus } from '../../shared/types/settings';
 
 export type ScanStatus = 'idle' | 'running';
 
+/** Sentinel change value when an extension *appears* in autocomplete (prev=null → curr≥1). */
+export const AC_APPEARED_SENTINEL = 11;
+/** Sentinel change value when an extension *disappears* from autocomplete (prev≥1 → curr=null). */
+export const AC_DISAPPEARED_SENTINEL = -11;
+
 export interface RankChange {
   /** Discriminates between search-rank and autocomplete-position changes. */
   type: 'rank' | 'autocomplete';
@@ -335,9 +340,9 @@ export async function loadRecentAutocompleteChanges(limit: number = 5): Promise<
 
     let change: number | null = null;
     if (currPos !== null && prevPos === null) {
-      change = 11; // appeared in autocomplete
+      change = AC_APPEARED_SENTINEL; // appeared in autocomplete
     } else if (currPos === null && prevPos !== null) {
-      change = -11; // disappeared from autocomplete
+      change = AC_DISAPPEARED_SENTINEL; // disappeared from autocomplete
     } else if (currPos !== null && prevPos !== null && currPos !== prevPos) {
       change = prevPos - currPos; // positive = improved (lower position number)
     }
@@ -403,6 +408,10 @@ export async function loadRecentAutocompleteChanges(limit: number = 5): Promise<
  * Rank changes and autocomplete changes are computed independently over their own
  * consecutive date pairs to avoid false "appeared/disappeared" artifacts when one
  * scan type has data further back in time than the other.
+ *
+ * @param snapshotLimit Max rows to load from each snapshot table independently.
+ *   At ~200 snapshots/day (10 ext × 20 kw), the default of 10 000 covers ~50 days.
+ *   Actual IndexedDB reads: up to 2 × snapshotLimit rows total (rank + autocomplete).
  */
 export async function loadAllChanges(snapshotLimit: number = 10000): Promise<ChangesDateGroup[]> {
   const projects = await db.projects.toArray();
@@ -510,9 +519,9 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
 
       let change: number | null = null;
       if (currPos !== null && prevPos === null) {
-        change = 11;
+        change = AC_APPEARED_SENTINEL;
       } else if (currPos === null && prevPos !== null) {
-        change = -11;
+        change = AC_DISAPPEARED_SENTINEL;
       } else if (currPos !== null && prevPos !== null && currPos !== prevPos) {
         change = prevPos - currPos;
       }

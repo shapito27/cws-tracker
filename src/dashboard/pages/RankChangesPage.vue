@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { loadAllChanges, type RankChange, type ChangesDateGroup } from '@/popup/composables/usePopupState';
+import { loadAllChanges, AC_APPEARED_SENTINEL, AC_DISAPPEARED_SENTINEL, type RankChange, type ChangesDateGroup } from '@/popup/composables/usePopupState';
 import ExtensionIcon from '../components/ExtensionIcon.vue';
 
 const groups = ref<ChangesDateGroup[]>([]);
@@ -29,11 +29,13 @@ function formatPosition(rc: RankChange, position: number | null): string {
 }
 
 function isNew(rc: RankChange): boolean {
-  return rc.change !== null && rc.change > (rc.type === 'autocomplete' ? 10 : 30);
+  if (rc.type === 'autocomplete') return rc.change === AC_APPEARED_SENTINEL;
+  return rc.change !== null && rc.change > 30;
 }
 
 function isOut(rc: RankChange): boolean {
-  return rc.change !== null && rc.change < (rc.type === 'autocomplete' ? -10 : -30);
+  if (rc.type === 'autocomplete') return rc.change === AC_DISAPPEARED_SENTINEL;
+  return rc.change !== null && rc.change < -30;
 }
 
 onMounted(async () => {
@@ -99,7 +101,7 @@ onMounted(async () => {
         <div class="divide-y divide-gray-50">
           <div
             v-for="rc in group.changes"
-            :key="`${rc.type}-${rc.extensionId}-${rc.keywordId}`"
+            :key="`${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.scannedAt instanceof Date ? rc.scannedAt.getTime() : new Date(rc.scannedAt).getTime()}`"
             class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors"
           >
             <ExtensionIcon :icon-url="rc.iconUrl" :name="rc.extensionName" size="sm" />
@@ -107,7 +109,7 @@ onMounted(async () => {
               <div class="flex items-center gap-1.5">
                 <router-link
                   v-if="rc.projectId"
-                  :to="{ name: 'project', params: { id: rc.projectId } }"
+                  :to="{ name: 'project', params: { id: String(rc.projectId) } }"
                   class="text-sm font-medium text-gray-900 truncate hover:text-blue-600 hover:underline"
                 >{{ rc.extensionName }}</router-link>
                 <span v-else class="text-sm font-medium text-gray-900 truncate">{{ rc.extensionName }}</span>
