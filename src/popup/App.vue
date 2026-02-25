@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { usePopupState } from './composables/usePopupState';
 import iconUrl from '@/assets/icon-48.png';
+import ExtensionIcon from '@/dashboard/components/ExtensionIcon.vue';
 
 const {
   scanStatus,
@@ -139,7 +140,8 @@ function togglePause(): void {
               :key="'own-' + index"
               class="flex items-center justify-between rounded-md bg-blue-50 border border-blue-100 px-2.5 py-2"
             >
-              <div class="min-w-0 flex-1 mr-2">
+              <ExtensionIcon :icon-url="rc.iconUrl" :name="rc.extensionName" size="xs" />
+              <div class="min-w-0 flex-1 mx-2">
                 <p class="text-xs font-semibold text-blue-800 truncate">
                   {{ rc.extensionName }}
                 </p>
@@ -192,7 +194,8 @@ function togglePause(): void {
               :key="'comp-' + index"
               class="flex items-center justify-between rounded-md bg-gray-50 px-2.5 py-2"
             >
-              <div class="min-w-0 flex-1 mr-2">
+              <ExtensionIcon :icon-url="rc.iconUrl" :name="rc.extensionName" size="xs" />
+              <div class="min-w-0 flex-1 mx-2">
                 <p class="text-xs font-medium text-gray-700 truncate">
                   {{ rc.extensionName }}
                 </p>
