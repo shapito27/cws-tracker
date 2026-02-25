@@ -3,6 +3,8 @@ import { ref, watch, onMounted } from 'vue';
 import {
   loadRecentRankChanges,
   loadRecentAutocompleteChanges,
+  AC_APPEARED_SENTINEL,
+  AC_DISAPPEARED_SENTINEL,
   type RankChange,
 } from '@/popup/composables/usePopupState';
 import { useServiceWorker } from '../composables/useServiceWorker';
@@ -34,12 +36,13 @@ function formatDateTime(rc: RankChange): string {
 }
 
 function isNew(rc: RankChange): boolean {
-  // Threshold differs: rank uses 30, autocomplete uses 10
-  return rc.change !== null && rc.change > (rc.type === 'autocomplete' ? 10 : 30);
+  if (rc.type === 'autocomplete') return rc.change === AC_APPEARED_SENTINEL;
+  return rc.change !== null && rc.change > 30;
 }
 
 function isOut(rc: RankChange): boolean {
-  return rc.change !== null && rc.change < (rc.type === 'autocomplete' ? -10 : -30);
+  if (rc.type === 'autocomplete') return rc.change === AC_DISAPPEARED_SENTINEL;
+  return rc.change !== null && rc.change < -30;
 }
 
 async function loadData(): Promise<void> {
@@ -99,7 +102,7 @@ watch(
           <div class="flex items-center gap-1.5">
             <router-link
               v-if="rc.projectId"
-              :to="{ name: 'project', params: { id: rc.projectId } }"
+              :to="{ name: 'project', params: { id: String(rc.projectId) } }"
               class="text-sm font-medium text-gray-900 truncate hover:text-blue-600 hover:underline"
             >{{ rc.extensionName }}</router-link>
             <span v-else class="text-sm font-medium text-gray-900 truncate">{{ rc.extensionName }}</span>
