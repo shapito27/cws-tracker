@@ -23,6 +23,11 @@ const routes: RouteRecordRaw[] = [
     name: 'settings',
     component: () => import('./pages/SettingsPage.vue'),
   },
+  {
+    path: '/rank-changes',
+    name: 'rankChanges',
+    component: () => import('./pages/RankChangesPage.vue'),
+  },
 ];
 
 export const router = createRouter({
