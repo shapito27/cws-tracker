@@ -13,8 +13,7 @@ import { useServiceWorker } from '../../composables/useServiceWorker';
 import { useSettings } from '../../composables/useSettings';
 import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
-import { EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
-import ExtensionIcon from '../ExtensionIcon.vue';
+import ListingEventItem from '../ListingEventItem.vue';
 import RankChangeItem from '../RankChangeItem.vue';
 import RankChart from '../charts/RankChart.vue';
 import UsersReviewsChart from '../charts/UsersReviewsChart.vue';
@@ -36,7 +35,6 @@ const extensions = ref<Extension[]>([]);
 const ownExtension = ref<Extension | undefined>(undefined);
 const recentEvents = ref<EventRecord[]>([]);
 const projectRankChanges = ref<RankChange[]>([]);
-const unifiedEvents = ref<UnifiedEvent[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const keywords = ref<Keyword[]>([]);
 const ownSnapshot = ref<ListingSnapshot | undefined>(undefined);
@@ -80,9 +78,7 @@ onMounted(async () => {
       );
     }
 
-    await loadProjectRankChanges();
-    await loadProjectEvents();
-    mergeEvents();
+    await Promise.all([loadProjectRankChanges(), loadProjectEvents()]);
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
   } finally {
@@ -111,15 +107,16 @@ async function loadProjectRankChanges(): Promise<void> {
 async function loadProjectEvents(): Promise<void> {
   try {
     const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
-    const events: EventRecord[] = [];
-    for (const extId of allExtIds) {
-      const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
-      events.push(...extEvents);
-    }
+    const results = await Promise.all(
+      allExtIds.map(extId => db.getEvents(extId, daysAgo(90), today()))
+    );
+    const events = results.flat();
     events.sort((a, b) => {
       const aTime = a.detectedAt?.getTime() ?? 0;
       const bTime = b.detectedAt?.getTime() ?? 0;
-      if (aTime || bTime) return bTime - aTime;
+      if (aTime && bTime) return bTime - aTime;
+      if (aTime) return -1;
+      if (bTime) return 1;
       return b.date.localeCompare(a.date);
     });
     recentEvents.value = events.filter(e => e.type !== 'rank_change').slice(0, 20);
@@ -128,7 +125,7 @@ async function loadProjectEvents(): Promise<void> {
   }
 }
 
-function mergeEvents(): void {
+const unifiedEvents = computed((): UnifiedEvent[] => {
   const items: UnifiedEvent[] = [];
   for (const rc of projectRankChanges.value) {
     const t = rc.scannedAt instanceof Date ? rc.scannedAt.getTime() : new Date(rc.scannedAt).getTime();
@@ -139,17 +136,15 @@ function mergeEvents(): void {
     items.push({ kind: 'listing_event', data: ev, sortTime: t || 0 });
   }
   items.sort((a, b) => b.sortTime - a.sortTime);
-  unifiedEvents.value = items.slice(0, 15);
-}
+  return items.slice(0, 15);
+});
 
 // Reload events after scan completes
 watch(
   () => scanStatus.value.isRunning,
   async (isRunning, wasRunning) => {
     if (wasRunning && !isRunning) {
-      await loadProjectRankChanges();
-      await loadProjectEvents();
-      mergeEvents();
+      await Promise.all([loadProjectRankChanges(), loadProjectEvents()]);
     }
   }
 );
@@ -232,6 +227,19 @@ function getExtensionIconUrl(extensionId: string): string | null {
 
 function isOwnExtension(extensionId: string): boolean {
   return extensionId === props.project.ownExtensionId;
+}
+
+function formatEventTime(event: EventRecord): string {
+  if (event.detectedAt) return formatRelativeDateTime(event.detectedAt);
+  return event.date;
+}
+
+function getUnifiedEventKey(item: UnifiedEvent): string {
+  if (item.kind === 'rank_change') {
+    const rc = item.data as RankChange;
+    return `rc-${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.date}`;
+  }
+  return `ev-${(item.data as EventRecord).id}`;
 }
 </script>
 
@@ -431,52 +439,21 @@ function isOwnExtension(extensionId: string): boolean {
       </div>
       <div v-else class="rounded-lg border border-gray-200 bg-white shadow-sm">
         <div class="divide-y divide-gray-50">
-          <template v-for="item in unifiedEvents" :key="item.kind === 'rank_change'
-            ? `rc-${item.data.type}-${(item.data as RankChange).extensionId}-${(item.data as RankChange).keywordId}-${(item.data as RankChange).date}`
-            : `ev-${(item.data as EventRecord).id}`">
-
-            <!-- Rank change items -->
+          <template v-for="item in unifiedEvents" :key="getUnifiedEventKey(item)">
             <RankChangeItem
               v-if="item.kind === 'rank_change'"
               :rank-change="(item.data as RankChange)"
               :link-to-project="false"
               :show-date="true"
             />
-
-            <!-- Listing event items -->
-            <div v-else class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors">
-              <ExtensionIcon
-                :icon-url="getExtensionIconUrl((item.data as EventRecord).extensionId)"
-                :name="getExtensionName((item.data as EventRecord).extensionId)"
-                size="sm"
-              />
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-1.5">
-                  <span class="text-sm font-medium text-gray-900 truncate">
-                    {{ getExtensionName((item.data as EventRecord).extensionId) }}
-                  </span>
-                  <span
-                    v-if="isOwnExtension((item.data as EventRecord).extensionId)"
-                    class="inline-flex rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 shrink-0"
-                  >You</span>
-                </div>
-                <div class="flex items-center gap-1.5 text-xs text-gray-500">
-                  <span class="truncate">{{ (item.data as EventRecord).note }}</span>
-                  <template v-if="(item.data as EventRecord).detectedAt || (item.data as EventRecord).date">
-                    <span class="text-gray-300">&middot;</span>
-                    <span class="shrink-0">
-                      {{ (item.data as EventRecord).detectedAt ? formatRelativeDateTime((item.data as EventRecord).detectedAt!) : (item.data as EventRecord).date }}
-                    </span>
-                  </template>
-                </div>
-              </div>
-              <span
-                class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium shrink-0"
-                :class="getEventTypeBadgeClass((item.data as EventRecord).type)"
-              >
-                {{ EVENT_TYPE_LABELS[(item.data as EventRecord).type] }}
-              </span>
-            </div>
+            <ListingEventItem
+              v-else
+              :event="(item.data as EventRecord)"
+              :extension-name="getExtensionName((item.data as EventRecord).extensionId)"
+              :extension-icon-url="getExtensionIconUrl((item.data as EventRecord).extensionId)"
+              :is-own="isOwnExtension((item.data as EventRecord).extensionId)"
+              :formatted-time="formatEventTime(item.data as EventRecord)"
+            />
           </template>
         </div>
       </div>
