@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import type { Project, Extension, Keyword, ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
@@ -55,6 +55,55 @@ const running = ref(false);
 const auditError = ref<string | null>(null);
 const auditResult = ref<AuditResult | null>(null);
 const fromCache = ref(false);
+
+// Historical context for preview prompt
+const previewHistory7d = ref<AuditHistoricalContext | undefined>(undefined);
+const previewHistory14d = ref<AuditHistoricalContext | undefined>(undefined);
+
+async function loadPreviewHistoricalContext(): Promise<void> {
+  const kwId = primaryKeywordId.value;
+  const compExtId = selectedCompetitorId.value;
+  if (!kwId || !compExtId) {
+    previewHistory7d.value = undefined;
+    previewHistory14d.value = undefined;
+    return;
+  }
+
+  const todayStr = today();
+  const start14d = daysAgo(14);
+  const start7d = daysAgo(7);
+  const ownExtId = props.project.ownExtensionId;
+
+  const [ownRanks14d, compRanks14d, ownAc14d, compAc14d, ownEv14d, compEv14d] = await Promise.all([
+    db.getRankSnapshots(kwId, ownExtId, start14d, todayStr),
+    db.getRankSnapshots(kwId, compExtId, start14d, todayStr),
+    db.getAutocompleteSnapshots(kwId, ownExtId, start14d, todayStr),
+    db.getAutocompleteSnapshots(kwId, compExtId, start14d, todayStr),
+    db.getEvents(ownExtId, start14d, todayStr),
+    db.getEvents(compExtId, start14d, todayStr),
+  ]);
+
+  const filterByDate = <T extends { date: string }>(items: T[], startDate: string): T[] =>
+    items.filter((item) => item.date >= startDate);
+
+  previewHistory7d.value = {
+    ownRankHistory: filterByDate(ownRanks14d, start7d),
+    compRankHistory: filterByDate(compRanks14d, start7d),
+    ownAutocompleteHistory: filterByDate(ownAc14d, start7d),
+    compAutocompleteHistory: filterByDate(compAc14d, start7d),
+    ownEvents: filterByDate(ownEv14d, start7d),
+    compEvents: filterByDate(compEv14d, start7d),
+  };
+
+  previewHistory14d.value = {
+    ownRankHistory: ownRanks14d,
+    compRankHistory: compRanks14d,
+    ownAutocompleteHistory: ownAc14d,
+    compAutocompleteHistory: compAc14d,
+    ownEvents: ownEv14d,
+    compEvents: compEv14d,
+  };
+}
 
 // Computed
 const competitors = computed(() =>
@@ -126,6 +175,8 @@ const previewMessages = computed(() => {
     competitorListing: compSnap,
     ownPosition: ownRankMap?.get(primaryKeywordId.value!)?.position ?? null,
     competitorPosition: compRankMap?.get(primaryKeywordId.value!)?.position ?? null,
+    history7d: previewHistory7d.value,
+    history14d: previewHistory14d.value,
     additionalKeywords: additional.length > 0 ? additional : undefined,
   };
 
@@ -154,6 +205,11 @@ const keywordDropdownLabel = computed(() => {
   const name = primary?.text ?? '';
   const extra = selectedKeywordIds.value.length - 1;
   return extra > 0 ? `${name} + ${extra} more` : name;
+});
+
+// Load historical context when keyword/competitor selection changes
+watch([primaryKeywordId, selectedCompetitorId], () => {
+  loadPreviewHistoricalContext();
 });
 
 // Lifecycle
