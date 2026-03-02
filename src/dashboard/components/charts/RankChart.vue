@@ -5,6 +5,7 @@ import type { RankChartSeries } from '../../composables/useRankings';
 import type { EventRecord } from '@/shared/types';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_LABELS } from '@/shared/utils/event-colors';
 import { CHART_COLORS } from '@/shared/utils/chart-colors';
+import ExtensionIcon from '../ExtensionIcon.vue';
 
 const props = withDefaults(defineProps<{
   series: RankChartSeries[];
@@ -104,9 +105,7 @@ const chartOptions = computed(() => ({
     },
   },
   legend: {
-    position: 'top' as const,
-    horizontalAlign: 'left' as const,
-    fontSize: '12px',
+    show: false,
   },
   grid: {
     borderColor: '#e5e7eb',
@@ -138,17 +137,23 @@ const chartSeries = computed(() =>
       :options="chartOptions"
       :series="chartSeries"
     />
-    <div class="mt-2 flex items-center gap-4 px-2">
+    <div class="mt-2 flex flex-wrap items-center gap-4 px-2">
       <div
         v-for="(s, i) in series"
         :key="`${s.extensionId}-${s.name}`"
         class="flex items-center gap-1.5 text-xs text-gray-600"
       >
         <span
-          class="inline-block h-2 w-2 rounded-full"
+          class="inline-block h-2 w-2 shrink-0 rounded-full"
           :style="{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }"
         />
-        {{ s.name }}
+        <ExtensionIcon
+          v-if="s.iconUrl !== undefined"
+          :icon-url="s.iconUrl ?? null"
+          :name="s.name"
+          size="xs"
+        />
+        <span class="truncate" :title="s.name">{{ s.name }}</span>
       </div>
     </div>
   </div>
