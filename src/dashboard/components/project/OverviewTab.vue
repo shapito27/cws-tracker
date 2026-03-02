@@ -28,10 +28,15 @@ const { getExtensionsByProject, getLatestSnapshot } = useExtensions();
 const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
 
+type UnifiedEvent =
+  | { kind: 'rank_change'; data: RankChange; sortTime: number }
+  | { kind: 'listing_event'; data: EventRecord; sortTime: number };
+
 const extensions = ref<Extension[]>([]);
 const ownExtension = ref<Extension | undefined>(undefined);
 const recentEvents = ref<EventRecord[]>([]);
 const projectRankChanges = ref<RankChange[]>([]);
+const unifiedEvents = ref<UnifiedEvent[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const keywords = ref<Keyword[]>([]);
 const ownSnapshot = ref<ListingSnapshot | undefined>(undefined);
@@ -76,22 +81,8 @@ onMounted(async () => {
     }
 
     await loadProjectRankChanges();
-
-    // Get recent events across all project extensions (excluding rank_change to avoid duplication)
-    const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
-    const events: EventRecord[] = [];
-    for (const extId of allExtIds) {
-      const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
-      events.push(...extEvents);
-    }
-    // Sort by detectedAt descending (falls back to date string for legacy records)
-    events.sort((a, b) => {
-      const aTime = a.detectedAt?.getTime() ?? 0;
-      const bTime = b.detectedAt?.getTime() ?? 0;
-      if (aTime || bTime) return bTime - aTime;
-      return b.date.localeCompare(a.date);
-    });
-    recentEvents.value = events.filter(e => e.type !== 'rank_change').slice(0, 10);
+    await loadProjectEvents();
+    mergeEvents();
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
   } finally {
@@ -117,12 +108,48 @@ async function loadProjectRankChanges(): Promise<void> {
   }
 }
 
-// Reload rank changes after scan completes
+async function loadProjectEvents(): Promise<void> {
+  try {
+    const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
+    const events: EventRecord[] = [];
+    for (const extId of allExtIds) {
+      const extEvents = await db.getEvents(extId, '2000-01-01', '2099-12-31');
+      events.push(...extEvents);
+    }
+    events.sort((a, b) => {
+      const aTime = a.detectedAt?.getTime() ?? 0;
+      const bTime = b.detectedAt?.getTime() ?? 0;
+      if (aTime || bTime) return bTime - aTime;
+      return b.date.localeCompare(a.date);
+    });
+    recentEvents.value = events.filter(e => e.type !== 'rank_change').slice(0, 20);
+  } catch {
+    // Keep existing value on error
+  }
+}
+
+function mergeEvents(): void {
+  const items: UnifiedEvent[] = [];
+  for (const rc of projectRankChanges.value) {
+    const t = rc.scannedAt instanceof Date ? rc.scannedAt.getTime() : new Date(rc.scannedAt).getTime();
+    items.push({ kind: 'rank_change', data: rc, sortTime: t || 0 });
+  }
+  for (const ev of recentEvents.value) {
+    const t = ev.detectedAt?.getTime() ?? new Date(ev.date + 'T00:00:00').getTime();
+    items.push({ kind: 'listing_event', data: ev, sortTime: t || 0 });
+  }
+  items.sort((a, b) => b.sortTime - a.sortTime);
+  unifiedEvents.value = items.slice(0, 15);
+}
+
+// Reload events after scan completes
 watch(
   () => scanStatus.value.isRunning,
-  (isRunning, wasRunning) => {
+  async (isRunning, wasRunning) => {
     if (wasRunning && !isRunning) {
-      loadProjectRankChanges();
+      await loadProjectRankChanges();
+      await loadProjectEvents();
+      mergeEvents();
     }
   }
 );
@@ -396,67 +423,61 @@ function isOwnExtension(extensionId: string): boolean {
       />
     </div>
 
-    <!-- Recent Rank Changes -->
-    <div v-if="projectRankChanges.length > 0" class="mb-8">
-      <h3 class="text-base font-semibold text-gray-900 mb-3">Recent Rank Changes</h3>
-      <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
-        <div class="divide-y divide-gray-50">
-          <RankChangeItem
-            v-for="rc in projectRankChanges"
-            :key="`${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.date}`"
-            :rank-change="rc"
-            :link-to-project="false"
-            :show-date="true"
-          />
-        </div>
-      </div>
-    </div>
-
-    <!-- Recent events -->
+    <!-- Recent Events (unified: rank changes + listing events) -->
     <div>
       <h3 class="text-base font-semibold text-gray-900 mb-3">Recent Events</h3>
-      <div v-if="recentEvents.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
+      <div v-if="unifiedEvents.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
         <p class="text-sm text-gray-500">No data yet. Run your first scan.</p>
       </div>
-      <div v-else class="space-y-2">
-        <div
-          v-for="event in recentEvents"
-          :key="event.id"
-          class="rounded-lg border border-gray-200 bg-white px-4 py-3"
-        >
-          <div class="flex items-start gap-3">
-            <!-- Extension icon -->
-            <ExtensionIcon
-              :icon-url="getExtensionIconUrl(event.extensionId)"
-              :name="getExtensionName(event.extensionId)"
-              size="md"
-              class="mt-0.5"
+      <div v-else class="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div class="divide-y divide-gray-50">
+          <template v-for="item in unifiedEvents" :key="item.kind === 'rank_change'
+            ? `rc-${item.data.type}-${(item.data as RankChange).extensionId}-${(item.data as RankChange).keywordId}-${(item.data as RankChange).date}`
+            : `ev-${(item.data as EventRecord).id}`">
+
+            <!-- Rank change items -->
+            <RankChangeItem
+              v-if="item.kind === 'rank_change'"
+              :rank-change="(item.data as RankChange)"
+              :link-to-project="false"
+              :show-date="true"
             />
-            <!-- Event content -->
-            <div class="flex-1 min-w-0">
-              <div class="flex items-start justify-between gap-2">
-                <p class="text-sm text-gray-900">{{ event.note }}</p>
-                <span class="shrink-0 text-xs text-gray-400">{{ event.detectedAt ? formatRelativeDateTime(event.detectedAt) : event.date }}</span>
+
+            <!-- Listing event items -->
+            <div v-else class="flex items-center gap-3 px-4 py-2.5 hover:bg-gray-50 transition-colors">
+              <ExtensionIcon
+                :icon-url="getExtensionIconUrl((item.data as EventRecord).extensionId)"
+                :name="getExtensionName((item.data as EventRecord).extensionId)"
+                size="sm"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm font-medium text-gray-900 truncate">
+                    {{ getExtensionName((item.data as EventRecord).extensionId) }}
+                  </span>
+                  <span
+                    v-if="isOwnExtension((item.data as EventRecord).extensionId)"
+                    class="inline-flex rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 shrink-0"
+                  >You</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-xs text-gray-500">
+                  <span class="truncate">{{ (item.data as EventRecord).note }}</span>
+                  <template v-if="(item.data as EventRecord).detectedAt || (item.data as EventRecord).date">
+                    <span class="text-gray-300">&middot;</span>
+                    <span class="shrink-0">
+                      {{ (item.data as EventRecord).detectedAt ? formatRelativeDateTime((item.data as EventRecord).detectedAt!) : (item.data as EventRecord).date }}
+                    </span>
+                  </template>
+                </div>
               </div>
-              <div class="mt-1.5 flex items-center gap-2">
-                <span
-                  class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                  :class="getEventTypeBadgeClass(event.type)"
-                >
-                  {{ EVENT_TYPE_LABELS[event.type] }}
-                </span>
-                <span class="text-xs text-gray-500">
-                  {{ getExtensionName(event.extensionId) }}
-                </span>
-                <span
-                  v-if="isOwnExtension(event.extensionId)"
-                  class="inline-flex rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600"
-                >
-                  You
-                </span>
-              </div>
+              <span
+                class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium shrink-0"
+                :class="getEventTypeBadgeClass((item.data as EventRecord).type)"
+              >
+                {{ EVENT_TYPE_LABELS[(item.data as EventRecord).type] }}
+              </span>
             </div>
-          </div>
+          </template>
         </div>
       </div>
     </div>
