@@ -132,7 +132,7 @@ function deduplicateSnapshots(snapshots: RankSnapshot[]): RankSnapshot[] {
  * preventing cross-project data mixing when multiple projects track
  * the same keyword text with different keyword IDs.
  */
-export async function loadRecentRankChanges(limit: number = 5): Promise<RankChange[]> {
+export async function loadRecentRankChanges(limit: number = 5, ownOnly = false): Promise<RankChange[]> {
   // Load projects and their keyword IDs upfront to filter snapshots
   const projects = await db.projects.toArray();
   if (projects.length === 0) return [];
@@ -225,16 +225,17 @@ export async function loadRecentRankChanges(limit: number = 5): Promise<RankChan
     }
   }
 
+  // Filter to own extensions only when requested (before slice, so limit is respected correctly)
+  const filtered = ownOnly ? changes.filter((c) => c.isOwn) : changes;
+
   // Sort: own extensions first, then by absolute change magnitude
-  changes.sort((a, b) => {
-    // Own extensions always come first
+  filtered.sort((a, b) => {
     if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
-    // Within same group, sort by magnitude descending
     return Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0);
   });
 
   // Take top N and fill in names via batch queries
-  const topChanges = changes.slice(0, limit);
+  const topChanges = filtered.slice(0, limit);
 
   if (topChanges.length > 0) {
     const extensionIds = [...new Set(topChanges.map((c) => c.extensionId))];
@@ -284,7 +285,7 @@ function deduplicateAutocompleteSnapshots(snapshots: AutocompleteSnapshot[]): Au
  *   -11 = disappeared from autocomplete (position 1-10 → null)
  *   other = position shifted within autocomplete
  */
-export async function loadRecentAutocompleteChanges(limit: number = 5): Promise<RankChange[]> {
+export async function loadRecentAutocompleteChanges(limit: number = 5, ownOnly = false): Promise<RankChange[]> {
   const projects = await db.projects.toArray();
   if (projects.length === 0) return [];
 
@@ -370,12 +371,15 @@ export async function loadRecentAutocompleteChanges(limit: number = 5): Promise<
     }
   }
 
-  changes.sort((a, b) => {
+  // Filter to own extensions only when requested (before slice, so limit is respected correctly)
+  const filteredAC = ownOnly ? changes.filter((c) => c.isOwn) : changes;
+
+  filteredAC.sort((a, b) => {
     if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
     return Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0);
   });
 
-  const topChanges = changes.slice(0, limit);
+  const topChanges = filteredAC.slice(0, limit);
 
   if (topChanges.length > 0) {
     const extensionIds = [...new Set(topChanges.map((c) => c.extensionId))];
