@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useSettings } from '../composables/useSettings';
+import {
+  DEFAULT_AUDIT_SYSTEM_PROMPT,
+  DEFAULT_AUDIT_USER_PROMPT_TEMPLATE,
+  AUDIT_PLACEHOLDERS,
+} from '@/shared/utils/keyword-audit';
 
 const {
   settings,
@@ -27,6 +32,9 @@ const localDataRetention = ref(365);
 const localProxyUrl = ref('');
 const localProxyApiKey = ref('');
 const localTranslationLocales = ref('');
+const localAuditSystemPrompt = ref('');
+const localAuditUserPromptTemplate = ref('');
+const showPlaceholderHelp = ref(false);
 
 // Available locale options for the translation locale selector
 const AVAILABLE_LOCALES: Array<{ code: string; name: string }> = [
@@ -68,6 +76,8 @@ function syncLocalState(): void {
   localProxyUrl.value = settings.proxyUrl;
   localProxyApiKey.value = settings.proxyApiKey ?? '';
   localTranslationLocales.value = settings.translationLocales.join(', ');
+  localAuditSystemPrompt.value = settings.auditSystemPrompt;
+  localAuditUserPromptTemplate.value = settings.auditUserPromptTemplate;
 }
 
 // Computed
@@ -124,6 +134,19 @@ async function saveTranslationLocales(): Promise<void> {
     .map((l) => l.trim())
     .filter((l) => l.length > 0);
   await saveSetting('translationLocales', locales);
+}
+
+async function saveAuditPrompts(): Promise<void> {
+  await saveMultipleSettings({
+    auditSystemPrompt: localAuditSystemPrompt.value,
+    auditUserPromptTemplate: localAuditUserPromptTemplate.value,
+  });
+}
+
+async function resetAuditPrompts(): Promise<void> {
+  localAuditSystemPrompt.value = '';
+  localAuditUserPromptTemplate.value = '';
+  await saveAuditPrompts();
 }
 
 function toggleLocale(code: string): void {
@@ -359,6 +382,90 @@ onUnmounted(() => {
                 {{ settings.subscriptionStatus === 'pro' ? 'Pro' : settings.subscriptionStatus === 'expired' ? 'Expired' : 'Free' }}
               </span>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: AI Audit Prompts -->
+      <section class="rounded-lg border border-gray-200 bg-white">
+        <div class="border-b border-gray-200 px-6 py-4">
+          <h3 class="text-base font-semibold text-gray-900">AI Audit Prompts</h3>
+          <p class="text-sm text-gray-500 mt-0.5">Customize the prompts used for keyword audit analysis. Leave blank to use defaults.</p>
+        </div>
+        <div class="px-6 py-4 space-y-4">
+          <!-- System Prompt -->
+          <div>
+            <label for="auditSystemPrompt" class="block text-sm font-medium text-gray-700">System Prompt</label>
+            <p class="text-xs text-gray-500 mb-1">Instructions for the AI model. Must include JSON format specification for proper parsing.</p>
+            <textarea
+              id="auditSystemPrompt"
+              v-model="localAuditSystemPrompt"
+              rows="6"
+              placeholder="Leave blank to use default system prompt"
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          <!-- User Prompt Template -->
+          <div>
+            <label for="auditUserPromptTemplate" class="block text-sm font-medium text-gray-700">User Prompt Template</label>
+            <p class="text-xs text-gray-500 mb-1">
+              Data template sent to the AI. Use <code class="bg-gray-100 px-1 rounded">{{ '{{placeholder}}' }}</code> syntax for dynamic values.
+            </p>
+            <textarea
+              id="auditUserPromptTemplate"
+              v-model="localAuditUserPromptTemplate"
+              rows="10"
+              placeholder="Leave blank to use default template. Use {{placeholder}} for dynamic values."
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+
+          <!-- Placeholder reference (collapsible) -->
+          <div>
+            <button
+              class="flex items-center gap-1 text-sm font-medium text-blue-600 hover:text-blue-800"
+              @click="showPlaceholderHelp = !showPlaceholderHelp"
+            >
+              <svg
+                class="h-4 w-4 transition-transform"
+                :class="showPlaceholderHelp ? 'rotate-90' : ''"
+                aria-hidden="true"
+                fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+              </svg>
+              Available Placeholders
+            </button>
+            <div v-if="showPlaceholderHelp" class="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                <div
+                  v-for="(desc, key) in AUDIT_PLACEHOLDERS"
+                  :key="key"
+                  class="flex items-start gap-2"
+                >
+                  <code class="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs font-mono text-blue-800 border border-blue-200">{{ '{{' + key + '}}' }}</code>
+                  <span class="text-xs text-gray-600">{{ desc }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex items-center gap-3 pt-2">
+            <button
+              class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+              :disabled="saving"
+              @click="saveAuditPrompts"
+            >
+              Save Prompts
+            </button>
+            <button
+              class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              @click="resetAuditPrompts"
+            >
+              Reset to Defaults
+            </button>
           </div>
         </div>
       </section>
