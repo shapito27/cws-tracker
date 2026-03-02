@@ -137,12 +137,13 @@ async function saveTranslationLocales(): Promise<void> {
 }
 
 async function saveAuditPrompts(): Promise<void> {
+  const trimmedSystem = localAuditSystemPrompt.value.trim();
+  const trimmedUser = localAuditUserPromptTemplate.value.trim();
   await saveMultipleSettings({
-    auditSystemPrompt: localAuditSystemPrompt.value.trim() === DEFAULT_AUDIT_SYSTEM_PROMPT.trim()
-      ? '' : localAuditSystemPrompt.value,
-    auditUserPromptTemplate: localAuditUserPromptTemplate.value.trim() === DEFAULT_AUDIT_USER_PROMPT_TEMPLATE.trim()
-      ? '' : localAuditUserPromptTemplate.value,
+    auditSystemPrompt: trimmedSystem === DEFAULT_AUDIT_SYSTEM_PROMPT.trim() ? '' : trimmedSystem,
+    auditUserPromptTemplate: trimmedUser === DEFAULT_AUDIT_USER_PROMPT_TEMPLATE.trim() ? '' : trimmedUser,
   });
+  syncLocalState();
 }
 
 async function resetAuditPrompts(): Promise<void> {
