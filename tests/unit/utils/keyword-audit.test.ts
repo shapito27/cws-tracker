@@ -16,6 +16,14 @@ import {
   formatAutocompleteHistory,
   formatEventsHistory,
   formatKeywordPositionsTable,
+  countKeywordOccurrences,
+  getVariantSystemPrompt,
+  getVariantUserPromptTemplate,
+  VARIANT_COT_SYSTEM_PROMPT,
+  VARIANT_RUBRIC_SYSTEM_PROMPT,
+  VARIANT_COT_USER_PROMPT_TEMPLATE,
+  VARIANT_RUBRIC_USER_PROMPT_TEMPLATE,
+  VARIANT_CONFIG,
   type AuditInput,
   type AuditHistoricalContext,
   type AdditionalKeywordContext,
@@ -811,5 +819,229 @@ describe('buildAuditPrompt() with additional keywords', () => {
     const userContent = messages[1].content;
 
     expect(userContent).not.toContain('Keyword Positions');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Variant prompt selection tests
+// ---------------------------------------------------------------------------
+
+describe('buildAuditPrompt() with variants', () => {
+  it('uses default prompts when variant is default', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT, { variant: 'default' });
+    expect(messages[0].content).not.toContain('scratchpad');
+    expect(messages[0].content).not.toContain('Scoring Rubric');
+    expect(messages[0].content).toContain('approximate weight order');
+  });
+
+  it('uses CoT prompts when variant is cot', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT, { variant: 'cot' });
+    expect(messages[0].content).toContain('scratchpad');
+    expect(messages[0].content).toContain('Few-Shot Example');
+    expect(messages[1].content).toContain('Metrics Comparison');
+    expect(messages[1].content).toContain('| Metric |');
+  });
+
+  it('uses Rubric prompts when variant is rubric', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT, { variant: 'rubric' });
+    expect(messages[0].content).toContain('Scoring Rubric');
+    expect(messages[0].content).toContain('Weight: 35%');
+    expect(messages[1].content).toContain('Pre-Computed Comparison Summary');
+    expect(messages[1].content).toContain('Keyword Occurrence Analysis');
+  });
+
+  it('custom prompts override variant defaults', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT, {
+      variant: 'cot',
+      systemPrompt: 'Custom system prompt',
+      userPromptTemplate: 'Custom user: {{keyword}}',
+    });
+    expect(messages[0].content).toBe('Custom system prompt');
+    expect(messages[1].content).toBe('Custom user: productivity extension');
+  });
+
+  it('defaults to default variant when variant is undefined', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT);
+    const messagesDefault = buildAuditPrompt(SAMPLE_INPUT, { variant: 'default' });
+    expect(messages[0].content).toBe(messagesDefault[0].content);
+    expect(messages[1].content).toBe(messagesDefault[1].content);
+  });
+});
+
+describe('getVariantSystemPrompt() / getVariantUserPromptTemplate()', () => {
+  it('returns correct prompts for each variant', () => {
+    expect(getVariantSystemPrompt('cot')).toBe(VARIANT_COT_SYSTEM_PROMPT);
+    expect(getVariantSystemPrompt('rubric')).toBe(VARIANT_RUBRIC_SYSTEM_PROMPT);
+    expect(getVariantUserPromptTemplate('cot')).toBe(VARIANT_COT_USER_PROMPT_TEMPLATE);
+    expect(getVariantUserPromptTemplate('rubric')).toBe(VARIANT_RUBRIC_USER_PROMPT_TEMPLATE);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// countKeywordOccurrences() tests
+// ---------------------------------------------------------------------------
+
+describe('countKeywordOccurrences()', () => {
+  it('counts case-insensitive whole-word matches', () => {
+    expect(countKeywordOccurrences('Tab Manager for Chrome', 'tab manager')).toBe(1);
+    expect(countKeywordOccurrences('tab manager Tab Manager TAB MANAGER', 'tab manager')).toBe(3);
+  });
+
+  it('does not count partial matches', () => {
+    expect(countKeywordOccurrences('tabmanager is great', 'tab manager')).toBe(0);
+  });
+
+  it('returns 0 for empty inputs', () => {
+    expect(countKeywordOccurrences('', 'keyword')).toBe(0);
+    expect(countKeywordOccurrences('some text', '')).toBe(0);
+  });
+
+  it('handles special regex characters in keyword', () => {
+    // Keyword with regex-special chars like parentheses — should not crash
+    expect(countKeywordOccurrences('C++ (advanced) tool', 'C++')).toBe(0); // \b doesn't match at +
+    // Regular keyword with dots
+    expect(countKeywordOccurrences('Use node.js for backend', 'node')).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Delta placeholder tests (Rubric variant)
+// ---------------------------------------------------------------------------
+
+describe('buildPlaceholderValues() delta placeholders', () => {
+  it('computes positionGap when both positions are known', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    expect(values.positionGap).toBe('6'); // 8 - 2
+  });
+
+  it('computes positionGap as 30+ behind when own is null', () => {
+    const input: AuditInput = { ...SAMPLE_INPUT, ownPosition: null };
+    const values = buildPlaceholderValues(input);
+    expect(values.positionGap).toBe('30+ behind');
+  });
+
+  it('computes positionGap as N/A when both are null', () => {
+    const input: AuditInput = { ...SAMPLE_INPUT, ownPosition: null, competitorPosition: null };
+    const values = buildPlaceholderValues(input);
+    expect(values.positionGap).toBe('N/A');
+  });
+
+  it('computes userRatio', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    // 1,000,000 / 50,000 = 20x
+    expect(values.userRatio).toBe('20.0x more');
+  });
+
+  it('computes ratingDelta', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    // 4.7 - 4.2 = 0.5
+    expect(values.ratingDelta).toBe('+0.5');
+  });
+
+  it('computes reviewRatio', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    // 2500 / 150 = 16.7x
+    expect(values.reviewRatio).toBe('16.7x more');
+  });
+
+  it('computes screenshotDelta', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    // 5 - 3 = +2
+    expect(values.screenshotDelta).toBe('+2');
+  });
+
+  it('computes translationDelta', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    // 20 - 5 = +15
+    expect(values.translationDelta).toBe('+15');
+  });
+
+  it('computes permissionDelta', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    // 15 - 20 = -5 (lower risk)
+    expect(values.permissionDelta).toBe('-5 (lower risk)');
+  });
+
+  it('computes keyword occurrence counts', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    // "productivity extension" should appear in title "My Extension" -> 0
+    expect(values.ownKeywordInTitle).toBe('0');
+    // "productivity extension" in competitor title "Super Productivity Pro" -> 0 (no exact match)
+    expect(values.compKeywordInTitle).toBe('0');
+    // Check the full description counts are numeric strings
+    expect(Number(values.ownKeywordInFullDesc)).toBeGreaterThanOrEqual(0);
+    expect(Number(values.compKeywordInFullDesc)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('handles ratingDelta when own has no rating', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      ownListing: makeListing({ rating: null }),
+    };
+    const values = buildPlaceholderValues(input);
+    // 4.7 - 0 = +4.7
+    expect(values.ratingDelta).toBe('+4.7');
+  });
+
+  it('handles userRatio with zero users', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      ownListing: makeListing({ userCountNumeric: 0 }),
+    };
+    const values = buildPlaceholderValues(input);
+    expect(values.userRatio).toBe('N/A');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCacheKey() with variant tests
+// ---------------------------------------------------------------------------
+
+describe('buildCacheKey() with variant', () => {
+  it('default variant produces same key as no variant', () => {
+    const key1 = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05');
+    const key2 = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05', 'default');
+    expect(key1).toBe(key2);
+  });
+
+  it('different variants produce different keys', () => {
+    const keyDefault = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05', 'default');
+    const keyCot = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05', 'cot');
+    const keyRubric = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05', 'rubric');
+    expect(keyDefault).not.toBe(keyCot);
+    expect(keyDefault).not.toBe(keyRubric);
+    expect(keyCot).not.toBe(keyRubric);
+  });
+
+  it('cot variant key contains variant identifier', () => {
+    const key = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05', 'cot');
+    expect(key).toContain(':cot');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// estimateAuditTokens() with variant tests
+// ---------------------------------------------------------------------------
+
+describe('estimateAuditTokens() with variants', () => {
+  it('returns 900 output tokens for default variant', () => {
+    const est = estimateAuditTokens(SAMPLE_INPUT, { variant: 'default' });
+    expect(est.outputTokens).toBe(900);
+  });
+
+  it('returns 1200 output tokens for cot variant', () => {
+    const est = estimateAuditTokens(SAMPLE_INPUT, { variant: 'cot' });
+    expect(est.outputTokens).toBe(1200);
+  });
+
+  it('returns 900 output tokens for rubric variant', () => {
+    const est = estimateAuditTokens(SAMPLE_INPUT, { variant: 'rubric' });
+    expect(est.outputTokens).toBe(900);
+  });
+
+  it('cot variant has higher cost estimate due to more output tokens', () => {
+    const estDefault = estimateAuditTokens(SAMPLE_INPUT, { variant: 'default' });
+    const estCot = estimateAuditTokens(SAMPLE_INPUT, { variant: 'cot' });
+    expect(estCot.estimatedCostUsd).toBeGreaterThan(estDefault.estimatedCostUsd);
   });
 });

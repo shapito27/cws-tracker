@@ -23,7 +23,7 @@ export type {
   DashboardMessage,
 } from './messages';
 
-export type { Settings, SubscriptionStatus } from './settings';
+export type { Settings, SubscriptionStatus, AuditPromptVariant } from './settings';
 
 // ---------------------------------------------------------------------------
 // Enumerations (string literal unions)

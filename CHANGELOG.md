@@ -2,6 +2,20 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.19.2] - 2026-03-02
+
+### Added
+- A/B test variants for keyword audit prompts
+  - **Chain-of-Thought (CoT)** variant: adds `scratchpad` reasoning field, few-shot example, reordered data layout (positions/trends first), temperature 0.4
+  - **Rubric-Scored** variant: quantitative 1-5 scoring rubric with explicit weights, pre-computed comparison deltas, keyword occurrence counts, temperature 0.3
+  - Variant selector dropdown in Settings > AI Audit Prompts section
+  - 14 new pre-computed delta placeholders: `positionGap`, `userRatio`, `ratingDelta`, `reviewRatio`, `qualityDelta`, `screenshotDelta`, `translationDelta`, `permissionDelta`, keyword occurrence counts
+  - `countKeywordOccurrences()` helper for case-insensitive whole-word matching
+  - Variant-specific cache keys to prevent cross-variant cache hits
+  - `auditPromptVariant` setting (`default` | `cot` | `rubric`)
+  - Variant-aware model parameters (temperature, maxTokens) per variant
+  - Changing variant in Settings auto-updates displayed prompt to variant defaults
+
 ## [0.18.0] - 2026-02-14
 
 ### Added
