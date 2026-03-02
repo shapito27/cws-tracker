@@ -6,7 +6,7 @@
  * the AI response into a structured audit result.
  */
 
-import type { ListingSnapshot, RankSnapshot } from '../types';
+import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '../types';
 import { OpenAIClient } from './openai';
 import type { ChatMessage } from './openai';
 
@@ -14,12 +14,32 @@ import type { ChatMessage } from './openai';
 // Types
 // ---------------------------------------------------------------------------
 
+/** Historical time-series data for enriched audit prompts. */
+export interface AuditHistoricalContext {
+  /** Rank snapshots for the selected keyword & own extension (sorted by date). */
+  ownRankHistory: RankSnapshot[];
+  /** Rank snapshots for the selected keyword & competitor (sorted by date). */
+  compRankHistory: RankSnapshot[];
+  /** Autocomplete snapshots for the selected keyword & own extension (sorted by date). */
+  ownAutocompleteHistory: AutocompleteSnapshot[];
+  /** Autocomplete snapshots for the selected keyword & competitor (sorted by date). */
+  compAutocompleteHistory: AutocompleteSnapshot[];
+  /** Events for own extension (sorted by date). */
+  ownEvents: EventRecord[];
+  /** Events for competitor extension (sorted by date). */
+  compEvents: EventRecord[];
+}
+
 export interface AuditInput {
   keyword: string;
   ownListing: ListingSnapshot;
   competitorListing: ListingSnapshot;
   ownPosition: number | null;
   competitorPosition: number | null;
+  /** Optional 7-day historical context. */
+  history7d?: AuditHistoricalContext;
+  /** Optional 14-day historical context. */
+  history14d?: AuditHistoricalContext;
 }
 
 export interface AuditRecommendation {
@@ -133,13 +153,93 @@ export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   compTranslations: 'Competitor translation locale count',
   compQualityScore: 'Competitor quality score',
   compPermissionRisk: 'Competitor permission risk score (0-100)',
+
+  // Historical: Search rank history (selected keyword)
+  ownRankHistory7d: 'Your search rank for selected keyword, last 7 days (date | position)',
+  ownRankHistory14d: 'Your search rank for selected keyword, last 14 days (date | position)',
+  compRankHistory7d: 'Competitor search rank for selected keyword, last 7 days (date | position)',
+  compRankHistory14d: 'Competitor search rank for selected keyword, last 14 days (date | position)',
+
+  // Historical: Autocomplete position history (selected keyword)
+  ownAutocomplete7d: 'Your autocomplete position for selected keyword, last 7 days (date | position)',
+  ownAutocomplete14d: 'Your autocomplete position for selected keyword, last 14 days (date | position)',
+  compAutocomplete7d: 'Competitor autocomplete position for selected keyword, last 7 days (date | position)',
+  compAutocomplete14d: 'Competitor autocomplete position for selected keyword, last 14 days (date | position)',
+
+  // Historical: Events
+  ownEvents7d: 'Your extension events/changes, last 7 days (date | event | details)',
+  ownEvents14d: 'Your extension events/changes, last 14 days (date | event | details)',
+  compEvents7d: 'Competitor events/changes, last 7 days (date | event | details)',
+  compEvents14d: 'Competitor events/changes, last 14 days (date | event | details)',
 };
+
+// ---------------------------------------------------------------------------
+// Historical data formatters
+// ---------------------------------------------------------------------------
+
+const NO_RANK_DATA = 'No ranking data available for this period.';
+const NO_AUTOCOMPLETE_DATA = 'No autocomplete data available for this period.';
+const NO_EVENTS_DATA = 'No events detected in this period.';
+const NO_DATA = 'No data available.';
+
+/** Format rank snapshots into a compact date|position line. */
+export function formatRankHistory(keyword: string, snapshots: RankSnapshot[], days: number): string {
+  if (snapshots.length === 0) return NO_RANK_DATA;
+  const byDate = new Map<string, RankSnapshot>();
+  for (const s of snapshots) byDate.set(s.date, s);
+  const parts: string[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    const label = dateStr.slice(5); // MM-DD
+    const snap = byDate.get(dateStr);
+    if (snap) {
+      parts.push(`${label}: ${snap.position !== null ? `#${snap.position}` : '30+'}`);
+    } else {
+      parts.push(`${label}: -`);
+    }
+  }
+  return `"${keyword}" search rank (last ${days} days):\n${parts.join(' | ')}`;
+}
+
+/** Format autocomplete snapshots into a compact date|position line. */
+export function formatAutocompleteHistory(keyword: string, snapshots: AutocompleteSnapshot[], days: number): string {
+  if (snapshots.length === 0) return NO_AUTOCOMPLETE_DATA;
+  const byDate = new Map<string, AutocompleteSnapshot>();
+  for (const s of snapshots) byDate.set(s.date, s);
+  const parts: string[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    const label = dateStr.slice(5); // MM-DD
+    const snap = byDate.get(dateStr);
+    if (snap) {
+      parts.push(`${label}: #${snap.position}`);
+    } else {
+      parts.push(`${label}: -`);
+    }
+  }
+  return `"${keyword}" autocomplete position (last ${days} days):\n${parts.join(' | ')}`;
+}
+
+/** Format event records into a multi-line table. */
+export function formatEventsHistory(events: EventRecord[], days: number): string {
+  if (events.length === 0) return NO_EVENTS_DATA;
+  const lines = events.map((e) => `${e.date} | ${e.type} | ${e.note}`);
+  return `Events (last ${days} days):\n${lines.join('\n')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Placeholder value builder
+// ---------------------------------------------------------------------------
 
 /** Build placeholder values from an AuditInput. */
 export function buildPlaceholderValues(input: AuditInput): Record<string, string> {
   const { keyword, ownListing, competitorListing, ownPosition, competitorPosition } = input;
 
-  return {
+  const values: Record<string, string> = {
     keyword,
     ownTitle: ownListing.title,
     ownPosition: ownPosition !== null ? `#${ownPosition}` : 'Not in top 30',
@@ -172,6 +272,44 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
       : 'N/A',
     compPermissionRisk: `${competitorListing.permissionRiskScore}/100`,
   };
+
+  // Historical: 7-day context
+  if (input.history7d) {
+    const h = input.history7d;
+    values.ownRankHistory7d = formatRankHistory(keyword, h.ownRankHistory, 7);
+    values.compRankHistory7d = formatRankHistory(keyword, h.compRankHistory, 7);
+    values.ownAutocomplete7d = formatAutocompleteHistory(keyword, h.ownAutocompleteHistory, 7);
+    values.compAutocomplete7d = formatAutocompleteHistory(keyword, h.compAutocompleteHistory, 7);
+    values.ownEvents7d = formatEventsHistory(h.ownEvents, 7);
+    values.compEvents7d = formatEventsHistory(h.compEvents, 7);
+  } else {
+    values.ownRankHistory7d = NO_DATA;
+    values.compRankHistory7d = NO_DATA;
+    values.ownAutocomplete7d = NO_DATA;
+    values.compAutocomplete7d = NO_DATA;
+    values.ownEvents7d = NO_DATA;
+    values.compEvents7d = NO_DATA;
+  }
+
+  // Historical: 14-day context
+  if (input.history14d) {
+    const h = input.history14d;
+    values.ownRankHistory14d = formatRankHistory(keyword, h.ownRankHistory, 14);
+    values.compRankHistory14d = formatRankHistory(keyword, h.compRankHistory, 14);
+    values.ownAutocomplete14d = formatAutocompleteHistory(keyword, h.ownAutocompleteHistory, 14);
+    values.compAutocomplete14d = formatAutocompleteHistory(keyword, h.compAutocompleteHistory, 14);
+    values.ownEvents14d = formatEventsHistory(h.ownEvents, 14);
+    values.compEvents14d = formatEventsHistory(h.compEvents, 14);
+  } else {
+    values.ownRankHistory14d = NO_DATA;
+    values.compRankHistory14d = NO_DATA;
+    values.ownAutocomplete14d = NO_DATA;
+    values.compAutocomplete14d = NO_DATA;
+    values.ownEvents14d = NO_DATA;
+    values.compEvents14d = NO_DATA;
+  }
+
+  return values;
 }
 
 /** Replace {{placeholder}} tokens in a template string with values. */
