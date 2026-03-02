@@ -76,8 +76,8 @@ function syncLocalState(): void {
   localProxyUrl.value = settings.proxyUrl;
   localProxyApiKey.value = settings.proxyApiKey ?? '';
   localTranslationLocales.value = settings.translationLocales.join(', ');
-  localAuditSystemPrompt.value = settings.auditSystemPrompt;
-  localAuditUserPromptTemplate.value = settings.auditUserPromptTemplate;
+  localAuditSystemPrompt.value = settings.auditSystemPrompt || DEFAULT_AUDIT_SYSTEM_PROMPT;
+  localAuditUserPromptTemplate.value = settings.auditUserPromptTemplate || DEFAULT_AUDIT_USER_PROMPT_TEMPLATE;
 }
 
 // Computed
@@ -137,16 +137,22 @@ async function saveTranslationLocales(): Promise<void> {
 }
 
 async function saveAuditPrompts(): Promise<void> {
+  const trimmedSystem = localAuditSystemPrompt.value.trim();
+  const trimmedUser = localAuditUserPromptTemplate.value.trim();
   await saveMultipleSettings({
-    auditSystemPrompt: localAuditSystemPrompt.value,
-    auditUserPromptTemplate: localAuditUserPromptTemplate.value,
+    auditSystemPrompt: trimmedSystem === DEFAULT_AUDIT_SYSTEM_PROMPT.trim() ? '' : trimmedSystem,
+    auditUserPromptTemplate: trimmedUser === DEFAULT_AUDIT_USER_PROMPT_TEMPLATE.trim() ? '' : trimmedUser,
   });
+  syncLocalState();
 }
 
 async function resetAuditPrompts(): Promise<void> {
-  localAuditSystemPrompt.value = '';
-  localAuditUserPromptTemplate.value = '';
-  await saveAuditPrompts();
+  localAuditSystemPrompt.value = DEFAULT_AUDIT_SYSTEM_PROMPT;
+  localAuditUserPromptTemplate.value = DEFAULT_AUDIT_USER_PROMPT_TEMPLATE;
+  await saveMultipleSettings({
+    auditSystemPrompt: '',
+    auditUserPromptTemplate: '',
+  });
 }
 
 function toggleLocale(code: string): void {
@@ -390,7 +396,7 @@ onUnmounted(() => {
       <section class="rounded-lg border border-gray-200 bg-white">
         <div class="border-b border-gray-200 px-6 py-4">
           <h3 class="text-base font-semibold text-gray-900">AI Audit Prompts</h3>
-          <p class="text-sm text-gray-500 mt-0.5">Customize the prompts used for keyword audit analysis. Leave blank to use defaults.</p>
+          <p class="text-sm text-gray-500 mt-0.5">Customize the prompts used for keyword audit analysis. Defaults are shown below — edit as needed.</p>
         </div>
         <div class="px-6 py-4 space-y-4">
           <!-- System Prompt -->
@@ -401,7 +407,7 @@ onUnmounted(() => {
               id="auditSystemPrompt"
               v-model="localAuditSystemPrompt"
               rows="6"
-              placeholder="Leave blank to use default system prompt"
+              placeholder="Enter system prompt for AI audit"
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -416,7 +422,7 @@ onUnmounted(() => {
               id="auditUserPromptTemplate"
               v-model="localAuditUserPromptTemplate"
               rows="10"
-              placeholder="Leave blank to use default template. Use {{placeholder}} for dynamic values."
+              placeholder="Enter user prompt template. Use {{placeholder}} for dynamic values."
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
