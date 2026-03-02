@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import type { Project, Extension, Keyword, EventRecord, RankSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
@@ -11,7 +11,6 @@ import AutocompleteChart from '../charts/AutocompleteChart.vue';
 import RankHeatmap from '../charts/RankHeatmap.vue';
 import KeywordCoverageChart from '../charts/KeywordCoverageChart.vue';
 import KeywordScatterPlot from '../charts/KeywordScatterPlot.vue';
-import AuditTool from '../ai/AuditTool.vue';
 import type {
   RankChartSeries,
   RankDelta,
@@ -54,12 +53,6 @@ const coverageData = ref<CoverageData[]>([]);
 const scatterData = ref<ScatterPoint[]>([]);
 const rankDeltas = ref<Map<string, RankDelta>>(new Map());
 
-// Audit tool state
-const showAudit = ref(false);
-const auditKeywordId = ref<number | undefined>(undefined);
-const auditCompetitorId = ref<string | undefined>(undefined);
-const auditPanelRef = ref<HTMLElement | null>(null);
-
 /** Which event types are currently visible as annotations. */
 const visibleEventTypes = ref<Set<string>>(new Set(ALL_EVENT_TYPES));
 
@@ -72,31 +65,10 @@ const currentPositions = computed(() => {
   return map;
 });
 
-function openAudit(competitorId: string): void {
-  auditKeywordId.value = selectedKeywordId.value ?? undefined;
-  auditCompetitorId.value = competitorId;
-  showAudit.value = true;
-  nextTick(() => {
-    auditPanelRef.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  });
-}
-
-function closeAudit(): void {
-  showAudit.value = false;
-}
-
 function getPosition(extId: string): string {
   const pos = currentPositions.value.get(extId);
   if (pos === undefined) return '-';
   return pos !== null ? `#${pos}` : '30+';
-}
-
-function isCompetitorHigher(competitorId: string): boolean {
-  const ownPos = currentPositions.value.get(props.project.ownExtensionId);
-  const compPos = currentPositions.value.get(competitorId);
-  if (compPos === undefined || compPos === null) return false;
-  if (ownPos === undefined || ownPos === null) return true;
-  return compPos < ownPos;
 }
 
 function getDeltaDisplay(extId: string): string {
@@ -302,7 +274,6 @@ watch([selectedKeywordId, dateRange], async () => {
                 <th class="py-2 pr-4">Extension</th>
                 <th class="py-2 pr-4">Position</th>
                 <th class="py-2 pr-4">Change</th>
-                <th class="py-2"></th>
               </tr>
             </thead>
             <tbody>
@@ -345,37 +316,9 @@ watch([selectedKeywordId, dateRange], async () => {
                   </span>
                   <span v-else class="text-xs text-gray-300">&mdash;</span>
                 </td>
-                <td class="py-2 text-right">
-                  <button
-                    v-if="ext.id !== project.ownExtensionId && isCompetitorHigher(ext.id)"
-                    class="rounded-md border border-purple-200 bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 hover:bg-purple-100"
-                    @click="openAudit(ext.id)"
-                  >
-                    Why higher?
-                  </button>
-                </td>
               </tr>
             </tbody>
           </table>
-
-          <!-- Audit Tool panel - directly below the positions table for context -->
-          <Transition
-            enter-active-class="transition-all duration-300 ease-out"
-            enter-from-class="opacity-0 -translate-y-2"
-            enter-to-class="opacity-100 translate-y-0"
-            leave-active-class="transition-all duration-200 ease-in"
-            leave-from-class="opacity-100 translate-y-0"
-            leave-to-class="opacity-0 -translate-y-2"
-          >
-            <div v-if="showAudit" ref="auditPanelRef" class="mt-4">
-              <AuditTool
-                :project="project"
-                :pre-selected-keyword-id="auditKeywordId"
-                :pre-selected-competitor-id="auditCompetitorId"
-                @close="closeAudit"
-              />
-            </div>
-          </Transition>
         </div>
       </div>
 

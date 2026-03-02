@@ -51,6 +51,14 @@ export interface Settings {
   /** Active parser version identifier. */
   parserVersion: string;
 
+  // -- AI Audit ---------------------------------------------------------------
+
+  /** Custom system prompt for the AI keyword audit. Empty string = use default. */
+  auditSystemPrompt: string;
+  /** Custom user prompt template for the AI keyword audit. Empty string = use default.
+   * Supports {{placeholder}} syntax for data interpolation. */
+  auditUserPromptTemplate: string;
+
   // -- UI state --------------------------------------------------------------
 
   /** Whether the onboarding wizard has been completed. */

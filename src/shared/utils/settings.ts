@@ -32,6 +32,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   dataRetentionDays: 365,
   translationLocales: DEFAULT_TRANSLATION_LOCALES,
   parserVersion: 'v1',
+  auditSystemPrompt: '',
+  auditUserPromptTemplate: '',
   onboardingCompleted: false,
 };
 
