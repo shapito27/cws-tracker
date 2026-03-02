@@ -177,6 +177,30 @@ describe('loadRankHistory', () => {
     ]);
   });
 
+  it('carries iconUrl from extension onto the series', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+    ]);
+    const extWithIcon: Extension = {
+      ...extA,
+      iconUrl: 'https://lh3.googleusercontent.com/icon.png',
+    };
+
+    const series = await loadRankHistory(1, [extWithIcon], '2026-01-01', '2026-01-01');
+
+    expect(series[0].iconUrl).toBe('https://lh3.googleusercontent.com/icon.png');
+  });
+
+  it('carries iconUrl=null when extension has no icon', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+    ]);
+
+    const series = await loadRankHistory(1, [extA], '2026-01-01', '2026-01-01');
+
+    expect(series[0].iconUrl).toBeNull();
+  });
+
   it('deduplicates multiple snapshots for same date, keeps latest', async () => {
     await db.rank_snapshots.bulkAdd([
       {
@@ -475,6 +499,22 @@ describe('loadOwnExtensionRankHistory', () => {
     expect(series[1].name).toBe('privacy tool');
     expect(series[1].extensionId).toBe(EXT_A_ID);
     expect(series[1].data).toHaveLength(1);
+  });
+
+  it('does not set iconUrl on keyword-mode series', async () => {
+    await db.rank_snapshots.bulkAdd([
+      makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
+    ]);
+
+    const series = await loadOwnExtensionRankHistory(
+      [kw1],
+      EXT_A_ID,
+      '2026-01-01',
+      '2026-01-01'
+    );
+
+    expect(series).toHaveLength(1);
+    expect('iconUrl' in series[0]).toBe(false);
   });
 
   it('skips keywords with no ranking data', async () => {
