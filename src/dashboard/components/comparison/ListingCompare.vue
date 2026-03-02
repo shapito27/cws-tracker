@@ -223,6 +223,42 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
         </div>
       </div>
 
+      <!-- AI Analysis Section (only when exactly 2 extensions are selected) -->
+      <section v-if="selectedIds.length === 2" class="mb-6">
+        <h3 class="text-base font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">AI Analysis</h3>
+        <div v-if="!showAudit" class="rounded-lg border-2 border-dashed border-purple-200 bg-purple-50 p-6 text-center">
+          <p class="text-sm text-gray-600 mb-3">
+            Use AI to analyze why a competitor ranks higher for a specific keyword.
+          </p>
+          <div class="flex flex-wrap justify-center gap-2">
+            <button
+              v-for="id in selectedIds.filter(sid => sid !== project.ownExtensionId)"
+              :key="'audit-' + id"
+              class="rounded-md border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
+              @click="openAudit(id)"
+            >
+              Why higher: {{ getExtName(id) }}?
+            </button>
+          </div>
+        </div>
+        <Transition
+          enter-active-class="transition-all duration-300 ease-out"
+          enter-from-class="opacity-0 -translate-y-2"
+          enter-to-class="opacity-100 translate-y-0"
+          leave-active-class="transition-all duration-200 ease-in"
+          leave-from-class="opacity-100 translate-y-0"
+          leave-to-class="opacity-0 -translate-y-2"
+        >
+          <div v-if="showAudit" ref="auditPanelRef">
+            <AuditTool
+              :project="project"
+              :pre-selected-competitor-id="auditCompetitorId"
+              @close="closeAudit"
+            />
+          </div>
+        </Transition>
+      </section>
+
       <!-- No data state -->
       <div v-if="!hasData" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
         <p class="text-sm text-gray-500">
@@ -588,42 +624,6 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
               Add keywords in the Keywords tab to see keyword density comparison.
             </p>
           </div>
-        </section>
-
-        <!-- AI Analysis Section -->
-        <section class="mb-8">
-          <h3 class="text-base font-semibold text-gray-900 mb-3 border-b border-gray-200 pb-2">AI Analysis</h3>
-          <div v-if="!showAudit" class="rounded-lg border-2 border-dashed border-purple-200 bg-purple-50 p-6 text-center">
-            <p class="text-sm text-gray-600 mb-3">
-              Use AI to analyze why a competitor ranks higher for a specific keyword.
-            </p>
-            <div class="flex flex-wrap justify-center gap-2">
-              <button
-                v-for="id in selectedIds.filter(sid => sid !== project.ownExtensionId)"
-                :key="'audit-' + id"
-                class="rounded-md border border-purple-300 bg-white px-3 py-1.5 text-sm font-medium text-purple-700 hover:bg-purple-100"
-                @click="openAudit(id)"
-              >
-                Why higher: {{ getExtName(id) }}?
-              </button>
-            </div>
-          </div>
-          <Transition
-            enter-active-class="transition-all duration-300 ease-out"
-            enter-from-class="opacity-0 -translate-y-2"
-            enter-to-class="opacity-100 translate-y-0"
-            leave-active-class="transition-all duration-200 ease-in"
-            leave-from-class="opacity-100 translate-y-0"
-            leave-to-class="opacity-0 -translate-y-2"
-          >
-            <div v-if="showAudit" ref="auditPanelRef">
-              <AuditTool
-                :project="project"
-                :pre-selected-competitor-id="auditCompetitorId"
-                @close="closeAudit"
-              />
-            </div>
-          </Transition>
         </section>
       </template>
     </template>
