@@ -49,12 +49,12 @@ async function loadData(): Promise<void> {
   loading.value = true;
   try {
     const [rankResults, autocompleteResults] = await Promise.all([
-      loadRecentRankChanges(20),
-      loadRecentAutocompleteChanges(20),
+      loadRecentRankChanges(20, true),
+      loadRecentAutocompleteChanges(20, true),
     ]);
 
-    // Merge, keep only own extension, sort by magnitude
-    const combined = [...rankResults, ...autocompleteResults].filter((rc) => rc.isOwn);
+    // Merge and sort by magnitude (loaders already filtered to own extension only)
+    const combined = [...rankResults, ...autocompleteResults];
     combined.sort((a, b) => Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0));
 
     rankChanges.value = combined.slice(0, 20);
@@ -81,7 +81,7 @@ watch(
 <template>
   <div v-if="!loading && rankChanges.length > 0" class="rounded-lg border border-gray-200 bg-white shadow-sm">
     <div class="border-b border-gray-100 px-4 py-3 flex items-center justify-between">
-      <h3 class="text-sm font-semibold text-gray-900">Recent Rank Changes</h3>
+      <h3 class="text-sm font-semibold text-gray-900">Your Rank Changes</h3>
       <router-link
         :to="{ name: 'rankChanges' }"
         class="text-xs text-blue-600 hover:text-blue-700 hover:underline"
