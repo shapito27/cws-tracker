@@ -5,7 +5,7 @@
  * chrome.storage.local take precedence over defaults.
  */
 
-import type { Settings, SubscriptionStatus } from '../types/settings';
+import type { Settings, SubscriptionStatus, AuditPromptVariant } from '../types/settings';
 
 // ---------------------------------------------------------------------------
 // Defaults (values from PRD Section 4.2 / 5.3.6)
@@ -34,6 +34,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   parserVersion: 'v1',
   auditSystemPrompt: '',
   auditUserPromptTemplate: '',
+  auditPromptVariant: 'default',
   onboardingCompleted: false,
 };
 
@@ -49,6 +50,8 @@ const MIN_DATA_RETENTION_DAYS = 7;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Valid subscription statuses at runtime. */
 const VALID_SUBSCRIPTION_STATUSES: SubscriptionStatus[] = ['free', 'pro', 'expired'];
+/** Valid audit prompt variants. */
+const VALID_AUDIT_VARIANTS: AuditPromptVariant[] = ['default', 'cot', 'rubric'];
 
 export class SettingsValidationError extends Error {
   constructor(message: string) {
@@ -117,6 +120,14 @@ function validatePartial(partial: Partial<Settings>): void {
   if ('parserVersion' in partial) {
     if (typeof partial.parserVersion !== 'string' || partial.parserVersion.length === 0) {
       throw new SettingsValidationError('parserVersion must be a non-empty string');
+    }
+  }
+
+  if ('auditPromptVariant' in partial) {
+    if (!VALID_AUDIT_VARIANTS.includes(partial.auditPromptVariant as AuditPromptVariant)) {
+      throw new SettingsValidationError(
+        `auditPromptVariant must be one of ${VALID_AUDIT_VARIANTS.join(', ')}, got "${partial.auditPromptVariant}"`
+      );
     }
   }
 

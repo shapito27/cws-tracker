@@ -119,6 +119,7 @@ const canRun = computed(() =>
 const customPrompts = computed<CustomAuditPrompts>(() => ({
   systemPrompt: settings.auditSystemPrompt || undefined,
   userPromptTemplate: settings.auditUserPromptTemplate || undefined,
+  variant: settings.auditPromptVariant || 'default',
 }));
 
 const costEstimate = computed(() => {
@@ -300,7 +301,8 @@ async function runAudit(): Promise<void> {
     allKeywordTexts,
     props.project.ownExtensionId,
     selectedCompetitorId.value,
-    today()
+    today(),
+    settings.auditPromptVariant || 'default',
   );
 
   try {
