@@ -30,6 +30,13 @@ export interface AuditHistoricalContext {
   compEvents: EventRecord[];
 }
 
+/** Position context for an additional (non-primary) keyword. */
+export interface AdditionalKeywordContext {
+  keyword: string;
+  ownPosition: number | null;
+  competitorPosition: number | null;
+}
+
 export interface AuditInput {
   keyword: string;
   ownListing: ListingSnapshot;
@@ -40,6 +47,8 @@ export interface AuditInput {
   history7d?: AuditHistoricalContext;
   /** Optional 14-day historical context. */
   history14d?: AuditHistoricalContext;
+  /** Additional keywords with position context (non-primary). */
+  additionalKeywords?: AdditionalKeywordContext[];
 }
 
 export interface AuditRecommendation {
@@ -60,6 +69,8 @@ export interface AuditResult {
   outputTokens: number;
   costUsd: number;
   createdAt: string;
+  /** Additional keywords included in the audit (if multi-keyword). */
+  additionalKeywords?: string[];
 }
 
 /** Cached audit result stored in IndexedDB. */
@@ -94,6 +105,8 @@ Respond in the following JSON format:
 Keep the relevance analysis to 2-3 paragraphs. Keep metric comparison to 2-3 paragraphs. Provide 3-6 recommendations sorted by priority (high first). Only output valid JSON, no markdown code fences.`;
 
 export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor extension ranks higher for the keyword "{{keyword}}".
+
+{{keywordPositions}}
 
 ## Your Extension
 - **Title**: {{ownTitle}}
@@ -153,6 +166,10 @@ export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   compTranslations: 'Competitor translation locale count',
   compQualityScore: 'Competitor quality score',
   compPermissionRisk: 'Competitor permission risk score (0-100)',
+
+  // Multi-keyword context
+  keywords: 'Comma-separated list of all analyzed keywords',
+  keywordPositions: 'Markdown table of all keywords with positions for both extensions',
 
   // Historical: Search rank history (selected keyword)
   ownRankHistory7d: 'Your search rank for selected keyword, last 7 days (date | position)',
@@ -232,6 +249,37 @@ export function formatEventsHistory(events: EventRecord[], days: number): string
 }
 
 // ---------------------------------------------------------------------------
+// Multi-keyword position table
+// ---------------------------------------------------------------------------
+
+/** Format a markdown table of keyword positions for both extensions. */
+export function formatKeywordPositionsTable(
+  primaryKeyword: string,
+  primaryOwnPos: number | null,
+  primaryCompPos: number | null,
+  additional: AdditionalKeywordContext[],
+): string {
+  const fmtPos = (pos: number | null): string => pos !== null ? `#${pos}` : '30+';
+
+  const rows: { keyword: string; own: string; comp: string }[] = [
+    { keyword: primaryKeyword, own: fmtPos(primaryOwnPos), comp: fmtPos(primaryCompPos) },
+    ...additional.map((a) => ({
+      keyword: a.keyword,
+      own: fmtPos(a.ownPosition),
+      comp: fmtPos(a.competitorPosition),
+    })),
+  ];
+
+  const lines = [
+    '| Keyword | Your Position | Competitor Position |',
+    '|---------|---------------|---------------------|',
+    ...rows.map((r) => `| ${r.keyword} | ${r.own} | ${r.comp} |`),
+  ];
+
+  return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
 // Placeholder value builder
 // ---------------------------------------------------------------------------
 
@@ -272,6 +320,18 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
       : 'N/A',
     compPermissionRisk: `${competitorListing.permissionRiskScore}/100`,
   };
+
+  // Multi-keyword context
+  const additional = input.additionalKeywords ?? [];
+  if (additional.length > 0) {
+    const allKeywords = [keyword, ...additional.map((a) => a.keyword)];
+    values.keywords = allKeywords.join(', ');
+    values.keywordPositions = '## Keyword Positions Across All Analyzed Keywords\n\n' +
+      formatKeywordPositionsTable(keyword, ownPosition, competitorPosition, additional);
+  } else {
+    values.keywords = keyword;
+    values.keywordPositions = '';
+  }
 
   // Historical: 7-day context
   if (input.history7d) {
@@ -428,12 +488,15 @@ export function parseAuditResponse(raw: string): {
 // ---------------------------------------------------------------------------
 
 export function buildCacheKey(
-  keyword: string,
+  keywords: string | string[],
   ownExtensionId: string,
   competitorExtensionId: string,
   date: string
 ): string {
-  return `audit:${keyword}:${ownExtensionId}:${competitorExtensionId}:${date}`;
+  const keywordPart = Array.isArray(keywords)
+    ? [...keywords].sort().join(',')
+    : keywords;
+  return `audit:${keywordPart}:${ownExtensionId}:${competitorExtensionId}:${date}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +519,7 @@ export async function runKeywordAudit(
   const parsed = parseAuditResponse(response.content);
   const costUsd = OpenAIClient.estimateCost(response.inputTokens, response.outputTokens);
 
-  return {
+  const result: AuditResult = {
     keyword: input.keyword,
     ownExtensionId: input.ownListing.extensionId,
     competitorExtensionId: input.competitorListing.extensionId,
@@ -469,4 +532,10 @@ export async function runKeywordAudit(
     costUsd,
     createdAt: new Date().toISOString(),
   };
+
+  if (input.additionalKeywords && input.additionalKeywords.length > 0) {
+    result.additionalKeywords = input.additionalKeywords.map((a) => a.keyword);
+  }
+
+  return result;
 }

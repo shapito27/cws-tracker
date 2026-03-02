@@ -15,8 +15,10 @@ import {
   formatRankHistory,
   formatAutocompleteHistory,
   formatEventsHistory,
+  formatKeywordPositionsTable,
   type AuditInput,
   type AuditHistoricalContext,
+  type AdditionalKeywordContext,
 } from '../../../src/shared/utils/keyword-audit';
 import { OpenAIClient } from '../../../src/shared/utils/openai';
 import { CWSDatabase } from '../../../src/shared/db/database';
@@ -608,5 +610,122 @@ describe('buildPlaceholderValues() with historical context', () => {
     for (const key of historicalKeys) {
       expect(values[key]).toBe('No data available.');
     }
+  });
+
+  it('populates {{keywords}} with comma-separated list when additionalKeywords present', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      additionalKeywords: [
+        { keyword: 'task manager', ownPosition: 5, competitorPosition: 1 },
+        { keyword: 'todo app', ownPosition: null, competitorPosition: 3 },
+      ],
+    };
+    const values = buildPlaceholderValues(input);
+    expect(values.keywords).toBe('productivity extension, task manager, todo app');
+  });
+
+  it('populates {{keywords}} with single keyword when no additionalKeywords', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    expect(values.keywords).toBe('productivity extension');
+  });
+
+  it('populates {{keywordPositions}} with markdown table when additionalKeywords present', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      additionalKeywords: [
+        { keyword: 'task manager', ownPosition: 5, competitorPosition: 1 },
+      ],
+    };
+    const values = buildPlaceholderValues(input);
+    expect(values.keywordPositions).toContain('Keyword Positions');
+    expect(values.keywordPositions).toContain('productivity extension');
+    expect(values.keywordPositions).toContain('task manager');
+    expect(values.keywordPositions).toContain('#8');
+    expect(values.keywordPositions).toContain('#5');
+  });
+
+  it('sets {{keywordPositions}} to empty string when no additionalKeywords', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    expect(values.keywordPositions).toBe('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatKeywordPositionsTable() tests
+// ---------------------------------------------------------------------------
+
+describe('formatKeywordPositionsTable()', () => {
+  it('renders single row for primary keyword only', () => {
+    const result = formatKeywordPositionsTable('password manager', 3, 1, []);
+    expect(result).toContain('| password manager | #3 | #1 |');
+    expect(result).toContain('| Keyword |');
+  });
+
+  it('renders multiple rows for primary + additional keywords', () => {
+    const additional: AdditionalKeywordContext[] = [
+      { keyword: 'task tracker', ownPosition: 5, competitorPosition: 2 },
+      { keyword: 'todo list', ownPosition: 12, competitorPosition: null },
+    ];
+    const result = formatKeywordPositionsTable('password manager', 3, 1, additional);
+    expect(result).toContain('| password manager | #3 | #1 |');
+    expect(result).toContain('| task tracker | #5 | #2 |');
+    expect(result).toContain('| todo list | #12 | 30+ |');
+  });
+
+  it('shows 30+ for null positions', () => {
+    const result = formatKeywordPositionsTable('test kw', null, null, []);
+    expect(result).toContain('| test kw | 30+ | 30+ |');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCacheKey() multi-keyword tests
+// ---------------------------------------------------------------------------
+
+describe('buildCacheKey() multi-keyword', () => {
+  it('single string produces same key as single-element array', () => {
+    const key1 = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05');
+    const key2 = buildCacheKey(['keyword'], 'ext1', 'ext2', '2026-02-05');
+    expect(key1).toBe(key2);
+  });
+
+  it('multi-keyword array is order-independent', () => {
+    const key1 = buildCacheKey(['alpha', 'beta'], 'ext1', 'ext2', '2026-02-05');
+    const key2 = buildCacheKey(['beta', 'alpha'], 'ext1', 'ext2', '2026-02-05');
+    expect(key1).toBe(key2);
+  });
+
+  it('different keyword sets produce different keys', () => {
+    const key1 = buildCacheKey(['alpha', 'beta'], 'ext1', 'ext2', '2026-02-05');
+    const key2 = buildCacheKey(['alpha', 'gamma'], 'ext1', 'ext2', '2026-02-05');
+    expect(key1).not.toBe(key2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildAuditPrompt() with multi-keyword context
+// ---------------------------------------------------------------------------
+
+describe('buildAuditPrompt() with additional keywords', () => {
+  it('includes keyword positions table when additional keywords present', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      additionalKeywords: [
+        { keyword: 'task manager', ownPosition: 5, competitorPosition: 1 },
+      ],
+    };
+    const messages = buildAuditPrompt(input);
+    const userContent = messages[1].content;
+
+    expect(userContent).toContain('task manager');
+    expect(userContent).toContain('Keyword Positions');
+    expect(userContent).toContain('#5');
+  });
+
+  it('does not include positions table when no additional keywords', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT);
+    const userContent = messages[1].content;
+
+    expect(userContent).not.toContain('Keyword Positions');
   });
 });
