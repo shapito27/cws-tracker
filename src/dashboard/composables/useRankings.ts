@@ -16,10 +16,17 @@ export interface ChartDataPoint {
   y: number | null; // position (null = not ranked)
 }
 
-/** One series in the chart (one line per extension). */
+/** One series in the chart (one line per extension or per keyword). */
 export interface RankChartSeries {
   name: string;
   extensionId: string;
+  /**
+   * Extension icon URL for the chart legend.
+   * Present (string | null) for extension-per-line mode (RankingsTab).
+   * Absent (undefined) for keyword-per-line mode (OverviewTab).
+   * RankChart uses this to decide whether to render an ExtensionIcon.
+   */
+  iconUrl?: string | null;
   data: ChartDataPoint[];
 }
 
@@ -48,6 +55,7 @@ export async function loadRankHistory(
     series.push({
       name: ext.name || ext.id,
       extensionId: ext.id,
+      iconUrl: ext.iconUrl,
       data,
     });
   }
@@ -234,6 +242,7 @@ export async function loadOwnExtensionRankHistory(
     series.push({
       name: kw.text,
       extensionId: ownExtensionId,
+      // iconUrl intentionally omitted: keyword-per-line mode shows no icon in legend
       data,
     });
   });
