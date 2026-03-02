@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import type { Project, Extension, EventRecord, Keyword, ListingSnapshot } from '@/shared/types';
 import type { RankChartSeries } from '../../composables/useRankings';
 import {
@@ -75,18 +75,7 @@ onMounted(async () => {
       );
     }
 
-    // Load compact rank changes for this project
-    const [rankResults, acResults] = await Promise.all([
-      loadRecentRankChanges(50),
-      loadRecentAutocompleteChanges(50),
-    ]);
-    const combined = [...rankResults, ...acResults]
-      .filter(rc => rc.projectId === props.project.id);
-    combined.sort((a, b) => {
-      if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
-      return Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0);
-    });
-    projectRankChanges.value = combined.slice(0, 10);
+    await loadProjectRankChanges();
 
     // Get recent events across all project extensions (excluding rank_change to avoid duplication)
     const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
@@ -109,6 +98,34 @@ onMounted(async () => {
     loading.value = false;
   }
 });
+
+async function loadProjectRankChanges(): Promise<void> {
+  try {
+    const [rankResults, acResults] = await Promise.all([
+      loadRecentRankChanges(50),
+      loadRecentAutocompleteChanges(50),
+    ]);
+    const combined = [...rankResults, ...acResults]
+      .filter(rc => rc.projectId === props.project.id);
+    combined.sort((a, b) => {
+      if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
+      return Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0);
+    });
+    projectRankChanges.value = combined.slice(0, 10);
+  } catch {
+    // Keep existing value on error
+  }
+}
+
+// Reload rank changes after scan completes
+watch(
+  () => scanStatus.value.isRunning,
+  (isRunning, wasRunning) => {
+    if (wasRunning && !isRunning) {
+      loadProjectRankChanges();
+    }
+  }
+);
 
 function formatRelativeDateTime(date: Date): string {
   if (isNaN(date.getTime())) return 'Unknown';
