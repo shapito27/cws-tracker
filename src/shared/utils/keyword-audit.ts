@@ -9,6 +9,7 @@
 import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '../types';
 import { OpenAIClient } from './openai';
 import type { ChatMessage } from './openai';
+import { calculateQualityScore } from './quality-score';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -138,7 +139,10 @@ export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor ex
 - **Title**: {{ownTitle}}
 - **Position**: {{ownPosition}}
 - **Short Description**: {{ownShortDescription}}
-- **Full Description** (first 500 chars): {{ownFullDescription}}
+- **Full Description**:
+<full-description>
+{{ownFullDescription}}
+</full-description>
 - **Rating**: {{ownRating}}
 - **Users**: {{ownUsers}}
 - **Version**: {{ownVersion}}
@@ -151,7 +155,10 @@ export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor ex
 - **Title**: {{compTitle}}
 - **Position**: {{compPosition}}
 - **Short Description**: {{compShortDescription}}
-- **Full Description** (first 500 chars): {{compFullDescription}}
+- **Full Description**:
+<full-description>
+{{compFullDescription}}
+</full-description>
 - **Rating**: {{compRating}}
 - **Users**: {{compUsers}}
 - **Version**: {{compVersion}}
@@ -174,16 +181,13 @@ Competitor: {{compEvents14d}}`;
 // Placeholder system
 // ---------------------------------------------------------------------------
 
-/** Maximum characters from full description included in the prompt. */
-const MAX_DESCRIPTION_LENGTH = 500;
-
 /** All available placeholder keys with human-readable descriptions. */
 export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   keyword: 'The search keyword being analyzed',
   ownTitle: 'Your extension title',
   ownPosition: 'Your ranking position (e.g. "#3" or "Not in top 30")',
   ownShortDescription: 'Your short description',
-  ownFullDescription: 'Your full description (first 500 chars)',
+  ownFullDescription: 'Your full description',
   ownRating: 'Your rating (e.g. "4.5/5 (200 ratings)")',
   ownUsers: 'Your user count (e.g. "10,000+ (10000)")',
   ownVersion: 'Your extension version',
@@ -194,7 +198,7 @@ export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   compTitle: 'Competitor extension title',
   compPosition: 'Competitor ranking position',
   compShortDescription: 'Competitor short description',
-  compFullDescription: 'Competitor full description (first 500 chars)',
+  compFullDescription: 'Competitor full description',
   compRating: 'Competitor rating',
   compUsers: 'Competitor user count',
   compVersion: 'Competitor version',
@@ -328,7 +332,7 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     ownTitle: ownListing.title,
     ownPosition: ownPosition !== null ? `#${ownPosition}` : 'Not in top 30',
     ownShortDescription: ownListing.shortDescription,
-    ownFullDescription: ownListing.fullDescription.slice(0, MAX_DESCRIPTION_LENGTH),
+    ownFullDescription: ownListing.fullDescription,
     ownRating: ownListing.rating !== null
       ? `${ownListing.rating}/5 (${ownListing.ratingCount} ratings)`
       : 'No ratings',
@@ -336,14 +340,12 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     ownVersion: ownListing.version,
     ownScreenshots: String(ownListing.screenshotCount),
     ownTranslations: `${ownListing.translationCount} locales`,
-    ownQualityScore: ownListing.listingQualityScore !== null
-      ? String(ownListing.listingQualityScore)
-      : 'N/A',
+    ownQualityScore: `${calculateQualityScore(ownListing).totalScore}/100`,
     ownPermissionRisk: `${ownListing.permissionRiskScore}/100`,
     compTitle: competitorListing.title,
     compPosition: competitorPosition !== null ? `#${competitorPosition}` : 'Not in top 30',
     compShortDescription: competitorListing.shortDescription,
-    compFullDescription: competitorListing.fullDescription.slice(0, MAX_DESCRIPTION_LENGTH),
+    compFullDescription: competitorListing.fullDescription,
     compRating: competitorListing.rating !== null
       ? `${competitorListing.rating}/5 (${competitorListing.ratingCount} ratings)`
       : 'No ratings',
@@ -351,9 +353,7 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     compVersion: competitorListing.version,
     compScreenshots: String(competitorListing.screenshotCount),
     compTranslations: `${competitorListing.translationCount} locales`,
-    compQualityScore: competitorListing.listingQualityScore !== null
-      ? String(competitorListing.listingQualityScore)
-      : 'N/A',
+    compQualityScore: `${calculateQualityScore(competitorListing).totalScore}/100`,
     compPermissionRisk: `${competitorListing.permissionRiskScore}/100`,
   };
 
@@ -426,7 +426,6 @@ export function fillTemplate(template: string, values: Record<string, string>): 
 // This is acceptable because:
 // 1. Data is public from Chrome Web Store (not user input)
 // 2. AI output is only displayed to the user (no sensitive operations)
-// 3. Descriptions are truncated to 500 chars to limit prompt size
 
 export function buildAuditPrompt(
   input: AuditInput,

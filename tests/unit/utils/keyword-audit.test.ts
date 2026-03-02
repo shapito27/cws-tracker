@@ -133,9 +133,10 @@ describe('buildAuditPrompt()', () => {
     expect(userContent).toContain('50,000+');
     expect(userContent).toContain('1,000,000+');
 
-    // Quality scores
-    expect(userContent).toContain('72');
-    expect(userContent).toContain('91');
+    // Quality scores (computed on-the-fly, formatted as X/100)
+    expect(userContent).toMatch(/Quality Score.*\d+\/100/);
+    expect(userContent).toContain('56/100'); // own listing computed score
+    expect(userContent).toContain('73/100'); // competitor computed score
   });
 
   it('handles null positions', () => {
@@ -161,7 +162,7 @@ describe('buildAuditPrompt()', () => {
     expect(userContent).toContain('No ratings');
   });
 
-  it('handles null quality score', () => {
+  it('computes quality score on-the-fly even when listingQualityScore is null', () => {
     const input: AuditInput = {
       ...SAMPLE_INPUT,
       ownListing: makeListing({ listingQualityScore: null }),
@@ -169,10 +170,12 @@ describe('buildAuditPrompt()', () => {
     const messages = buildAuditPrompt(input);
     const userContent = messages[1].content;
 
-    expect(userContent).toContain('N/A');
+    // Should compute a score from snapshot data, not show N/A
+    expect(userContent).not.toContain('N/A');
+    expect(userContent).toMatch(/\d+\/100/);
   });
 
-  it('truncates long descriptions to 500 chars', () => {
+  it('includes full description without truncation', () => {
     const longDesc = 'A'.repeat(1000);
     const input: AuditInput = {
       ...SAMPLE_INPUT,
@@ -181,11 +184,16 @@ describe('buildAuditPrompt()', () => {
     const messages = buildAuditPrompt(input);
     const userContent = messages[1].content;
 
-    // The prompt should contain only first 500 chars, not all 1000
-    const matches = userContent.match(/A{500}/g);
-    expect(matches).toBeTruthy();
-    // Should not have 501+ consecutive A's from the user's listing
-    expect(userContent).not.toContain('A'.repeat(501));
+    // The prompt should contain the full 1000-char description
+    expect(userContent).toContain('A'.repeat(1000));
+  });
+
+  it('wraps full description in XML-style delimiters', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT);
+    const userContent = messages[1].content;
+
+    expect(userContent).toContain('<full-description>');
+    expect(userContent).toContain('</full-description>');
   });
 
   it('system prompt requests JSON format with trendAnalysis and impact', () => {
