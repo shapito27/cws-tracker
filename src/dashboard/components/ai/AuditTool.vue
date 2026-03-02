@@ -6,6 +6,7 @@ import { useExtensions } from '../../composables/useExtensions';
 import { useSettings } from '../../composables/useSettings';
 import { OpenAIClient, OpenAIError } from '@/shared/utils/openai';
 import {
+  buildAuditPrompt,
   buildCacheKey,
   estimateAuditTokens,
   runKeywordAudit,
@@ -100,6 +101,35 @@ const costEstimate = computed(() => {
   };
 
   return estimateAuditTokens(input, customPrompts.value);
+});
+
+const previewMessages = computed(() => {
+  if (!primaryKeywordId.value || !selectedCompetitorId.value) return null;
+  const ownSnap = snapshots.value.get(props.project.ownExtensionId);
+  const compSnap = snapshots.value.get(selectedCompetitorId.value);
+  if (!ownSnap || !compSnap) return null;
+
+  const ownRankMap = latestRanks.value.get(props.project.ownExtensionId);
+  const compRankMap = latestRanks.value.get(selectedCompetitorId.value);
+  const additional: AdditionalKeywordContext[] = selectedKeywordIds.value.slice(1).map((kwId) => {
+    const kw = keywords.value.find((k) => k.id === kwId);
+    return {
+      keyword: kw?.text ?? '',
+      ownPosition: ownRankMap?.get(kwId)?.position ?? null,
+      competitorPosition: compRankMap?.get(kwId)?.position ?? null,
+    };
+  });
+
+  const input: AuditInput = {
+    keyword: keywords.value.find((k) => k.id === primaryKeywordId.value)?.text ?? '',
+    ownListing: ownSnap,
+    competitorListing: compSnap,
+    ownPosition: ownRankMap?.get(primaryKeywordId.value!)?.position ?? null,
+    competitorPosition: compRankMap?.get(primaryKeywordId.value!)?.position ?? null,
+    additionalKeywords: additional.length > 0 ? additional : undefined,
+  };
+
+  return buildAuditPrompt(input, customPrompts.value);
 });
 
 // Outside-click handler for keyword dropdown
@@ -442,6 +472,19 @@ function getPosition(extId: string, kwId: number): string {
         </div>
       </div>
 
+      <!-- Prompt Preview -->
+      <details v-if="previewMessages" class="mb-4">
+        <summary class="cursor-pointer text-xs font-medium text-gray-500 hover:text-gray-700">
+          Preview prompt
+        </summary>
+        <div class="mt-2 space-y-3">
+          <div v-for="(msg, idx) in previewMessages" :key="idx">
+            <p class="mb-1 text-xs font-semibold text-gray-500 uppercase">{{ msg.role }}</p>
+            <pre class="max-h-64 overflow-auto rounded-md bg-gray-50 p-3 text-xs text-gray-700 whitespace-pre-wrap break-words">{{ msg.content }}</pre>
+          </div>
+        </div>
+      </details>
+
       <!-- Cost estimate & Run button -->
       <div class="mb-6 flex items-center gap-4">
         <button
@@ -500,6 +543,12 @@ function getPosition(extId: string, kwId: number): string {
           <p class="whitespace-pre-line text-sm text-gray-600">{{ auditResult.metricComparison }}</p>
         </div>
 
+        <!-- Trend Analysis -->
+        <div v-if="auditResult.trendAnalysis" class="rounded-lg border border-gray-200 p-4">
+          <h4 class="mb-2 text-sm font-semibold text-gray-800">Trend Analysis</h4>
+          <p class="whitespace-pre-line text-sm text-gray-600">{{ auditResult.trendAnalysis }}</p>
+        </div>
+
         <!-- Recommendations -->
         <div v-if="auditResult.recommendations.length > 0" class="rounded-lg border border-gray-200 p-4">
           <h4 class="mb-3 text-sm font-semibold text-gray-800">Recommendations</h4>
@@ -517,6 +566,7 @@ function getPosition(extId: string, kwId: number): string {
                 <span class="text-xs font-semibold">{{ rec.area }}</span>
               </div>
               <p class="text-sm">{{ rec.suggestion }}</p>
+              <p v-if="rec.impact" class="mt-1 text-xs text-gray-500 italic">Impact: {{ rec.impact }}</p>
             </div>
           </div>
         </div>

@@ -92,10 +92,11 @@ const SAMPLE_INPUT: AuditInput = {
 const VALID_AI_RESPONSE = JSON.stringify({
   relevanceAnalysis: 'The competitor has stronger keyword presence in the title.',
   metricComparison: 'The competitor has significantly more users and higher ratings.',
+  trendAnalysis: 'The competitor has been steadily climbing from #5 to #2 over the past 14 days, correlating with a version update on 02-20.',
   recommendations: [
-    { area: 'Title', suggestion: 'Include "productivity" in your title', priority: 'high' },
-    { area: 'Description', suggestion: 'Expand description with use cases', priority: 'medium' },
-    { area: 'Screenshots', suggestion: 'Add 2 more screenshots', priority: 'low' },
+    { area: 'Title', suggestion: 'Include "productivity" in your title', priority: 'high', impact: 'Could improve keyword match score and move from #8 to top 5' },
+    { area: 'Description', suggestion: 'Expand description with use cases', priority: 'medium', impact: 'Better keyword density may boost relevance score' },
+    { area: 'Screenshots', suggestion: 'Add 2 more screenshots', priority: 'low', impact: 'Improves listing quality score from 72 toward 80+' },
   ],
 });
 
@@ -187,12 +188,51 @@ describe('buildAuditPrompt()', () => {
     expect(userContent).not.toContain('A'.repeat(501));
   });
 
-  it('system prompt requests JSON format', () => {
+  it('system prompt requests JSON format with trendAnalysis and impact', () => {
     const messages = buildAuditPrompt(SAMPLE_INPUT);
     expect(messages[0].content).toContain('JSON');
     expect(messages[0].content).toContain('relevanceAnalysis');
     expect(messages[0].content).toContain('metricComparison');
+    expect(messages[0].content).toContain('trendAnalysis');
     expect(messages[0].content).toContain('recommendations');
+    expect(messages[0].content).toContain('impact');
+  });
+
+  it('includes historical data placeholders in default user prompt', () => {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    const history: AuditHistoricalContext = {
+      ownRankHistory: [makeRankSnapshot(todayStr, 5)],
+      compRankHistory: [makeRankSnapshot(todayStr, 2)],
+      ownAutocompleteHistory: [makeAutocompleteSnapshot(todayStr, 3)],
+      compAutocompleteHistory: [makeAutocompleteSnapshot(todayStr, 1)],
+      ownEvents: [makeEvent(todayStr, 'version_change', 'Version update')],
+      compEvents: [makeEvent(todayStr, 'title_change', 'Title changed')],
+    };
+
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      history14d: history,
+    };
+
+    const messages = buildAuditPrompt(input);
+    const userContent = messages[1].content;
+
+    // Verify historical sections are present in user prompt
+    expect(userContent).toContain('Ranking Trends (last 14 days)');
+    expect(userContent).toContain('Recent Changes & Events (last 14 days)');
+    expect(userContent).toContain('#5');
+    expect(userContent).toContain('version_change');
+    expect(userContent).toContain('title_change');
+  });
+
+  it('shows fallback text for historical sections when no data', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT);
+    const userContent = messages[1].content;
+
+    expect(userContent).toContain('Ranking Trends (last 14 days)');
+    expect(userContent).toContain('No data available.');
   });
 });
 
@@ -201,7 +241,7 @@ describe('estimateAuditTokens()', () => {
     const estimate = estimateAuditTokens(SAMPLE_INPUT);
 
     expect(estimate.inputTokens).toBeGreaterThan(0);
-    expect(estimate.outputTokens).toBe(600);
+    expect(estimate.outputTokens).toBe(900);
     expect(estimate.estimatedCostUsd).toBeGreaterThan(0);
   });
 
@@ -221,9 +261,11 @@ describe('parseAuditResponse()', () => {
 
     expect(result.relevanceAnalysis).toBe('The competitor has stronger keyword presence in the title.');
     expect(result.metricComparison).toBe('The competitor has significantly more users and higher ratings.');
+    expect(result.trendAnalysis).toContain('steadily climbing from #5 to #2');
     expect(result.recommendations).toHaveLength(3);
     expect(result.recommendations[0].area).toBe('Title');
     expect(result.recommendations[0].priority).toBe('high');
+    expect(result.recommendations[0].impact).toContain('keyword match score');
   });
 
   it('handles response wrapped in markdown code fences', () => {
@@ -231,6 +273,7 @@ describe('parseAuditResponse()', () => {
     const result = parseAuditResponse(wrapped);
 
     expect(result.relevanceAnalysis).toBe('The competitor has stronger keyword presence in the title.');
+    expect(result.trendAnalysis).toContain('steadily climbing');
     expect(result.recommendations).toHaveLength(3);
   });
 
@@ -240,6 +283,7 @@ describe('parseAuditResponse()', () => {
 
     expect(result.relevanceAnalysis).toBe(raw);
     expect(result.metricComparison).toBe('');
+    expect(result.trendAnalysis).toBe('');
     expect(result.recommendations).toHaveLength(0);
   });
 
@@ -248,6 +292,7 @@ describe('parseAuditResponse()', () => {
 
     expect(result.relevanceAnalysis).toBe('');
     expect(result.metricComparison).toBe('');
+    expect(result.trendAnalysis).toBe('');
     expect(result.recommendations).toHaveLength(0);
   });
 
@@ -257,6 +302,7 @@ describe('parseAuditResponse()', () => {
 
     expect(result.relevanceAnalysis).toBe('Analysis here');
     expect(result.metricComparison).toBe('');
+    expect(result.trendAnalysis).toBe('');
     expect(result.recommendations).toHaveLength(0);
   });
 
@@ -340,7 +386,9 @@ describe('runKeywordAudit()', () => {
     expect(result.ownExtensionId).toBe(SAMPLE_INPUT.ownListing.extensionId);
     expect(result.competitorExtensionId).toBe(SAMPLE_INPUT.competitorListing.extensionId);
     expect(result.relevanceAnalysis).toBeTruthy();
+    expect(result.trendAnalysis).toContain('steadily climbing');
     expect(result.recommendations).toHaveLength(3);
+    expect(result.recommendations[0].impact).toBeTruthy();
     expect(result.inputTokens).toBe(500);
     expect(result.outputTokens).toBe(200);
     expect(result.costUsd).toBeGreaterThan(0);
@@ -371,6 +419,7 @@ describe('Audit cache in database', () => {
       competitorExtensionId: 'ext2',
       relevanceAnalysis: 'Analysis',
       metricComparison: 'Comparison',
+      trendAnalysis: 'Trends',
       recommendations: [{ area: 'Title', suggestion: 'Do X', priority: 'high' as const }],
       rawResponse: '{}',
       inputTokens: 100,
@@ -402,6 +451,7 @@ describe('Audit cache in database', () => {
       competitorExtensionId: 'ext2',
       relevanceAnalysis: 'Cached analysis',
       metricComparison: 'Cached comparison',
+      trendAnalysis: '',
       recommendations: [],
       rawResponse: '{}',
       inputTokens: 100,
@@ -423,12 +473,12 @@ describe('Audit cache in database', () => {
 
     await testDb.saveAuditResult({
       cacheKey: key1, keyword: 'kw1', ownExtensionId: 'e1', competitorExtensionId: 'e2',
-      relevanceAnalysis: '', metricComparison: '', recommendations: [],
+      relevanceAnalysis: '', metricComparison: '', trendAnalysis: '', recommendations: [],
       rawResponse: '', inputTokens: 0, outputTokens: 0, costUsd: 0, createdAt: '',
     });
     await testDb.saveAuditResult({
       cacheKey: key2, keyword: 'kw2', ownExtensionId: 'e1', competitorExtensionId: 'e2',
-      relevanceAnalysis: '', metricComparison: '', recommendations: [],
+      relevanceAnalysis: '', metricComparison: '', trendAnalysis: '', recommendations: [],
       rawResponse: '', inputTokens: 0, outputTokens: 0, costUsd: 0, createdAt: '',
     });
 
@@ -436,6 +486,32 @@ describe('Audit cache in database', () => {
 
     expect(await testDb.getCachedAudit(key1)).toBeUndefined();
     expect(await testDb.getCachedAudit(key2)).toBeUndefined();
+  });
+
+  it('round-trips trendAnalysis through cache', async () => {
+    const cacheKey = buildCacheKey('keyword', 'ext1', 'ext2', '2026-02-05');
+    const cached = {
+      cacheKey,
+      keyword: 'keyword',
+      ownExtensionId: 'ext1',
+      competitorExtensionId: 'ext2',
+      relevanceAnalysis: 'Analysis',
+      metricComparison: 'Comparison',
+      trendAnalysis: 'Rankings improved steadily over the past 7 days, moving from position 15 to position 8.',
+      recommendations: [{ area: 'Title', suggestion: 'Do X', priority: 'high' as const, impact: 'Expected +3 positions' }],
+      rawResponse: '{}',
+      inputTokens: 100,
+      outputTokens: 50,
+      costUsd: 0.001,
+      createdAt: '2026-02-05T12:00:00Z',
+    };
+
+    await testDb.saveAuditResult(cached);
+    const result = await testDb.getCachedAudit(cacheKey);
+
+    expect(result).toBeDefined();
+    expect(result!.trendAnalysis).toBe('Rankings improved steadily over the past 7 days, moving from position 15 to position 8.');
+    expect(result!.recommendations[0].impact).toBe('Expected +3 positions');
   });
 });
 
