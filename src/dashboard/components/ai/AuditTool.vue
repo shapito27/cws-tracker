@@ -203,6 +203,7 @@ async function runAudit(): Promise<void> {
     const start14d = daysAgo(14);
     const start7d = daysAgo(7);
     const ownExtId = props.project.ownExtensionId;
+    if (!selectedCompetitorId.value || !selectedKeywordId.value) return;
     const compExtId = selectedCompetitorId.value;
     const kwId = selectedKeywordId.value;
 
