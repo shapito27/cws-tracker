@@ -49,25 +49,17 @@ export interface CachedAuditResult extends AuditResult {
   cacheKey: string;
 }
 
+/** Optional custom prompts from Settings. */
+export interface CustomAuditPrompts {
+  systemPrompt?: string;
+  userPromptTemplate?: string;
+}
+
 // ---------------------------------------------------------------------------
-// Prompt construction
+// Default prompts
 // ---------------------------------------------------------------------------
 
-// Note: Extension data is directly interpolated into the prompt without sanitization.
-// This is acceptable because:
-// 1. Data is public from Chrome Web Store (not user input)
-// 2. AI output is only displayed to the user (no sensitive operations)
-// 3. Descriptions are truncated to 500 chars to limit prompt size
-
-export function buildAuditPrompt(input: AuditInput): ChatMessage[] {
-  const { keyword, ownListing, competitorListing, ownPosition, competitorPosition } = input;
-
-  const ownPos = ownPosition !== null ? `#${ownPosition}` : 'Not in top 30';
-  const compPos = competitorPosition !== null ? `#${competitorPosition}` : 'Not in top 30';
-
-  const systemMessage: ChatMessage = {
-    role: 'system',
-    content: `You are a Chrome Web Store ASO (App Store Optimization) expert. Analyze why one extension ranks higher than another for a specific keyword. Provide actionable, specific recommendations.
+export const DEFAULT_AUDIT_SYSTEM_PROMPT = `You are a Chrome Web Store ASO (App Store Optimization) expert. Analyze why one extension ranks higher than another for a specific keyword. Provide actionable, specific recommendations.
 
 Respond in the following JSON format:
 {
@@ -79,53 +71,161 @@ Respond in the following JSON format:
   ]
 }
 
-Keep the relevance analysis to 2-3 paragraphs. Keep metric comparison to 2-3 paragraphs. Provide 3-6 recommendations sorted by priority (high first). Only output valid JSON, no markdown code fences.`,
-  };
+Keep the relevance analysis to 2-3 paragraphs. Keep metric comparison to 2-3 paragraphs. Provide 3-6 recommendations sorted by priority (high first). Only output valid JSON, no markdown code fences.`;
 
-  const userMessage: ChatMessage = {
-    role: 'user',
-    content: `Analyze why the competitor extension ranks higher for the keyword "${keyword}".
+export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor extension ranks higher for the keyword "{{keyword}}".
 
 ## Your Extension
-- **Title**: ${ownListing.title}
-- **Position**: ${ownPos}
-- **Short Description**: ${ownListing.shortDescription}
-- **Full Description** (first 500 chars): ${ownListing.fullDescription.slice(0, 500)}
-- **Rating**: ${ownListing.rating !== null ? `${ownListing.rating}/5 (${ownListing.ratingCount} ratings)` : 'No ratings'}
-- **Users**: ${ownListing.userCount} (${ownListing.userCountNumeric})
-- **Version**: ${ownListing.version}
-- **Screenshots**: ${ownListing.screenshotCount}
-- **Translations**: ${ownListing.translationCount} locales
-- **Quality Score**: ${ownListing.listingQualityScore !== null ? ownListing.listingQualityScore : 'N/A'}
-- **Permission Risk**: ${ownListing.permissionRiskScore}/100
+- **Title**: {{ownTitle}}
+- **Position**: {{ownPosition}}
+- **Short Description**: {{ownShortDescription}}
+- **Full Description** (first 500 chars): {{ownFullDescription}}
+- **Rating**: {{ownRating}}
+- **Users**: {{ownUsers}}
+- **Version**: {{ownVersion}}
+- **Screenshots**: {{ownScreenshots}}
+- **Translations**: {{ownTranslations}}
+- **Quality Score**: {{ownQualityScore}}
+- **Permission Risk**: {{ownPermissionRisk}}
 
 ## Competitor Extension
-- **Title**: ${competitorListing.title}
-- **Position**: ${compPos}
-- **Short Description**: ${competitorListing.shortDescription}
-- **Full Description** (first 500 chars): ${competitorListing.fullDescription.slice(0, 500)}
-- **Rating**: ${competitorListing.rating !== null ? `${competitorListing.rating}/5 (${competitorListing.ratingCount} ratings)` : 'No ratings'}
-- **Users**: ${competitorListing.userCount} (${competitorListing.userCountNumeric})
-- **Version**: ${competitorListing.version}
-- **Screenshots**: ${competitorListing.screenshotCount}
-- **Translations**: ${competitorListing.translationCount} locales
-- **Quality Score**: ${competitorListing.listingQualityScore !== null ? competitorListing.listingQualityScore : 'N/A'}
-- **Permission Risk**: ${competitorListing.permissionRiskScore}/100`,
-  };
+- **Title**: {{compTitle}}
+- **Position**: {{compPosition}}
+- **Short Description**: {{compShortDescription}}
+- **Full Description** (first 500 chars): {{compFullDescription}}
+- **Rating**: {{compRating}}
+- **Users**: {{compUsers}}
+- **Version**: {{compVersion}}
+- **Screenshots**: {{compScreenshots}}
+- **Translations**: {{compTranslations}}
+- **Quality Score**: {{compQualityScore}}
+- **Permission Risk**: {{compPermissionRisk}}`;
 
-  return [systemMessage, userMessage];
+// ---------------------------------------------------------------------------
+// Placeholder system
+// ---------------------------------------------------------------------------
+
+/** All available placeholder keys with human-readable descriptions. */
+export const AUDIT_PLACEHOLDERS: Record<string, string> = {
+  keyword: 'The search keyword being analyzed',
+  ownTitle: 'Your extension title',
+  ownPosition: 'Your ranking position (e.g. "#3" or "Not in top 30")',
+  ownShortDescription: 'Your short description',
+  ownFullDescription: 'Your full description (first 500 chars)',
+  ownRating: 'Your rating (e.g. "4.5/5 (200 ratings)")',
+  ownUsers: 'Your user count (e.g. "10,000+ (10000)")',
+  ownVersion: 'Your extension version',
+  ownScreenshots: 'Your screenshot count',
+  ownTranslations: 'Your translation locale count',
+  ownQualityScore: 'Your listing quality score',
+  ownPermissionRisk: 'Your permission risk score (0-100)',
+  compTitle: 'Competitor extension title',
+  compPosition: 'Competitor ranking position',
+  compShortDescription: 'Competitor short description',
+  compFullDescription: 'Competitor full description (first 500 chars)',
+  compRating: 'Competitor rating',
+  compUsers: 'Competitor user count',
+  compVersion: 'Competitor version',
+  compScreenshots: 'Competitor screenshot count',
+  compTranslations: 'Competitor translation locale count',
+  compQualityScore: 'Competitor quality score',
+  compPermissionRisk: 'Competitor permission risk score (0-100)',
+};
+
+/** Build placeholder values from an AuditInput. */
+export function buildPlaceholderValues(input: AuditInput): Record<string, string> {
+  const { keyword, ownListing, competitorListing, ownPosition, competitorPosition } = input;
+
+  return {
+    keyword,
+    ownTitle: ownListing.title,
+    ownPosition: ownPosition !== null ? `#${ownPosition}` : 'Not in top 30',
+    ownShortDescription: ownListing.shortDescription,
+    ownFullDescription: ownListing.fullDescription.slice(0, 500),
+    ownRating: ownListing.rating !== null
+      ? `${ownListing.rating}/5 (${ownListing.ratingCount} ratings)`
+      : 'No ratings',
+    ownUsers: `${ownListing.userCount} (${ownListing.userCountNumeric})`,
+    ownVersion: ownListing.version,
+    ownScreenshots: String(ownListing.screenshotCount),
+    ownTranslations: `${ownListing.translationCount} locales`,
+    ownQualityScore: ownListing.listingQualityScore !== null
+      ? String(ownListing.listingQualityScore)
+      : 'N/A',
+    ownPermissionRisk: `${ownListing.permissionRiskScore}/100`,
+    compTitle: competitorListing.title,
+    compPosition: competitorPosition !== null ? `#${competitorPosition}` : 'Not in top 30',
+    compShortDescription: competitorListing.shortDescription,
+    compFullDescription: competitorListing.fullDescription.slice(0, 500),
+    compRating: competitorListing.rating !== null
+      ? `${competitorListing.rating}/5 (${competitorListing.ratingCount} ratings)`
+      : 'No ratings',
+    compUsers: `${competitorListing.userCount} (${competitorListing.userCountNumeric})`,
+    compVersion: competitorListing.version,
+    compScreenshots: String(competitorListing.screenshotCount),
+    compTranslations: `${competitorListing.translationCount} locales`,
+    compQualityScore: competitorListing.listingQualityScore !== null
+      ? String(competitorListing.listingQualityScore)
+      : 'N/A',
+    compPermissionRisk: `${competitorListing.permissionRiskScore}/100`,
+  };
+}
+
+/** Replace {{placeholder}} tokens in a template string with values. */
+export function fillTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => {
+    if (key in values) {
+      return values[key];
+    }
+    return match;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Prompt construction
+// ---------------------------------------------------------------------------
+
+// Note: Extension data is directly interpolated into the prompt without sanitization.
+// This is acceptable because:
+// 1. Data is public from Chrome Web Store (not user input)
+// 2. AI output is only displayed to the user (no sensitive operations)
+// 3. Descriptions are truncated to 500 chars to limit prompt size
+
+export function buildAuditPrompt(
+  input: AuditInput,
+  customPrompts?: CustomAuditPrompts,
+): ChatMessage[] {
+  const placeholders = buildPlaceholderValues(input);
+
+  const systemContent = customPrompts?.systemPrompt?.trim()
+    ? customPrompts.systemPrompt
+    : DEFAULT_AUDIT_SYSTEM_PROMPT;
+
+  const userTemplate = customPrompts?.userPromptTemplate?.trim()
+    ? customPrompts.userPromptTemplate
+    : DEFAULT_AUDIT_USER_PROMPT_TEMPLATE;
+
+  const userContent = fillTemplate(userTemplate, placeholders);
+
+  return [
+    { role: 'system', content: systemContent },
+    { role: 'user', content: userContent },
+  ];
 }
 
 // ---------------------------------------------------------------------------
 // Token estimation for the prompt
 // ---------------------------------------------------------------------------
 
-export function estimateAuditTokens(input: AuditInput): {
+export function estimateAuditTokens(
+  input: AuditInput,
+  customPrompts?: CustomAuditPrompts,
+): {
   inputTokens: number;
   outputTokens: number;
   estimatedCostUsd: number;
 } {
-  const messages = buildAuditPrompt(input);
+  const messages = buildAuditPrompt(input, customPrompts);
   const totalText = messages.map((m) => m.content).join('');
   const inputTokens = OpenAIClient.estimateTokens(totalText);
   // Estimate ~600 output tokens for a structured audit response
@@ -203,9 +303,10 @@ export function buildCacheKey(
 
 export async function runKeywordAudit(
   client: OpenAIClient,
-  input: AuditInput
+  input: AuditInput,
+  customPrompts?: CustomAuditPrompts,
 ): Promise<AuditResult> {
-  const messages = buildAuditPrompt(input);
+  const messages = buildAuditPrompt(input, customPrompts);
 
   const response = await client.chat(messages, {
     model: 'gpt-4o',
