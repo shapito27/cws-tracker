@@ -13,6 +13,7 @@ import {
   type AuditResult,
   type AuditRecommendation,
   type CachedAuditResult,
+  type CustomAuditPrompts,
 } from '@/shared/utils/keyword-audit';
 import { today } from '@/shared/utils/dates';
 
@@ -59,6 +60,11 @@ const canRun = computed(() =>
   settings.openaiApiKey !== null
 );
 
+const customPrompts = computed<CustomAuditPrompts>(() => ({
+  systemPrompt: settings.auditSystemPrompt || undefined,
+  userPromptTemplate: settings.auditUserPromptTemplate || undefined,
+}));
+
 const costEstimate = computed(() => {
   if (!selectedKeywordId.value || !selectedCompetitorId.value) return null;
 
@@ -77,7 +83,7 @@ const costEstimate = computed(() => {
     competitorPosition: compRankMap?.get(selectedKeywordId.value)?.position ?? null,
   };
 
-  return estimateAuditTokens(input);
+  return estimateAuditTokens(input, customPrompts.value);
 });
 
 // Lifecycle
@@ -198,7 +204,7 @@ async function runAudit(): Promise<void> {
       competitorPosition: compRankMap?.get(selectedKeywordId.value)?.position ?? null,
     };
 
-    const result = await runKeywordAudit(client, input);
+    const result = await runKeywordAudit(client, input, customPrompts.value);
     auditResult.value = result;
 
     // Cache the result
