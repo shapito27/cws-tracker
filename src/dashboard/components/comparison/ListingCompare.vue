@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, nextTick } from 'vue';
+import { ref, computed, onMounted, nextTick } from 'vue';
 import type { Project, Extension, Keyword, ListingSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
@@ -605,13 +605,6 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
                 @click="openAudit(id)"
               >
                 Why higher: {{ getExtName(id) }}?
-              </button>
-              <button
-                v-if="selectedIds.every(sid => sid === project.ownExtensionId)"
-                class="rounded-md border border-purple-300 bg-white px-4 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
-                @click="openAudit()"
-              >
-                Open Keyword Audit
               </button>
             </div>
           </div>
