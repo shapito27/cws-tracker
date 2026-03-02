@@ -53,12 +53,9 @@ async function loadData(): Promise<void> {
       loadRecentAutocompleteChanges(20),
     ]);
 
-    // Merge and sort: own first, then by magnitude
-    const combined = [...rankResults, ...autocompleteResults];
-    combined.sort((a, b) => {
-      if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
-      return Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0);
-    });
+    // Merge, keep only own extension, sort by magnitude
+    const combined = [...rankResults, ...autocompleteResults].filter((rc) => rc.isOwn);
+    combined.sort((a, b) => Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0));
 
     rankChanges.value = combined.slice(0, 20);
   } catch {
