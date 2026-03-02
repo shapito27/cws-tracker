@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import type { Project, Extension, Keyword, ListingSnapshot, RankSnapshot } from '@/shared/types';
+import type { Project, Extension, Keyword, ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useSettings } from '../../composables/useSettings';
@@ -12,10 +12,11 @@ import {
   type AuditInput,
   type AuditResult,
   type AuditRecommendation,
+  type AuditHistoricalContext,
   type CachedAuditResult,
   type CustomAuditPrompts,
 } from '@/shared/utils/keyword-audit';
-import { today } from '@/shared/utils/dates';
+import { today, daysAgo } from '@/shared/utils/dates';
 
 const props = defineProps<{
   project: Project;
@@ -196,12 +197,54 @@ async function runAudit(): Promise<void> {
     }
 
     const client = new OpenAIClient(settings.openaiApiKey);
+
+    // Load historical context (14d is superset of 7d — query once, filter in memory)
+    const todayStr = today();
+    const start14d = daysAgo(14);
+    const start7d = daysAgo(7);
+    const ownExtId = props.project.ownExtensionId;
+    const compExtId = selectedCompetitorId.value;
+    const kwId = selectedKeywordId.value;
+
+    const [ownRanks14d, compRanks14d, ownAc14d, compAc14d, ownEv14d, compEv14d] = await Promise.all([
+      db.getRankSnapshots(kwId, ownExtId, start14d, todayStr),
+      db.getRankSnapshots(kwId, compExtId, start14d, todayStr),
+      db.getAutocompleteSnapshots(kwId, ownExtId, start14d, todayStr),
+      db.getAutocompleteSnapshots(kwId, compExtId, start14d, todayStr),
+      db.getEvents(ownExtId, start14d, todayStr),
+      db.getEvents(compExtId, start14d, todayStr),
+    ]);
+
+    // Filter 14d results to get 7d subsets
+    const filterByDate = <T extends { date: string }>(items: T[], startDate: string): T[] =>
+      items.filter((item) => item.date >= startDate);
+
+    const history7d: AuditHistoricalContext = {
+      ownRankHistory: filterByDate(ownRanks14d, start7d),
+      compRankHistory: filterByDate(compRanks14d, start7d),
+      ownAutocompleteHistory: filterByDate(ownAc14d, start7d),
+      compAutocompleteHistory: filterByDate(compAc14d, start7d),
+      ownEvents: filterByDate(ownEv14d, start7d),
+      compEvents: filterByDate(compEv14d, start7d),
+    };
+
+    const history14d: AuditHistoricalContext = {
+      ownRankHistory: ownRanks14d,
+      compRankHistory: compRanks14d,
+      ownAutocompleteHistory: ownAc14d,
+      compAutocompleteHistory: compAc14d,
+      ownEvents: ownEv14d,
+      compEvents: compEv14d,
+    };
+
     const input: AuditInput = {
       keyword: keyword.text,
       ownListing: ownSnap,
       competitorListing: compSnap,
       ownPosition: ownRankMap?.get(selectedKeywordId.value)?.position ?? null,
       competitorPosition: compRankMap?.get(selectedKeywordId.value)?.position ?? null,
+      history7d,
+      history14d,
     };
 
     const result = await runKeywordAudit(client, input, customPrompts.value);

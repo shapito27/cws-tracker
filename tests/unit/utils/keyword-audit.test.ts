@@ -7,15 +7,20 @@ import 'fake-indexeddb/auto';
 import { resetChromeMock } from '../../mocks/chrome';
 import {
   buildAuditPrompt,
+  buildPlaceholderValues,
   estimateAuditTokens,
   parseAuditResponse,
   buildCacheKey,
   runKeywordAudit,
+  formatRankHistory,
+  formatAutocompleteHistory,
+  formatEventsHistory,
   type AuditInput,
+  type AuditHistoricalContext,
 } from '../../../src/shared/utils/keyword-audit';
 import { OpenAIClient } from '../../../src/shared/utils/openai';
 import { CWSDatabase } from '../../../src/shared/db/database';
-import type { ListingSnapshot } from '../../../src/shared/types';
+import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '../../../src/shared/types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -429,5 +434,179 @@ describe('Audit cache in database', () => {
 
     expect(await testDb.getCachedAudit(key1)).toBeUndefined();
     expect(await testDb.getCachedAudit(key2)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Historical data formatter tests
+// ---------------------------------------------------------------------------
+
+function makeRankSnapshot(date: string, position: number | null): RankSnapshot {
+  return {
+    keywordId: 1,
+    extensionId: 'ext-own-id-12345678901234567890',
+    date,
+    position,
+    totalResults: 100,
+    scannedAt: new Date(),
+  };
+}
+
+function makeAutocompleteSnapshot(date: string, position: number): AutocompleteSnapshot {
+  return {
+    keywordId: 1,
+    extensionId: 'ext-own-id-12345678901234567890',
+    date,
+    position,
+    suggestedName: 'My Extension',
+    scannedAt: new Date(),
+  };
+}
+
+function makeEvent(date: string, type: string, note: string): EventRecord {
+  return {
+    extensionId: 'ext-own-id-12345678901234567890',
+    date,
+    type: type as EventRecord['type'],
+    field: type.replace('_change', ''),
+    oldValue: 'old',
+    newValue: 'new',
+    note,
+  };
+}
+
+describe('formatRankHistory()', () => {
+  it('formats snapshots into compact date|position line', () => {
+    // Use dates relative to today for stable tests
+    const now = new Date();
+    const d1 = new Date(now); d1.setDate(d1.getDate() - 2);
+    const d2 = new Date(now); d2.setDate(d2.getDate() - 1);
+    const d3 = new Date(now);
+
+    const snaps = [
+      makeRankSnapshot(d1.toISOString().slice(0, 10), 5),
+      makeRankSnapshot(d2.toISOString().slice(0, 10), 3),
+      makeRankSnapshot(d3.toISOString().slice(0, 10), 2),
+    ];
+
+    const result = formatRankHistory('password manager', snaps, 7);
+
+    expect(result).toContain('"password manager" search rank (last 7 days):');
+    expect(result).toContain('#5');
+    expect(result).toContain('#3');
+    expect(result).toContain('#2');
+    // Days without data should show -
+    expect(result).toContain(': -');
+  });
+
+  it('returns empty message for no snapshots', () => {
+    const result = formatRankHistory('test keyword', [], 7);
+    expect(result).toBe('No ranking data available for this period.');
+  });
+
+  it('shows 30+ for null positions', () => {
+    const now = new Date();
+    const snaps = [makeRankSnapshot(now.toISOString().slice(0, 10), null)];
+    const result = formatRankHistory('test', snaps, 7);
+    expect(result).toContain('30+');
+  });
+});
+
+describe('formatAutocompleteHistory()', () => {
+  it('formats snapshots into compact date|position line', () => {
+    const now = new Date();
+    const d1 = new Date(now); d1.setDate(d1.getDate() - 1);
+    const d2 = new Date(now);
+
+    const snaps = [
+      makeAutocompleteSnapshot(d1.toISOString().slice(0, 10), 3),
+      makeAutocompleteSnapshot(d2.toISOString().slice(0, 10), 1),
+    ];
+
+    const result = formatAutocompleteHistory('password manager', snaps, 7);
+
+    expect(result).toContain('"password manager" autocomplete position (last 7 days):');
+    expect(result).toContain('#3');
+    expect(result).toContain('#1');
+    expect(result).toContain(': -');
+  });
+
+  it('returns empty message for no snapshots', () => {
+    const result = formatAutocompleteHistory('test keyword', [], 7);
+    expect(result).toBe('No autocomplete data available for this period.');
+  });
+});
+
+describe('formatEventsHistory()', () => {
+  it('formats events into multi-line table', () => {
+    const events = [
+      makeEvent('2026-02-26', 'version_change', 'Version changed from 1.2.0 to 1.3.0'),
+      makeEvent('2026-02-28', 'user_milestone', 'Users passed 50,000'),
+    ];
+
+    const result = formatEventsHistory(events, 7);
+
+    expect(result).toContain('Events (last 7 days):');
+    expect(result).toContain('2026-02-26 | version_change | Version changed from 1.2.0 to 1.3.0');
+    expect(result).toContain('2026-02-28 | user_milestone | Users passed 50,000');
+  });
+
+  it('returns empty message for no events', () => {
+    const result = formatEventsHistory([], 7);
+    expect(result).toBe('No events detected in this period.');
+  });
+});
+
+describe('buildPlaceholderValues() with historical context', () => {
+  it('includes all 12 historical placeholder keys when context provided', () => {
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+
+    const history: AuditHistoricalContext = {
+      ownRankHistory: [makeRankSnapshot(todayStr, 5)],
+      compRankHistory: [makeRankSnapshot(todayStr, 2)],
+      ownAutocompleteHistory: [makeAutocompleteSnapshot(todayStr, 3)],
+      compAutocompleteHistory: [makeAutocompleteSnapshot(todayStr, 1)],
+      ownEvents: [makeEvent(todayStr, 'version_change', 'Version update')],
+      compEvents: [makeEvent(todayStr, 'title_change', 'Title changed')],
+    };
+
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      history7d: history,
+      history14d: history,
+    };
+
+    const values = buildPlaceholderValues(input);
+
+    // 7d placeholders
+    expect(values.ownRankHistory7d).toContain('#5');
+    expect(values.compRankHistory7d).toContain('#2');
+    expect(values.ownAutocomplete7d).toContain('#3');
+    expect(values.compAutocomplete7d).toContain('#1');
+    expect(values.ownEvents7d).toContain('version_change');
+    expect(values.compEvents7d).toContain('title_change');
+
+    // 14d placeholders
+    expect(values.ownRankHistory14d).toContain('#5');
+    expect(values.compRankHistory14d).toContain('#2');
+    expect(values.ownAutocomplete14d).toContain('#3');
+    expect(values.compAutocomplete14d).toContain('#1');
+    expect(values.ownEvents14d).toContain('version_change');
+    expect(values.compEvents14d).toContain('title_change');
+  });
+
+  it('uses fallback text when historical context is undefined', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+
+    const historicalKeys = [
+      'ownRankHistory7d', 'ownRankHistory14d', 'compRankHistory7d', 'compRankHistory14d',
+      'ownAutocomplete7d', 'ownAutocomplete14d', 'compAutocomplete7d', 'compAutocomplete14d',
+      'ownEvents7d', 'ownEvents14d', 'compEvents7d', 'compEvents14d',
+    ];
+
+    for (const key of historicalKeys) {
+      expect(values[key]).toBe('No data available.');
+    }
   });
 });
