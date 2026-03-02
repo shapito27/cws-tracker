@@ -105,6 +105,9 @@ export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor ex
 // Placeholder system
 // ---------------------------------------------------------------------------
 
+/** Maximum characters from full description included in the prompt. */
+const MAX_DESCRIPTION_LENGTH = 500;
+
 /** All available placeholder keys with human-readable descriptions. */
 export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   keyword: 'The search keyword being analyzed',
@@ -141,7 +144,7 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     ownTitle: ownListing.title,
     ownPosition: ownPosition !== null ? `#${ownPosition}` : 'Not in top 30',
     ownShortDescription: ownListing.shortDescription,
-    ownFullDescription: ownListing.fullDescription.slice(0, 500),
+    ownFullDescription: ownListing.fullDescription.slice(0, MAX_DESCRIPTION_LENGTH),
     ownRating: ownListing.rating !== null
       ? `${ownListing.rating}/5 (${ownListing.ratingCount} ratings)`
       : 'No ratings',
@@ -156,7 +159,7 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     compTitle: competitorListing.title,
     compPosition: competitorPosition !== null ? `#${competitorPosition}` : 'Not in top 30',
     compShortDescription: competitorListing.shortDescription,
-    compFullDescription: competitorListing.fullDescription.slice(0, 500),
+    compFullDescription: competitorListing.fullDescription.slice(0, MAX_DESCRIPTION_LENGTH),
     compRating: competitorListing.rating !== null
       ? `${competitorListing.rating}/5 (${competitorListing.ratingCount} ratings)`
       : 'No ratings',
@@ -197,13 +200,11 @@ export function buildAuditPrompt(
 ): ChatMessage[] {
   const placeholders = buildPlaceholderValues(input);
 
-  const systemContent = customPrompts?.systemPrompt?.trim()
-    ? customPrompts.systemPrompt
-    : DEFAULT_AUDIT_SYSTEM_PROMPT;
+  const customSystem = customPrompts?.systemPrompt?.trim();
+  const systemContent = customSystem || DEFAULT_AUDIT_SYSTEM_PROMPT;
 
-  const userTemplate = customPrompts?.userPromptTemplate?.trim()
-    ? customPrompts.userPromptTemplate
-    : DEFAULT_AUDIT_USER_PROMPT_TEMPLATE;
+  const customUser = customPrompts?.userPromptTemplate?.trim();
+  const userTemplate = customUser || DEFAULT_AUDIT_USER_PROMPT_TEMPLATE;
 
   const userContent = fillTemplate(userTemplate, placeholders);
 

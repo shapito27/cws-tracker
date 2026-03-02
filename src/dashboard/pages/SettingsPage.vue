@@ -143,9 +143,10 @@ async function saveAuditPrompts(): Promise<void> {
   });
 }
 
-function resetAuditPrompts(): void {
+async function resetAuditPrompts(): Promise<void> {
   localAuditSystemPrompt.value = '';
   localAuditUserPromptTemplate.value = '';
+  await saveAuditPrompts();
 }
 
 function toggleLocale(code: string): void {
@@ -400,7 +401,7 @@ onUnmounted(() => {
               id="auditSystemPrompt"
               v-model="localAuditSystemPrompt"
               rows="6"
-              :placeholder="DEFAULT_AUDIT_SYSTEM_PROMPT"
+              placeholder="Leave blank to use default system prompt"
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -415,7 +416,7 @@ onUnmounted(() => {
               id="auditUserPromptTemplate"
               v-model="localAuditUserPromptTemplate"
               rows="10"
-              :placeholder="DEFAULT_AUDIT_USER_PROMPT_TEMPLATE"
+              placeholder="Leave blank to use default template. Use {{placeholder}} for dynamic values."
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-700 font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
@@ -429,6 +430,7 @@ onUnmounted(() => {
               <svg
                 class="h-4 w-4 transition-transform"
                 :class="showPlaceholderHelp ? 'rotate-90' : ''"
+                aria-hidden="true"
                 fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
               >
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
