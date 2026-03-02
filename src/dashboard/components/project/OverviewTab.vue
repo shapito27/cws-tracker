@@ -2,6 +2,11 @@
 import { ref, computed, onMounted } from 'vue';
 import type { Project, Extension, EventRecord, Keyword, ListingSnapshot } from '@/shared/types';
 import type { RankChartSeries } from '../../composables/useRankings';
+import {
+  loadRecentRankChanges,
+  loadRecentAutocompleteChanges,
+  type RankChange,
+} from '@/popup/composables/usePopupState';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
@@ -10,6 +15,7 @@ import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
 import { daysAgo, today } from '@/shared/utils/dates';
 import { EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
 import ExtensionIcon from '../ExtensionIcon.vue';
+import RankChangeItem from '../RankChangeItem.vue';
 import RankChart from '../charts/RankChart.vue';
 import UsersReviewsChart from '../charts/UsersReviewsChart.vue';
 import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
@@ -25,6 +31,7 @@ const { settings, loadSettings } = useSettings();
 const extensions = ref<Extension[]>([]);
 const ownExtension = ref<Extension | undefined>(undefined);
 const recentEvents = ref<EventRecord[]>([]);
+const projectRankChanges = ref<RankChange[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
 const keywords = ref<Keyword[]>([]);
 const ownSnapshot = ref<ListingSnapshot | undefined>(undefined);
@@ -68,7 +75,20 @@ onMounted(async () => {
       );
     }
 
-    // Get recent events across all project extensions
+    // Load compact rank changes for this project
+    const [rankResults, acResults] = await Promise.all([
+      loadRecentRankChanges(50),
+      loadRecentAutocompleteChanges(50),
+    ]);
+    const combined = [...rankResults, ...acResults]
+      .filter(rc => rc.projectId === props.project.id);
+    combined.sort((a, b) => {
+      if (a.isOwn !== b.isOwn) return a.isOwn ? -1 : 1;
+      return Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0);
+    });
+    projectRankChanges.value = combined.slice(0, 10);
+
+    // Get recent events across all project extensions (excluding rank_change to avoid duplication)
     const allExtIds = [props.project.ownExtensionId, ...props.project.competitorIds];
     const events: EventRecord[] = [];
     for (const extId of allExtIds) {
@@ -82,7 +102,7 @@ onMounted(async () => {
       if (aTime || bTime) return bTime - aTime;
       return b.date.localeCompare(a.date);
     });
-    recentEvents.value = events.slice(0, 10);
+    recentEvents.value = events.filter(e => e.type !== 'rank_change').slice(0, 10);
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
   } finally {
@@ -357,6 +377,22 @@ function isOwnExtension(extensionId: string): boolean {
         :keywords="keywords"
         :own-extension-id="project.ownExtensionId"
       />
+    </div>
+
+    <!-- Recent Rank Changes -->
+    <div v-if="projectRankChanges.length > 0" class="mb-8">
+      <h3 class="text-base font-semibold text-gray-900 mb-3">Recent Rank Changes</h3>
+      <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
+        <div class="divide-y divide-gray-50">
+          <RankChangeItem
+            v-for="rc in projectRankChanges"
+            :key="`${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.date}`"
+            :rank-change="rc"
+            :link-to-project="false"
+            :show-date="true"
+          />
+        </div>
+      </div>
     </div>
 
     <!-- Recent events -->
