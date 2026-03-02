@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import {
   AC_APPEARED_SENTINEL,
   AC_DISAPPEARED_SENTINEL,
@@ -22,7 +23,8 @@ function formatPosition(rc: RankChange, position: number | null): string {
   return position === null ? '30+' : `#${position}`;
 }
 
-function formatDateTime(rc: RankChange): string {
+const formattedDateTime = computed((): string => {
+  const rc = props.rankChange;
   if (rc.scannedAt) {
     const d = rc.scannedAt instanceof Date ? rc.scannedAt : new Date(rc.scannedAt);
     if (!isNaN(d.getTime())) {
@@ -35,7 +37,7 @@ function formatDateTime(rc: RankChange): string {
   if (!props.showDate) return '';
   const d = new Date(rc.date + 'T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+});
 
 function isNew(rc: RankChange): boolean {
   if (rc.type === 'autocomplete') return rc.change === AC_APPEARED_SENTINEL;
@@ -66,9 +68,9 @@ function isOut(rc: RankChange): boolean {
           class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold bg-indigo-100 text-indigo-700 shrink-0"
         >AC</span>
         <span class="truncate">"{{ rankChange.keyword }}"</span>
-        <template v-if="formatDateTime(rankChange)">
+        <template v-if="formattedDateTime">
           <span class="text-gray-300">&middot;</span>
-          <span class="shrink-0">{{ formatDateTime(rankChange) }}</span>
+          <span class="shrink-0">{{ formattedDateTime }}</span>
         </template>
       </div>
     </div>
