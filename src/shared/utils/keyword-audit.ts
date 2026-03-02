@@ -55,6 +55,7 @@ export interface AuditRecommendation {
   area: string;
   suggestion: string;
   priority: 'high' | 'medium' | 'low';
+  impact?: string;
 }
 
 export interface AuditResult {
@@ -63,6 +64,7 @@ export interface AuditResult {
   competitorExtensionId: string;
   relevanceAnalysis: string;
   metricComparison: string;
+  trendAnalysis: string;
   recommendations: AuditRecommendation[];
   rawResponse: string;
   inputTokens: number;
@@ -90,19 +92,43 @@ export interface CustomAuditPrompts {
 // Default prompts
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_AUDIT_SYSTEM_PROMPT = `You are a Chrome Web Store ASO (App Store Optimization) expert. Analyze why one extension ranks higher than another for a specific keyword. Provide actionable, specific recommendations.
+export const DEFAULT_AUDIT_SYSTEM_PROMPT = `You are a Chrome Web Store ASO (App Store Optimization) analyst specializing in keyword ranking diagnostics.
 
-Respond in the following JSON format:
+## Your Domain Knowledge
+CWS search ranking is influenced by these factors (approximate weight order):
+1. Keyword relevance — exact match in title > short description > full description
+2. User base size and growth trajectory
+3. Rating score and volume (both matter)
+4. Update recency and frequency
+5. Listing completeness — screenshots, localization count, promo video
+6. Permission scope — fewer permissions = higher trust signal
+7. Install retention and engagement (not directly visible in listing data)
+
+## Your Task
+Analyze why a competitor extension outranks the user's extension for a specific keyword (or set of keywords). Follow this reasoning process:
+
+1. **Text relevance**: Compare how each listing's title, short description, and full description align with the keyword(s). Note exact-match vs partial-match placement.
+2. **Metric gaps**: Identify the most impactful metric differences (users, ratings, quality score, etc.). Cite specific numbers from the data.
+3. **Trend analysis**: If historical ranking/autocomplete data is provided, identify trajectory (improving, declining, stable) and correlate rank shifts with events (version updates, description changes, user milestones).
+4. **Actionable recommendations**: Provide specific, implementable changes. Each recommendation should explain the expected impact.
+
+## Output Format
+Respond with valid JSON only (no markdown fences, no commentary outside JSON):
 {
-  "relevanceAnalysis": "Analysis of how each extension's listing relates to the keyword...",
-  "metricComparison": "Comparison of key metrics that influence ranking...",
+  "relevanceAnalysis": "2-3 paragraphs analyzing keyword alignment for both listings. Cite specific text from titles/descriptions.",
+  "metricComparison": "2-3 paragraphs comparing metrics with specific numbers. Highlight the largest gaps.",
+  "trendAnalysis": "1-2 paragraphs on ranking trajectory and correlation with events. Write 'No historical data provided.' if no trend data was given.",
   "recommendations": [
-    {"area": "Category name", "suggestion": "Specific actionable advice", "priority": "high|medium|low"},
-    ...
+    {
+      "area": "Category (e.g., Title, Description, Screenshots, Ratings, Localization, Permissions, Updates)",
+      "suggestion": "Specific actionable change — not generic advice",
+      "priority": "high|medium|low",
+      "impact": "Expected outcome if implemented (e.g., 'Could improve keyword match score and move from #8 to top 5')"
+    }
   ]
 }
 
-Keep the relevance analysis to 2-3 paragraphs. Keep metric comparison to 2-3 paragraphs. Provide 3-6 recommendations sorted by priority (high first). Only output valid JSON, no markdown code fences.`;
+Provide 3-6 recommendations sorted by priority (high first). Every suggestion must reference actual data from the input — never give advice that could apply to any extension generically.`;
 
 export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor extension ranks higher for the keyword "{{keyword}}".
 
@@ -132,7 +158,17 @@ export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor ex
 - **Screenshots**: {{compScreenshots}}
 - **Translations**: {{compTranslations}}
 - **Quality Score**: {{compQualityScore}}
-- **Permission Risk**: {{compPermissionRisk}}`;
+- **Permission Risk**: {{compPermissionRisk}}
+
+## Ranking Trends (last 14 days)
+Your search rank: {{ownRankHistory14d}}
+Competitor search rank: {{compRankHistory14d}}
+Your autocomplete position: {{ownAutocomplete14d}}
+Competitor autocomplete position: {{compAutocomplete14d}}
+
+## Recent Changes & Events (last 14 days)
+Your extension: {{ownEvents14d}}
+Competitor: {{compEvents14d}}`;
 
 // ---------------------------------------------------------------------------
 // Placeholder system
@@ -427,8 +463,8 @@ export function estimateAuditTokens(
   const messages = buildAuditPrompt(input, customPrompts);
   const totalText = messages.map((m) => m.content).join('');
   const inputTokens = OpenAIClient.estimateTokens(totalText);
-  // Estimate ~600 output tokens for a structured audit response
-  const outputTokens = 600;
+  // Estimate ~900 output tokens for enriched audit (trendAnalysis + impact fields)
+  const outputTokens = 900;
   const estimatedCostUsd = OpenAIClient.estimateCost(inputTokens, outputTokens);
 
   return { inputTokens, outputTokens, estimatedCostUsd };
@@ -441,6 +477,7 @@ export function estimateAuditTokens(
 export function parseAuditResponse(raw: string): {
   relevanceAnalysis: string;
   metricComparison: string;
+  trendAnalysis: string;
   recommendations: AuditRecommendation[];
 } {
   try {
@@ -460,6 +497,10 @@ export function parseAuditResponse(raw: string): {
       ? parsed.metricComparison
       : '';
 
+    const trendAnalysis = typeof parsed.trendAnalysis === 'string'
+      ? parsed.trendAnalysis
+      : '';
+
     const recommendations: AuditRecommendation[] = [];
     if (Array.isArray(parsed.recommendations)) {
       for (const rec of parsed.recommendations) {
@@ -467,17 +508,19 @@ export function parseAuditResponse(raw: string): {
           const priority = ['high', 'medium', 'low'].includes(rec.priority)
             ? rec.priority as AuditRecommendation['priority']
             : 'medium';
-          recommendations.push({ area: rec.area, suggestion: rec.suggestion, priority });
+          const impact = typeof rec.impact === 'string' ? rec.impact : undefined;
+          recommendations.push({ area: rec.area, suggestion: rec.suggestion, priority, impact });
         }
       }
     }
 
-    return { relevanceAnalysis, metricComparison, recommendations };
+    return { relevanceAnalysis, metricComparison, trendAnalysis, recommendations };
   } catch {
     // If parsing fails, return the raw text as relevance analysis
     return {
       relevanceAnalysis: raw,
       metricComparison: '',
+      trendAnalysis: '',
       recommendations: [],
     };
   }
@@ -525,6 +568,7 @@ export async function runKeywordAudit(
     competitorExtensionId: input.competitorListing.extensionId,
     relevanceAnalysis: parsed.relevanceAnalysis,
     metricComparison: parsed.metricComparison,
+    trendAnalysis: parsed.trendAnalysis,
     recommendations: parsed.recommendations,
     rawResponse: response.content,
     inputTokens: response.inputTokens,
