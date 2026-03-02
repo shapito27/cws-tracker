@@ -410,7 +410,7 @@ onUnmounted(() => {
           <div>
             <label for="auditUserPromptTemplate" class="block text-sm font-medium text-gray-700">User Prompt Template</label>
             <p class="text-xs text-gray-500 mb-1">
-              Data template sent to the AI. Use <code class="bg-gray-100 px-1 rounded">{{ '{{placeholder}}' }}</code> syntax for dynamic values.
+              Data template sent to the AI. Use <code class="bg-gray-100 px-1 rounded">&#123;&#123;placeholder&#125;&#125;</code> syntax for dynamic values.
             </p>
             <textarea
               id="auditUserPromptTemplate"
@@ -444,7 +444,7 @@ onUnmounted(() => {
                   :key="key"
                   class="flex items-start gap-2"
                 >
-                  <code class="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs font-mono text-blue-800 border border-blue-200">{{ '{{' + key + '}}' }}</code>
+                  <code class="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs font-mono text-blue-800 border border-blue-200" v-text="'{{' + key + '}}'"></code>
                   <span class="text-xs text-gray-600">{{ desc }}</span>
                 </div>
               </div>
