@@ -141,10 +141,10 @@ const chartSeries = computed(() =>
       <div
         v-for="(s, i) in series"
         :key="`${s.extensionId}-${s.name}`"
-        class="flex items-center gap-1.5 text-xs text-gray-600"
+        class="flex min-w-0 items-center gap-1.5 text-xs text-gray-600"
       >
         <span
-          class="inline-block h-2 w-2 shrink-0 rounded-full"
+          class="inline-block h-3 w-3 shrink-0 rounded-full"
           :style="{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }"
         />
         <ExtensionIcon
@@ -153,7 +153,7 @@ const chartSeries = computed(() =>
           :name="s.name"
           size="xs"
         />
-        <span class="truncate" :title="s.name">{{ s.name }}</span>
+        <span class="min-w-0 truncate" :title="s.name">{{ s.name }}</span>
       </div>
     </div>
   </div>
