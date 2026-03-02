@@ -20,6 +20,7 @@ export interface ChartDataPoint {
 export interface RankChartSeries {
   name: string;
   extensionId: string;
+  iconUrl?: string | null;
   data: ChartDataPoint[];
 }
 
@@ -48,6 +49,7 @@ export async function loadRankHistory(
     series.push({
       name: ext.name || ext.id,
       extensionId: ext.id,
+      iconUrl: ext.iconUrl,
       data,
     });
   }
