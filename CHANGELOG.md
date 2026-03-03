@@ -2,6 +2,30 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.20.0] - 2026-03-03
+
+### Added
+- A/B test variants for keyword audit prompts
+  - **Chain-of-Thought (CoT)** variant: adds `scratchpad` reasoning field, few-shot example, reordered data layout (positions/trends first), temperature 0.4
+  - **Rubric-Scored** variant: quantitative 1-5 scoring rubric with explicit weights, pre-computed comparison deltas, keyword occurrence counts, temperature 0.3
+  - Variant selector dropdown in Settings > AI Audit Prompts section
+  - 14 new pre-computed delta placeholders: `positionGap`, `userRatio`, `ratingDelta`, `reviewRatio`, `qualityDelta`, `screenshotDelta`, `translationDelta`, `permissionDelta`, keyword occurrence counts
+  - `countKeywordOccurrences()` helper for case-insensitive whole-word matching
+  - Variant-specific cache keys to prevent cross-variant cache hits
+  - `auditPromptVariant` setting (`default` | `cot` | `rubric`)
+  - Variant-aware model parameters (temperature, maxTokens) per variant
+  - Changing variant in Settings auto-updates displayed prompt to variant defaults
+
+### Fixed
+- Rubric template Reviews row was showing rating data instead of review counts — added `ownReviewCount`/`compReviewCount` placeholders
+- `positionGap` sign inversion: now embeds direction text ("6 positions behind", "3 positions ahead", "Same position") instead of raw signed number with hardcoded "positions behind" suffix. Also distinguishes "own ranked, comp not" from "both unranked" cases.
+- `resetAuditPrompts` now persists `auditPromptVariant` and calls `syncLocalState()` to prevent state desync between UI and storage
+- Removed unused `DEFAULT_AUDIT_SYSTEM_PROMPT` and `DEFAULT_AUDIT_USER_PROMPT_TEMPLATE` imports from SettingsPage.vue
+- `ratingDelta` returns 'N/A' when either extension has no rating instead of treating null as 0 (which produced misleading deltas like +4.7)
+- Deduplicated `calculateQualityScore()` calls in `buildPlaceholderValues` — now computed once per listing and reused
+- Strengthened tests: pinned cache key format for backward compatibility, added missing edge cases (own ranked/comp null for positionGap, comp null rating for ratingDelta, comp zero users for userRatio), exact keyword occurrence counts, rubric placeholder substitution verification
+- Version bump to 0.20.0 (MINOR) per project convention for new feature
+
 ## [0.18.0] - 2026-02-14
 
 ### Added

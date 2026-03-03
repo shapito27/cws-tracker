@@ -30,10 +30,17 @@ export interface AutocompleteChartPoint {
   y: number | null; // position (null = not in autocomplete)
 }
 
-/** One series in autocomplete chart (one line per extension). */
+/** One series in autocomplete chart (one line per extension or per keyword). */
 export interface AutocompleteChartSeries {
   name: string;
   extensionId: string;
+  /**
+   * Extension icon URL for the chart legend.
+   * Present (string | null) for extension-per-line mode.
+   * Absent (undefined) for keyword-per-line mode.
+   * AutocompleteChart uses this to decide whether to render an ExtensionIcon.
+   */
+  iconUrl?: string | null;
   data: AutocompleteChartPoint[];
 }
 
@@ -103,6 +110,7 @@ export async function loadAutocompleteHistory(
     series.push({
       name: ext.name || ext.id,
       extensionId: ext.id,
+      iconUrl: ext.iconUrl,
       data,
     });
   }
@@ -148,6 +156,7 @@ export async function loadOwnExtensionAutocompleteHistory(
     series.push({
       name: kw.text,
       extensionId: ownExtensionId,
+      // iconUrl intentionally omitted: keyword-per-line mode shows no icon in legend
       data: sorted.map((s) => ({ x: s.date, y: s.position })),
     });
   });

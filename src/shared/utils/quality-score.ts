@@ -29,8 +29,8 @@ export interface QualityThresholds {
   fullDescription: {
     minWords: number;
     optimalMinWords: number;
-    optimalMaxWords: number;
-    maxWords: number;
+    optimalMaxWords?: number;
+    maxWords?: number;
   };
   screenshots: {
     optimalMin: number;
@@ -101,9 +101,9 @@ export const DEFAULT_THRESHOLDS: QualityThresholds = {
     fair: 10,
   },
   freshness: {
-    fresh: 30,
-    recent: 90,
-    aging: 180,
+    fresh: 90,
+    recent: 180,
+    aging: 270,
     stale: 365,
   },
   permissionRisk: {
@@ -131,10 +131,10 @@ export const COMPONENT_WEIGHTS = {
   shortDescription: 0.10,
   fullDescription: 0.15,
   visualAssets: 0.15,
-  ratingsReviews: 0.15,
+  ratingsReviews: 0.10,
   translations: 0.10,
   updateFreshness: 0.10,
-  permissions: 0.05,
+  permissions: 0.10,
   developerProfile: 0.05,
 } as const;
 
@@ -167,62 +167,134 @@ export interface QualityScoreResult {
 }
 
 // ---------------------------------------------------------------------------
+// Keyword-aware scoring options
+// ---------------------------------------------------------------------------
+
+/** Options for keyword-aware quality scoring. */
+export interface KeywordScoreOptions {
+  keyword: string;
+}
+
+/**
+ * Check if text contains the keyword as a whole word (case-insensitive).
+ * Returns false for partial word matches (e.g., "tab" does NOT match "table").
+ */
+export function containsKeyword(text: string, keyword: string): boolean {
+  if (!text || !keyword) return false;
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+  return regex.test(text);
+}
+
+/**
+ * Score keyword density in text (0-100).
+ * - 0 occurrences → 0
+ * - 0.5–2.5% density → 100 (optimal)
+ * - <0.5% → scales linearly 0–100
+ * - 2.5–5% → scales 100→40 (over-optimization)
+ * - >5% → 20 (keyword stuffing)
+ */
+export function scoreKeywordDensity(text: string, keyword: string): number {
+  if (!text || !keyword) return 0;
+
+  const words = text.trim().split(/\s+/).filter(w => w.length > 0);
+  if (words.length === 0) return 0;
+
+  const escaped = keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`\\b${escaped}\\b`, 'gi');
+  const matches = text.match(regex);
+  const occurrences = matches ? matches.length : 0;
+
+  if (occurrences === 0) return 0;
+
+  // Keyword may be multi-word, count words in keyword
+  const keywordWordCount = keyword.trim().split(/\s+/).length;
+  const density = (occurrences * keywordWordCount / words.length) * 100;
+
+  if (density >= 0.5 && density <= 2.5) return 100;
+  if (density < 0.5) return Math.round((density / 0.5) * 100);
+  if (density <= 5) return Math.round(100 - 60 * ((density - 2.5) / 2.5));
+  return 20;
+}
+
+// ---------------------------------------------------------------------------
 // Individual component scoring functions
 // ---------------------------------------------------------------------------
 
 /**
  * Title optimization (15%).
  * Scores based on length being in the optimal range.
+ * When keyword is provided: 70% length + 30% keyword presence.
  */
 export function scoreTitle(
   title: string,
-  thresholds: QualityThresholds
+  thresholds: QualityThresholds,
+  keyword?: string
 ): number {
   const len = title.length;
   const t = thresholds.title;
 
-  if (len === 0) return 0;
-  if (len < t.minLength) return 20;
-  if (len >= t.optimalMin && len <= t.optimalMax) return 100;
-  if (len > t.maxLength) return 30;
-
-  // Between minLength and optimalMin: scale linearly 20->100
-  if (len < t.optimalMin) {
-    return 20 + 80 * ((len - t.minLength) / (t.optimalMin - t.minLength));
+  let lengthScore: number;
+  if (len === 0) {
+    lengthScore = 0;
+  } else if (len < t.minLength) {
+    lengthScore = 20;
+  } else if (len >= t.optimalMin && len <= t.optimalMax) {
+    lengthScore = 100;
+  } else if (len > t.maxLength) {
+    lengthScore = 30;
+  } else if (len < t.optimalMin) {
+    lengthScore = 20 + 80 * ((len - t.minLength) / (t.optimalMin - t.minLength));
+  } else {
+    lengthScore = 100 - 70 * ((len - t.optimalMax) / (t.maxLength - t.optimalMax));
   }
 
-  // Between optimalMax and maxLength: scale linearly 100->30
-  return 100 - 70 * ((len - t.optimalMax) / (t.maxLength - t.optimalMax));
+  if (!keyword) return Math.round(lengthScore);
+
+  const keywordScore = containsKeyword(title, keyword) ? 100 : 0;
+  return Math.round(lengthScore * 0.7 + keywordScore * 0.3);
 }
 
 /**
  * Short description (10%).
  * Scores based on length utilization of the 132-char limit.
+ * When keyword is provided: 70% length + 30% keyword presence.
  */
 export function scoreShortDescription(
   shortDescription: string,
-  thresholds: QualityThresholds
+  thresholds: QualityThresholds,
+  keyword?: string
 ): number {
   const len = shortDescription.length;
   const t = thresholds.shortDescription;
 
-  if (len === 0) return 0;
-  if (len < t.minLength) {
-    return 20 + 30 * (len / t.minLength);
+  let lengthScore: number;
+  if (len === 0) {
+    lengthScore = 0;
+  } else if (len < t.minLength) {
+    lengthScore = 20 + 30 * (len / t.minLength);
+  } else if (len >= t.optimalMin) {
+    lengthScore = 100;
+  } else {
+    lengthScore = 50 + 50 * ((len - t.minLength) / (t.optimalMin - t.minLength));
   }
-  if (len >= t.optimalMin) return 100;
 
-  // Between minLength and optimalMin: scale 50->100
-  return 50 + 50 * ((len - t.minLength) / (t.optimalMin - t.minLength));
+  if (!keyword) return Math.round(lengthScore);
+
+  const keywordScore = containsKeyword(shortDescription, keyword) ? 100 : 0;
+  return Math.round(lengthScore * 0.7 + keywordScore * 0.3);
 }
 
 /**
  * Full description (15%).
  * Scores based on word count and basic structure detection.
+ * No upper word limit penalty — once past optimalMinWords, lengthScore = 100.
+ * When keyword is provided: 50% length + 25% structure + 25% density.
  */
 export function scoreFullDescription(
   fullDescription: string,
-  thresholds: QualityThresholds
+  thresholds: QualityThresholds,
+  keyword?: string
 ): number {
   if (fullDescription.length === 0) return 0;
 
@@ -230,22 +302,17 @@ export function scoreFullDescription(
   const wordCount = words.length;
   const t = thresholds.fullDescription;
 
-  // Word count scoring (70% of component)
+  // Word count scoring — no upper limit penalty
   let lengthScore: number;
   if (wordCount < t.minWords) {
     lengthScore = 20 * (wordCount / t.minWords);
-  } else if (wordCount >= t.optimalMinWords && wordCount <= t.optimalMaxWords) {
+  } else if (wordCount >= t.optimalMinWords) {
     lengthScore = 100;
-  } else if (wordCount < t.optimalMinWords) {
-    lengthScore = 20 + 80 * ((wordCount - t.minWords) / (t.optimalMinWords - t.minWords));
-  } else if (wordCount > t.maxWords) {
-    lengthScore = 40;
   } else {
-    // Between optimalMax and maxWords: slight penalty
-    lengthScore = 100 - 60 * ((wordCount - t.optimalMaxWords) / (t.maxWords - t.optimalMaxWords));
+    lengthScore = 20 + 80 * ((wordCount - t.minWords) / (t.optimalMinWords - t.minWords));
   }
 
-  // Structure scoring (30% of component): detect paragraphs, line breaks, lists
+  // Structure scoring: detect paragraphs, line breaks, lists
   const paragraphs = fullDescription.split(/\n\s*\n/).filter(p => p.trim().length > 0).length;
   const hasLineBreaks = /\n/.test(fullDescription);
   const hasBulletPoints = /^[\s]*[-*\u2022]/m.test(fullDescription);
@@ -260,7 +327,12 @@ export function scoreFullDescription(
 
   structureScore = Math.min(structureScore, 100);
 
-  return Math.round(lengthScore * 0.7 + structureScore * 0.3);
+  if (!keyword) {
+    return Math.round(lengthScore * 0.7 + structureScore * 0.3);
+  }
+
+  const densityScore = scoreKeywordDensity(fullDescription, keyword);
+  return Math.round(lengthScore * 0.5 + structureScore * 0.25 + densityScore * 0.25);
 }
 
 /**
@@ -446,7 +518,8 @@ export function scoreDeveloperProfile(
 function generateRecommendations(
   components: ComponentScore[],
   snapshot: ListingSnapshot,
-  thresholds: QualityThresholds
+  thresholds: QualityThresholds,
+  keyword?: string
 ): Recommendation[] {
   const recommendations: Recommendation[] = [];
 
@@ -555,6 +628,32 @@ function generateRecommendations(
     }
   }
 
+  // Keyword-specific recommendations
+  if (keyword) {
+    if (!containsKeyword(snapshot.title, keyword)) {
+      recommendations.push({
+        component: 'title',
+        message: `Your title does not contain the keyword "${keyword}". Including the target keyword in the title is the strongest relevance signal.`,
+        priority: 'high',
+      });
+    }
+    if (!containsKeyword(snapshot.shortDescription, keyword)) {
+      recommendations.push({
+        component: 'shortDescription',
+        message: `Your short description does not contain the keyword "${keyword}". Add it to improve keyword relevance.`,
+        priority: 'medium',
+      });
+    }
+    const density = scoreKeywordDensity(snapshot.fullDescription, keyword);
+    if (density < 50) {
+      recommendations.push({
+        component: 'fullDescription',
+        message: `Low keyword density for "${keyword}" in your full description. Consider adding the keyword naturally 2-4 more times.`,
+        priority: 'medium',
+      });
+    }
+  }
+
   return recommendations;
 }
 
@@ -575,13 +674,16 @@ function generateRecommendations(
  */
 export function calculateQualityScore(
   snapshot: ListingSnapshot,
-  thresholds: QualityThresholds = DEFAULT_THRESHOLDS
+  thresholds: QualityThresholds = DEFAULT_THRESHOLDS,
+  keywordOptions?: KeywordScoreOptions
 ): QualityScoreResult {
+  const keyword = keywordOptions?.keyword;
+
   // Calculate individual component scores
   const rawScores: Record<ComponentName, number> = {
-    title: scoreTitle(snapshot.title, thresholds),
-    shortDescription: scoreShortDescription(snapshot.shortDescription, thresholds),
-    fullDescription: scoreFullDescription(snapshot.fullDescription, thresholds),
+    title: scoreTitle(snapshot.title, thresholds, keyword),
+    shortDescription: scoreShortDescription(snapshot.shortDescription, thresholds, keyword),
+    fullDescription: scoreFullDescription(snapshot.fullDescription, thresholds, keyword),
     visualAssets: scoreVisualAssets(snapshot.screenshotCount, snapshot.hasPromoVideo, thresholds),
     ratingsReviews: scoreRatingsReviews(snapshot.rating, snapshot.reviewCount, thresholds),
     translations: scoreTranslations(snapshot.translationCount, snapshot.availableLocales, thresholds),
@@ -606,7 +708,7 @@ export function calculateQualityScore(
   );
 
   // Generate recommendations for low-scoring components
-  const recommendations = generateRecommendations(components, snapshot, thresholds);
+  const recommendations = generateRecommendations(components, snapshot, thresholds, keyword);
 
   return {
     totalScore: Math.min(Math.max(totalScore, 0), 100),

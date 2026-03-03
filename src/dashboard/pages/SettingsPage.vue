@@ -2,10 +2,11 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useSettings } from '../composables/useSettings';
 import {
-  DEFAULT_AUDIT_SYSTEM_PROMPT,
-  DEFAULT_AUDIT_USER_PROMPT_TEMPLATE,
   AUDIT_PLACEHOLDERS,
+  getVariantSystemPrompt,
+  getVariantUserPromptTemplate,
 } from '@/shared/utils/keyword-audit';
+import type { AuditPromptVariant } from '@/shared/types/settings';
 
 const {
   settings,
@@ -34,7 +35,14 @@ const localProxyApiKey = ref('');
 const localTranslationLocales = ref('');
 const localAuditSystemPrompt = ref('');
 const localAuditUserPromptTemplate = ref('');
+const localAuditPromptVariant = ref<AuditPromptVariant>('default');
 const showPlaceholderHelp = ref(false);
+
+const VARIANT_OPTIONS: Array<{ value: AuditPromptVariant; label: string; description: string }> = [
+  { value: 'default', label: 'Default', description: 'Standard prompt with narrative analysis' },
+  { value: 'cot', label: 'Chain-of-Thought', description: 'Adds a reasoning scratchpad and few-shot example for more consistent analysis' },
+  { value: 'rubric', label: 'Rubric-Scored', description: 'Quantitative 1-5 scoring rubric with pre-computed deltas for precise factor comparison' },
+];
 
 // Available locale options for the translation locale selector
 const AVAILABLE_LOCALES: Array<{ code: string; name: string }> = [
@@ -76,8 +84,9 @@ function syncLocalState(): void {
   localProxyUrl.value = settings.proxyUrl;
   localProxyApiKey.value = settings.proxyApiKey ?? '';
   localTranslationLocales.value = settings.translationLocales.join(', ');
-  localAuditSystemPrompt.value = settings.auditSystemPrompt || DEFAULT_AUDIT_SYSTEM_PROMPT;
-  localAuditUserPromptTemplate.value = settings.auditUserPromptTemplate || DEFAULT_AUDIT_USER_PROMPT_TEMPLATE;
+  localAuditPromptVariant.value = settings.auditPromptVariant || 'default';
+  localAuditSystemPrompt.value = settings.auditSystemPrompt || getVariantSystemPrompt(localAuditPromptVariant.value);
+  localAuditUserPromptTemplate.value = settings.auditUserPromptTemplate || getVariantUserPromptTemplate(localAuditPromptVariant.value);
 }
 
 // Computed
@@ -137,22 +146,35 @@ async function saveTranslationLocales(): Promise<void> {
 }
 
 async function saveAuditPrompts(): Promise<void> {
+  const variant = localAuditPromptVariant.value;
   const trimmedSystem = localAuditSystemPrompt.value.trim();
   const trimmedUser = localAuditUserPromptTemplate.value.trim();
+  const defaultSystem = getVariantSystemPrompt(variant).trim();
+  const defaultUser = getVariantUserPromptTemplate(variant).trim();
   await saveMultipleSettings({
-    auditSystemPrompt: trimmedSystem === DEFAULT_AUDIT_SYSTEM_PROMPT.trim() ? '' : trimmedSystem,
-    auditUserPromptTemplate: trimmedUser === DEFAULT_AUDIT_USER_PROMPT_TEMPLATE.trim() ? '' : trimmedUser,
+    auditPromptVariant: variant,
+    auditSystemPrompt: trimmedSystem === defaultSystem ? '' : trimmedSystem,
+    auditUserPromptTemplate: trimmedUser === defaultUser ? '' : trimmedUser,
   });
   syncLocalState();
 }
 
 async function resetAuditPrompts(): Promise<void> {
-  localAuditSystemPrompt.value = DEFAULT_AUDIT_SYSTEM_PROMPT;
-  localAuditUserPromptTemplate.value = DEFAULT_AUDIT_USER_PROMPT_TEMPLATE;
+  const variant = localAuditPromptVariant.value;
+  localAuditSystemPrompt.value = getVariantSystemPrompt(variant);
+  localAuditUserPromptTemplate.value = getVariantUserPromptTemplate(variant);
   await saveMultipleSettings({
+    auditPromptVariant: variant,
     auditSystemPrompt: '',
     auditUserPromptTemplate: '',
   });
+  syncLocalState();
+}
+
+function onVariantChange(): void {
+  const variant = localAuditPromptVariant.value;
+  localAuditSystemPrompt.value = getVariantSystemPrompt(variant);
+  localAuditUserPromptTemplate.value = getVariantUserPromptTemplate(variant);
 }
 
 function toggleLocale(code: string): void {
@@ -399,6 +421,29 @@ onUnmounted(() => {
           <p class="text-sm text-gray-500 mt-0.5">Customize the prompts used for keyword audit analysis. Defaults are shown below — edit as needed.</p>
         </div>
         <div class="px-6 py-4 space-y-4">
+          <!-- Variant selector -->
+          <div>
+            <label for="auditVariant" class="block text-sm font-medium text-gray-700">Prompt Variant</label>
+            <p class="text-xs text-gray-500 mb-1">Select a prompt strategy for A/B testing audit quality.</p>
+            <select
+              id="auditVariant"
+              v-model="localAuditPromptVariant"
+              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              @change="onVariantChange"
+            >
+              <option
+                v-for="opt in VARIANT_OPTIONS"
+                :key="opt.value"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">
+              {{ VARIANT_OPTIONS.find((o) => o.value === localAuditPromptVariant)?.description }}
+            </p>
+          </div>
+
           <!-- System Prompt -->
           <div>
             <label for="auditSystemPrompt" class="block text-sm font-medium text-gray-700">System Prompt</label>

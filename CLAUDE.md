@@ -153,6 +153,9 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 - Dashboard reads via `useSettings` composable. SW reads via `@/shared/utils/settings.ts`.
 - Key settings: `proxyUrl`, `proxyApiKey`, `queueDelayMs`, `queueJitterMs`, `dailyScanTime`, `parserVersion`.
 
+**Post-implementation (every feature/fix):**
+- Always bump `manifest.json` version (MINOR for features, PATCH for fixes) and add a `CHANGELOG.md` entry. Never skip this step.
+
 ## Common Commands
 
 ```bash
