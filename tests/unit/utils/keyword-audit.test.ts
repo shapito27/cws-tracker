@@ -17,8 +17,10 @@ import {
   formatEventsHistory,
   formatKeywordPositionsTable,
   countKeywordOccurrences,
+  fillTemplate,
   getVariantSystemPrompt,
   getVariantUserPromptTemplate,
+  DEFAULT_AUDIT_SYSTEM_PROMPT,
   VARIANT_COT_SYSTEM_PROMPT,
   VARIANT_RUBRIC_SYSTEM_PROMPT,
   VARIANT_COT_USER_PROMPT_TEMPLATE,
@@ -909,9 +911,21 @@ describe('countKeywordOccurrences()', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildPlaceholderValues() delta placeholders', () => {
-  it('computes positionGap when both positions are known', () => {
+  it('computes positionGap when own is behind competitor', () => {
     const values = buildPlaceholderValues(SAMPLE_INPUT);
-    expect(values.positionGap).toBe('6'); // 8 - 2
+    expect(values.positionGap).toBe('6 positions behind'); // own=8, comp=2
+  });
+
+  it('computes positionGap when own is ahead of competitor', () => {
+    const input: AuditInput = { ...SAMPLE_INPUT, ownPosition: 2, competitorPosition: 8 };
+    const values = buildPlaceholderValues(input);
+    expect(values.positionGap).toBe('6 positions ahead');
+  });
+
+  it('computes positionGap as same position when tied', () => {
+    const input: AuditInput = { ...SAMPLE_INPUT, ownPosition: 3, competitorPosition: 3 };
+    const values = buildPlaceholderValues(input);
+    expect(values.positionGap).toBe('Same position');
   });
 
   it('computes positionGap as 30+ behind when own is null', () => {
@@ -920,10 +934,16 @@ describe('buildPlaceholderValues() delta placeholders', () => {
     expect(values.positionGap).toBe('30+ behind');
   });
 
+  it('computes positionGap as ahead when own ranked but comp is null', () => {
+    const input: AuditInput = { ...SAMPLE_INPUT, ownPosition: 5, competitorPosition: null };
+    const values = buildPlaceholderValues(input);
+    expect(values.positionGap).toBe('Ahead (competitor not in top 30)');
+  });
+
   it('computes positionGap as N/A when both are null', () => {
     const input: AuditInput = { ...SAMPLE_INPUT, ownPosition: null, competitorPosition: null };
     const values = buildPlaceholderValues(input);
-    expect(values.positionGap).toBe('N/A');
+    expect(values.positionGap).toBe('N/A (both unranked)');
   });
 
   it('computes userRatio', () => {
@@ -973,14 +993,25 @@ describe('buildPlaceholderValues() delta placeholders', () => {
     expect(Number(values.compKeywordInFullDesc)).toBeGreaterThanOrEqual(0);
   });
 
-  it('handles ratingDelta when own has no rating', () => {
+  it('handles ratingDelta as N/A when own has no rating', () => {
     const input: AuditInput = {
       ...SAMPLE_INPUT,
       ownListing: makeListing({ rating: null }),
     };
     const values = buildPlaceholderValues(input);
-    // 4.7 - 0 = +4.7
-    expect(values.ratingDelta).toBe('+4.7');
+    expect(values.ratingDelta).toBe('N/A');
+  });
+
+  it('handles ratingDelta as N/A when competitor has no rating', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      competitorListing: makeListing({
+        extensionId: 'ext-comp-id-12345678901234567890',
+        rating: null,
+      }),
+    };
+    const values = buildPlaceholderValues(input);
+    expect(values.ratingDelta).toBe('N/A');
   });
 
   it('handles userRatio with zero users', () => {
@@ -1043,5 +1074,158 @@ describe('estimateAuditTokens() with variants', () => {
     const estDefault = estimateAuditTokens(SAMPLE_INPUT, { variant: 'default' });
     const estCot = estimateAuditTokens(SAMPLE_INPUT, { variant: 'cot' });
     expect(estCot.estimatedCostUsd).toBeGreaterThan(estDefault.estimatedCostUsd);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCacheKey() format-pinning tests
+// ---------------------------------------------------------------------------
+
+describe('buildCacheKey() format pinning', () => {
+  it('default variant key has exact format: audit:keyword:ext1:ext2:date', () => {
+    const key = buildCacheKey('password manager', 'ext1', 'ext2', '2026-03-01');
+    expect(key).toBe('audit:password manager:ext1:ext2:2026-03-01');
+  });
+
+  it('non-default variant key appends :variant suffix', () => {
+    const key = buildCacheKey('password manager', 'ext1', 'ext2', '2026-03-01', 'rubric');
+    expect(key).toBe('audit:password manager:ext1:ext2:2026-03-01:rubric');
+  });
+
+  it('backward compatibility: default variant key matches pre-variant format', () => {
+    // Old code without variant param should produce identical key to explicit 'default'
+    const keyOld = buildCacheKey('kw', 'e1', 'e2', '2026-01-01');
+    const keyNew = buildCacheKey('kw', 'e1', 'e2', '2026-01-01', 'default');
+    expect(keyOld).toBe(keyNew);
+    // And it must NOT contain a variant suffix
+    expect(keyOld).not.toMatch(/:default$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rubric template placeholder substitution tests
+// ---------------------------------------------------------------------------
+
+describe('Rubric template placeholder substitution', () => {
+  it('substitutes all delta placeholders without leftover {{}} tokens', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT, { variant: 'rubric' });
+    const userContent = messages[1].content;
+
+    // No un-substituted placeholders should remain
+    expect(userContent).not.toMatch(/\{\{\w+\}\}/);
+  });
+
+  it('rubric template contains ownReviewCount and compReviewCount values', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT, { variant: 'rubric' });
+    const userContent = messages[1].content;
+
+    // Reviews row should show actual review counts (150 and 2500)
+    expect(userContent).toContain('| Reviews | 150 | 2500 |');
+  });
+
+  it('rubric template positionGap shows direction text, not raw number', () => {
+    const messages = buildAuditPrompt(SAMPLE_INPUT, { variant: 'rubric' });
+    const userContent = messages[1].content;
+
+    // own=8, comp=2 -> "6 positions behind"
+    expect(userContent).toContain('6 positions behind');
+    // Template should NOT have a separate "positions behind" suffix — direction is embedded in the value
+    expect(userContent).not.toContain('{{positionGap}}');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review count placeholder tests
+// ---------------------------------------------------------------------------
+
+describe('buildPlaceholderValues() review count placeholders', () => {
+  it('populates ownReviewCount and compReviewCount', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    expect(values.ownReviewCount).toBe('150');
+    expect(values.compReviewCount).toBe('2500');
+  });
+
+  it('handles zero review count', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      ownListing: makeListing({ ratingCount: 0 }),
+    };
+    const values = buildPlaceholderValues(input);
+    expect(values.ownReviewCount).toBe('0');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// userRatio edge case tests
+// ---------------------------------------------------------------------------
+
+describe('buildPlaceholderValues() userRatio edge cases', () => {
+  it('handles comp zero users as N/A', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      competitorListing: makeListing({
+        extensionId: 'ext-comp-id-12345678901234567890',
+        userCountNumeric: 0,
+      }),
+    };
+    const values = buildPlaceholderValues(input);
+    expect(values.userRatio).toBe('N/A');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getVariantSystemPrompt() non-tautological tests
+// ---------------------------------------------------------------------------
+
+describe('getVariantSystemPrompt() content verification', () => {
+  it('default variant includes approximate weight order text', () => {
+    const prompt = getVariantSystemPrompt('default');
+    expect(prompt).toContain('approximate weight order');
+    expect(prompt).toBe(DEFAULT_AUDIT_SYSTEM_PROMPT);
+  });
+
+  it('cot variant includes scratchpad and few-shot', () => {
+    const prompt = getVariantSystemPrompt('cot');
+    expect(prompt).toContain('scratchpad');
+    expect(prompt).toContain('Few-Shot Example');
+    expect(prompt).toContain('Tab Sorter');
+  });
+
+  it('rubric variant includes scoring rubric with weights', () => {
+    const prompt = getVariantSystemPrompt('rubric');
+    expect(prompt).toContain('Scoring Rubric');
+    expect(prompt).toContain('Weight: 35%');
+    expect(prompt).toContain('Weight: 25%');
+    expect(prompt).toContain('1 (very weak) to 5 (very strong)');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keyword occurrence exact value tests
+// ---------------------------------------------------------------------------
+
+describe('countKeywordOccurrences() exact values from fixtures', () => {
+  it('counts exact matches in own listing full description', () => {
+    // "productivity extension" does not appear in "This extension helps you be more productive..."
+    const count = countKeywordOccurrences(
+      'This extension helps you be more productive by automating tasks and providing insights into your workflow. It offers many features including task management, time tracking, and more.',
+      'productivity extension',
+    );
+    expect(count).toBe(0);
+  });
+
+  it('counts exact matches in competitor full description', () => {
+    // "productivity extension" in "Super Productivity Pro is the leading productivity extension..."
+    const count = countKeywordOccurrences(
+      'Super Productivity Pro is the leading productivity extension. With AI-powered task management, intelligent time tracking, and deep workflow analysis, it helps millions of users worldwide.',
+      'productivity extension',
+    );
+    expect(count).toBe(1);
+  });
+
+  it('buildPlaceholderValues returns exact keyword counts for full descriptions', () => {
+    const values = buildPlaceholderValues(SAMPLE_INPUT);
+    expect(values.ownKeywordInFullDesc).toBe('0');
+    expect(values.compKeywordInFullDesc).toBe('1');
   });
 });
