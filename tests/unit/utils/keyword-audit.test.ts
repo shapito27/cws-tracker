@@ -32,6 +32,7 @@ import {
 } from '../../../src/shared/utils/keyword-audit';
 import { OpenAIClient } from '../../../src/shared/utils/openai';
 import { CWSDatabase } from '../../../src/shared/db/database';
+import { daysAgo } from '../../../src/shared/utils/dates';
 import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '../../../src/shared/types';
 
 // ---------------------------------------------------------------------------
@@ -576,16 +577,10 @@ function makeEvent(date: string, type: string, note: string): EventRecord {
 
 describe('formatRankHistory()', () => {
   it('formats snapshots into compact date|position line', () => {
-    // Use dates relative to today for stable tests
-    const now = new Date();
-    const d1 = new Date(now); d1.setDate(d1.getDate() - 2);
-    const d2 = new Date(now); d2.setDate(d2.getDate() - 1);
-    const d3 = new Date(now);
-
     const snaps = [
-      makeRankSnapshot(d1.toISOString().slice(0, 10), 5),
-      makeRankSnapshot(d2.toISOString().slice(0, 10), 3),
-      makeRankSnapshot(d3.toISOString().slice(0, 10), 2),
+      makeRankSnapshot(daysAgo(2), 5),
+      makeRankSnapshot(daysAgo(1), 3),
+      makeRankSnapshot(daysAgo(0), 2),
     ];
 
     const result = formatRankHistory('password manager', snaps, 7);
@@ -604,8 +599,7 @@ describe('formatRankHistory()', () => {
   });
 
   it('shows 30+ for null positions', () => {
-    const now = new Date();
-    const snaps = [makeRankSnapshot(now.toISOString().slice(0, 10), null)];
+    const snaps = [makeRankSnapshot(daysAgo(0), null)];
     const result = formatRankHistory('test', snaps, 7);
     expect(result).toContain('30+');
   });
@@ -613,13 +607,9 @@ describe('formatRankHistory()', () => {
 
 describe('formatAutocompleteHistory()', () => {
   it('formats snapshots into compact date|position line', () => {
-    const now = new Date();
-    const d1 = new Date(now); d1.setDate(d1.getDate() - 1);
-    const d2 = new Date(now);
-
     const snaps = [
-      makeAutocompleteSnapshot(d1.toISOString().slice(0, 10), 3),
-      makeAutocompleteSnapshot(d2.toISOString().slice(0, 10), 1),
+      makeAutocompleteSnapshot(daysAgo(1), 3),
+      makeAutocompleteSnapshot(daysAgo(0), 1),
     ];
 
     const result = formatAutocompleteHistory('password manager', snaps, 7);
@@ -658,8 +648,7 @@ describe('formatEventsHistory()', () => {
 
 describe('buildPlaceholderValues() with historical context', () => {
   it('includes all 12 historical placeholder keys when context provided', () => {
-    const now = new Date();
-    const todayStr = now.toISOString().slice(0, 10);
+    const todayStr = daysAgo(0);
 
     const history: AuditHistoricalContext = {
       ownRankHistory: [makeRankSnapshot(todayStr, 5)],

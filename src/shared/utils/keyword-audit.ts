@@ -9,6 +9,7 @@
 import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord, AuditPromptVariant } from '../types';
 import { OpenAIClient } from './openai';
 import type { ChatMessage } from './openai';
+import { daysAgo } from './dates';
 import { calculateQualityScore } from './quality-score';
 
 // ---------------------------------------------------------------------------
@@ -508,9 +509,7 @@ export function formatRankHistory(keyword: string, snapshots: RankSnapshot[], da
   for (const s of snapshots) byDate.set(s.date, s);
   const parts: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = daysAgo(i);
     const label = dateStr.slice(5); // MM-DD
     const snap = byDate.get(dateStr);
     if (snap) {
@@ -529,9 +528,7 @@ export function formatAutocompleteHistory(keyword: string, snapshots: Autocomple
   for (const s of snapshots) byDate.set(s.date, s);
   const parts: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = daysAgo(i);
     const label = dateStr.slice(5); // MM-DD
     const snap = byDate.get(dateStr);
     if (snap) {
