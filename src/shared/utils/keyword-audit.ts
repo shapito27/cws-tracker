@@ -361,10 +361,10 @@ export const VARIANT_RUBRIC_USER_PROMPT_TEMPLATE = `Analyze why the competitor e
 ## Pre-Computed Comparison Summary
 | Metric | Your Extension | Competitor | Delta |
 |--------|----------------|------------|-------|
-| Position | {{ownPosition}} | {{compPosition}} | {{positionGap}} positions behind |
+| Position | {{ownPosition}} | {{compPosition}} | {{positionGap}} |
 | Users | {{ownUsers}} | {{compUsers}} | {{userRatio}} |
 | Rating | {{ownRating}} | {{compRating}} | {{ratingDelta}} |
-| Reviews | {{ownRating}} | {{compRating}} | {{reviewRatio}} |
+| Reviews | {{ownReviewCount}} | {{compReviewCount}} | {{reviewRatio}} |
 | Quality Score | {{ownQualityScore}} | {{compQualityScore}} | {{qualityDelta}} |
 | Screenshots | {{ownScreenshots}} | {{compScreenshots}} | {{screenshotDelta}} |
 | Translations | {{ownTranslations}} | {{compTranslations}} | {{translationDelta}} |
@@ -448,6 +448,8 @@ export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   compTranslations: 'Competitor translation locale count',
   compQualityScore: 'Competitor quality score',
   compPermissionRisk: 'Competitor permission risk score (0-100)',
+  ownReviewCount: 'Your review/rating count (e.g. "150")',
+  compReviewCount: 'Competitor review/rating count (e.g. "2500")',
 
   // Multi-keyword context
   keywords: 'Comma-separated list of all analyzed keywords',
@@ -472,7 +474,7 @@ export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   compEvents14d: 'Competitor events/changes, last 14 days (date | event | details)',
 
   // Pre-computed deltas (Rubric variant)
-  positionGap: 'Position gap between competitor and own (e.g. "6")',
+  positionGap: 'Position gap with direction (e.g. "6 positions behind", "3 positions ahead")',
   userRatio: 'Competitor-to-own user ratio (e.g. "20x more")',
   ratingDelta: 'Rating difference (e.g. "+0.5")',
   reviewRatio: 'Review count ratio (e.g. "16.7x more")',
@@ -602,6 +604,10 @@ function formatDelta(value: number): string {
 export function buildPlaceholderValues(input: AuditInput): Record<string, string> {
   const { keyword, ownListing, competitorListing, ownPosition, competitorPosition } = input;
 
+  // Compute quality scores once and reuse
+  const ownQS = calculateQualityScore(ownListing).totalScore;
+  const compQS = calculateQualityScore(competitorListing).totalScore;
+
   const values: Record<string, string> = {
     keyword,
     ownTitle: ownListing.title,
@@ -615,7 +621,7 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     ownVersion: ownListing.version,
     ownScreenshots: String(ownListing.screenshotCount),
     ownTranslations: `${ownListing.translationCount} locales`,
-    ownQualityScore: `${calculateQualityScore(ownListing).totalScore}/100`,
+    ownQualityScore: `${ownQS}/100`,
     ownPermissionRisk: `${ownListing.permissionRiskScore}/100`,
     compTitle: competitorListing.title,
     compPosition: competitorPosition !== null ? `#${competitorPosition}` : 'Not in top 30',
@@ -628,8 +634,10 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     compVersion: competitorListing.version,
     compScreenshots: String(competitorListing.screenshotCount),
     compTranslations: `${competitorListing.translationCount} locales`,
-    compQualityScore: `${calculateQualityScore(competitorListing).totalScore}/100`,
+    compQualityScore: `${compQS}/100`,
     compPermissionRisk: `${competitorListing.permissionRiskScore}/100`,
+    ownReviewCount: String(ownListing.ratingCount),
+    compReviewCount: String(competitorListing.ratingCount),
   };
 
   // Multi-keyword context
@@ -684,11 +692,20 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
   const ownPos = ownPosition;
   const compPos = competitorPosition;
   if (ownPos !== null && compPos !== null) {
-    values.positionGap = String(ownPos - compPos);
+    const gap = ownPos - compPos;
+    if (gap > 0) {
+      values.positionGap = `${gap} positions behind`;
+    } else if (gap < 0) {
+      values.positionGap = `${-gap} positions ahead`;
+    } else {
+      values.positionGap = 'Same position';
+    }
   } else if (ownPos === null && compPos !== null) {
     values.positionGap = '30+ behind';
+  } else if (ownPos !== null && compPos === null) {
+    values.positionGap = 'Ahead (competitor not in top 30)';
   } else {
-    values.positionGap = 'N/A';
+    values.positionGap = 'N/A (both unranked)';
   }
 
   const ownUsers = ownListing.userCountNumeric;
@@ -700,9 +717,11 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     values.userRatio = 'N/A';
   }
 
-  const ownRatingVal = ownListing.rating ?? 0;
-  const compRatingVal = competitorListing.rating ?? 0;
-  values.ratingDelta = formatDelta(+(compRatingVal - ownRatingVal).toFixed(1));
+  if (ownListing.rating !== null && competitorListing.rating !== null) {
+    values.ratingDelta = formatDelta(+(competitorListing.rating - ownListing.rating).toFixed(1));
+  } else {
+    values.ratingDelta = 'N/A';
+  }
 
   const ownReviews = ownListing.ratingCount;
   const compReviews = competitorListing.ratingCount;
@@ -713,8 +732,6 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
     values.reviewRatio = 'N/A';
   }
 
-  const ownQS = calculateQualityScore(ownListing).totalScore;
-  const compQS = calculateQualityScore(competitorListing).totalScore;
   values.qualityDelta = formatDelta(compQS - ownQS);
   values.screenshotDelta = formatDelta(competitorListing.screenshotCount - ownListing.screenshotCount);
   values.translationDelta = formatDelta(competitorListing.translationCount - ownListing.translationCount);

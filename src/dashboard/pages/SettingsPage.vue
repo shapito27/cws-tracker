@@ -2,8 +2,6 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useSettings } from '../composables/useSettings';
 import {
-  DEFAULT_AUDIT_SYSTEM_PROMPT,
-  DEFAULT_AUDIT_USER_PROMPT_TEMPLATE,
   AUDIT_PLACEHOLDERS,
   getVariantSystemPrompt,
   getVariantUserPromptTemplate,
@@ -166,9 +164,11 @@ async function resetAuditPrompts(): Promise<void> {
   localAuditSystemPrompt.value = getVariantSystemPrompt(variant);
   localAuditUserPromptTemplate.value = getVariantUserPromptTemplate(variant);
   await saveMultipleSettings({
+    auditPromptVariant: variant,
     auditSystemPrompt: '',
     auditUserPromptTemplate: '',
   });
+  syncLocalState();
 }
 
 function onVariantChange(): void {
