@@ -604,9 +604,10 @@ function formatDelta(value: number): string {
 export function buildPlaceholderValues(input: AuditInput): Record<string, string> {
   const { keyword, ownListing, competitorListing, ownPosition, competitorPosition } = input;
 
-  // Compute quality scores once and reuse
-  const ownQS = calculateQualityScore(ownListing).totalScore;
-  const compQS = calculateQualityScore(competitorListing).totalScore;
+  // Compute keyword-aware quality scores once and reuse
+  const keywordOpts = { keyword };
+  const ownQS = calculateQualityScore(ownListing, undefined, keywordOpts).totalScore;
+  const compQS = calculateQualityScore(competitorListing, undefined, keywordOpts).totalScore;
 
   const values: Record<string, string> = {
     keyword,
