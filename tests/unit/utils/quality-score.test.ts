@@ -14,6 +14,8 @@ import {
   scoreUpdateFreshness,
   scorePermissions,
   scoreDeveloperProfile,
+  containsKeyword,
+  scoreKeywordDensity,
   DEFAULT_THRESHOLDS,
   COMPONENT_WEIGHTS,
 } from '../../../src/shared/utils/quality-score';
@@ -240,12 +242,12 @@ describe('scoreFullDescription()', () => {
     expect(score).toBeGreaterThan(70);
   });
 
-  it('penalizes descriptions over maxWords', () => {
+  it('does not penalize descriptions over 1000+ words (no upper limit)', () => {
     const desc = Array(1600).fill('word').join(' ');
     const score = scoreFullDescription(desc, t);
-    // Should be lower than optimal but not zero
-    expect(score).toBeLessThan(50);
-    expect(score).toBeGreaterThan(0);
+    // With no upper limit penalty, 1600 words scores same as optimal (length=100)
+    // Structure is low (single block), so score = 100*0.7 + low*0.3
+    expect(score).toBeGreaterThanOrEqual(70);
   });
 
   it('gives bonus for structured content (paragraphs, bullets)', () => {
@@ -424,7 +426,7 @@ describe('scoreUpdateFreshness()', () => {
     dateNowSpy.mockRestore();
   });
 
-  it('returns 100 for update within last 30 days', () => {
+  it('returns 100 for update within last 90 days (fresh)', () => {
     expect(scoreUpdateFreshness('2026-01-20', t)).toBe(100);
   });
 
@@ -432,19 +434,28 @@ describe('scoreUpdateFreshness()', () => {
     expect(scoreUpdateFreshness('2026-02-05', t)).toBe(100);
   });
 
-  it('returns ~80-100 for update 31-90 days ago', () => {
-    expect(scoreUpdateFreshness('2025-12-01', t)).toBeGreaterThanOrEqual(80);
-    expect(scoreUpdateFreshness('2025-12-01', t)).toBeLessThanOrEqual(100);
+  it('returns 100 for 66-day-old update (still fresh with 90-day threshold)', () => {
+    // 2025-12-01 is 66 days before 2026-02-05, within fresh threshold of 90
+    expect(scoreUpdateFreshness('2025-12-01', t)).toBe(100);
   });
 
-  it('returns ~50-80 for update 91-180 days ago', () => {
+  it('returns ~80-100 for update 91-180 days ago (recent)', () => {
+    // 2025-09-01 is ~157 days ago, within recent tier (91-180)
     const score = scoreUpdateFreshness('2025-09-01', t);
+    expect(score).toBeGreaterThanOrEqual(80);
+    expect(score).toBeLessThanOrEqual(100);
+  });
+
+  it('returns ~50-80 for update 181-270 days ago (aging)', () => {
+    // 2025-06-01 is ~249 days ago, within aging tier (181-270)
+    const score = scoreUpdateFreshness('2025-06-01', t);
     expect(score).toBeGreaterThanOrEqual(50);
     expect(score).toBeLessThanOrEqual(80);
   });
 
-  it('returns ~20-50 for update 181-365 days ago', () => {
-    const score = scoreUpdateFreshness('2025-05-01', t);
+  it('returns ~20-50 for update 271-365 days ago (stale)', () => {
+    // 2025-04-01 is ~310 days ago, within stale tier (271-365)
+    const score = scoreUpdateFreshness('2025-04-01', t);
     expect(score).toBeGreaterThanOrEqual(20);
     expect(score).toBeLessThanOrEqual(50);
   });
@@ -706,12 +717,273 @@ describe('calculateQualityScore()', () => {
   });
 
   it('generates update freshness recommendation for stale extension', () => {
+    // With new thresholds, recent=180. Use a date >180 days ago to trigger rec.
     const snapshot = makeSnapshot({
-      lastUpdated: '2025-06-01',
+      lastUpdated: '2025-06-01', // ~249 days ago from 2026-02-05
     });
     const result = calculateQualityScore(snapshot);
     const freshRecs = result.recommendations.filter(r => r.component === 'updateFreshness');
     expect(freshRecs.length).toBeGreaterThan(0);
     expect(freshRecs[0].message).toContain('days ago');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// containsKeyword
+// ---------------------------------------------------------------------------
+
+describe('containsKeyword()', () => {
+  it('matches exact whole word (case-insensitive)', () => {
+    expect(containsKeyword('Tab Manager Pro', 'tab manager')).toBe(true);
+  });
+
+  it('rejects partial word matches ("tab" should not match "table")', () => {
+    expect(containsKeyword('table organizer', 'tab')).toBe(false);
+  });
+
+  it('is case-insensitive', () => {
+    expect(containsKeyword('Tab Manager', 'tab manager')).toBe(true);
+    expect(containsKeyword('TAB MANAGER', 'tab manager')).toBe(true);
+  });
+
+  it('handles special regex characters in keyword', () => {
+    // Word boundary \b doesn't work well with special chars like $
+    // but we still escape them properly so the regex doesn't break
+    expect(containsKeyword('Use the vpn tool', 'vpn')).toBe(true);
+    expect(containsKeyword('Use the vpn2 tool', 'vpn')).toBe(false);
+  });
+
+  it('matches multi-word phrases', () => {
+    expect(containsKeyword('The best ad blocker extension', 'ad blocker')).toBe(true);
+    expect(containsKeyword('Ad-blocker extension', 'ad blocker')).toBe(false);
+  });
+
+  it('returns false for empty inputs', () => {
+    expect(containsKeyword('', 'keyword')).toBe(false);
+    expect(containsKeyword('text', '')).toBe(false);
+    expect(containsKeyword('', '')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scoreKeywordDensity
+// ---------------------------------------------------------------------------
+
+describe('scoreKeywordDensity()', () => {
+  it('returns 0 for zero occurrences', () => {
+    expect(scoreKeywordDensity('This is a sample text with many words', 'keyword')).toBe(0);
+  });
+
+  it('returns 100 for optimal density (0.5-2.5%)', () => {
+    // 100 words, 2 occurrences of "test" = 2% density
+    const words = Array(98).fill('word').concat(['test', 'test']).join(' ');
+    expect(scoreKeywordDensity(words, 'test')).toBe(100);
+  });
+
+  it('returns low score for over-optimized text (2.5-5%)', () => {
+    // 100 words, 4 occurrences of "test" = 4% density
+    const words = Array(96).fill('word').concat(['test', 'test', 'test', 'test']).join(' ');
+    const score = scoreKeywordDensity(words, 'test');
+    expect(score).toBeGreaterThan(40);
+    expect(score).toBeLessThan(100);
+  });
+
+  it('returns 20 for keyword stuffing (>5%)', () => {
+    // 20 words, 2 occurrences = 10% density
+    const words = Array(18).fill('word').concat(['test', 'test']).join(' ');
+    expect(scoreKeywordDensity(words, 'test')).toBe(20);
+  });
+
+  it('returns 0 for empty text', () => {
+    expect(scoreKeywordDensity('', 'keyword')).toBe(0);
+  });
+
+  it('returns 0 for empty keyword', () => {
+    expect(scoreKeywordDensity('some text here', '')).toBe(0);
+  });
+
+  it('scales linearly below 0.5% density', () => {
+    // 400 words, 1 occurrence = 0.25% density
+    const words = Array(399).fill('word').concat(['test']).join(' ');
+    const score = scoreKeywordDensity(words, 'test');
+    expect(score).toBeGreaterThan(0);
+    expect(score).toBeLessThan(100);
+    expect(score).toBe(Math.round((0.25 / 0.5) * 100));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scoreTitle with keyword
+// ---------------------------------------------------------------------------
+
+describe('scoreTitle() with keyword', () => {
+  const t = DEFAULT_THRESHOLDS;
+
+  it('blends length and keyword presence when keyword provided', () => {
+    const title = 'Tab Manager - Organize Tabs'; // 27 chars, optimal range
+    const score = scoreTitle(title, t, 'tab manager');
+    // lengthScore=100, keyword present -> keywordScore=100
+    // 100*0.7 + 100*0.3 = 100
+    expect(score).toBe(100);
+  });
+
+  it('penalizes missing keyword in title', () => {
+    const title = 'My Great Extension Tool'; // optimal length
+    const withKeyword = scoreTitle(title, t, 'tab manager');
+    const withoutKeyword = scoreTitle(title, t);
+    // keyword missing: 100*0.7 + 0*0.3 = 70
+    expect(withKeyword).toBe(70);
+    expect(withoutKeyword).toBe(100);
+  });
+
+  it('returns same score when no keyword provided (backward compat)', () => {
+    const title = 'My Extension';
+    expect(scoreTitle(title, t)).toBe(scoreTitle(title, t, undefined));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scoreShortDescription with keyword
+// ---------------------------------------------------------------------------
+
+describe('scoreShortDescription() with keyword', () => {
+  const t = DEFAULT_THRESHOLDS;
+
+  it('boosts score when keyword is present', () => {
+    const desc = 'A powerful tab manager that helps you organize and sort your browser tabs efficiently and quickly.';
+    const score = scoreShortDescription(desc, t, 'tab manager');
+    // length >= 80 -> lengthScore=100, keyword present -> 100
+    // 100*0.7 + 100*0.3 = 100
+    expect(score).toBe(100);
+  });
+
+  it('reduces score when keyword is absent', () => {
+    const desc = 'A powerful productivity tool that helps you organize and sort your browser extensions efficiently.';
+    const withKeyword = scoreShortDescription(desc, t, 'tab manager');
+    const withoutKeyword = scoreShortDescription(desc, t);
+    // keyword absent: 100*0.7 + 0*0.3 = 70
+    expect(withKeyword).toBe(70);
+    expect(withoutKeyword).toBe(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// scoreFullDescription with keyword
+// ---------------------------------------------------------------------------
+
+describe('scoreFullDescription() with keyword', () => {
+  const t = DEFAULT_THRESHOLDS;
+
+  it('blends length, structure, and density when keyword provided', () => {
+    const desc = [
+      'Tab Manager is a powerful browser extension for managing your tabs.',
+      '',
+      'With Tab Manager, you can organize tabs into groups, search through open tabs, and close duplicates.',
+      '',
+      '- Sort tabs by title or URL',
+      '- Group tabs by domain',
+      '- Close duplicate tabs',
+      '',
+      Array(120).fill('word').join(' '),
+    ].join('\n');
+
+    const withKeyword = scoreFullDescription(desc, t, 'tab manager');
+    const withoutKeyword = scoreFullDescription(desc, t);
+    // Both should score well, but differently weighted
+    expect(withKeyword).toBeGreaterThan(50);
+    expect(withoutKeyword).toBeGreaterThan(50);
+  });
+
+  it('penalizes low keyword density', () => {
+    // Long description with no keyword
+    const desc = [
+      'This is a great extension for productivity.',
+      '',
+      'It helps you with many things in your daily workflow.',
+      '',
+      '- Feature one does great things',
+      '- Feature two does even better things',
+      '',
+      Array(140).fill('word').join(' '),
+    ].join('\n');
+
+    const score = scoreFullDescription(desc, t, 'tab manager');
+    // density=0 -> densityScore=0, so score has 25% zeroed out
+    expect(score).toBeLessThan(scoreFullDescription(desc, t));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// calculateQualityScore with keyword (end-to-end)
+// ---------------------------------------------------------------------------
+
+describe('calculateQualityScore() with keyword', () => {
+  let dateNowSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(
+      new Date('2026-02-05T12:00:00Z').getTime()
+    );
+    vi.useFakeTimers({ now: new Date('2026-02-05T12:00:00Z') });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    dateNowSpy.mockRestore();
+  });
+
+  it('returns keyword-aware scores when keyword is provided', () => {
+    const snapshot = makeSnapshot({
+      title: 'Tab Manager Pro - Organize Browser Tabs',
+      shortDescription: 'The best tab manager for Chrome. Organize, sort, and search your browser tabs.',
+    });
+    const resultWithKeyword = calculateQualityScore(snapshot, undefined, { keyword: 'tab manager' });
+    const resultWithout = calculateQualityScore(snapshot);
+
+    // Both return valid results
+    expect(resultWithKeyword.totalScore).toBeGreaterThanOrEqual(0);
+    expect(resultWithKeyword.totalScore).toBeLessThanOrEqual(100);
+    expect(resultWithKeyword.components).toHaveLength(9);
+
+    // Scores may differ due to keyword blending
+    expect(typeof resultWithKeyword.totalScore).toBe('number');
+    expect(typeof resultWithout.totalScore).toBe('number');
+  });
+
+  it('generates keyword-specific recommendations when keyword missing from title', () => {
+    const snapshot = makeSnapshot({
+      title: 'My Great Extension',
+    });
+    const result = calculateQualityScore(snapshot, undefined, { keyword: 'tab manager' });
+    const keywordRecs = result.recommendations.filter(
+      r => r.message.includes('tab manager')
+    );
+    expect(keywordRecs.length).toBeGreaterThan(0);
+    expect(keywordRecs.some(r => r.component === 'title')).toBe(true);
+  });
+
+  it('generates no keyword-specific recs when keyword is absent (backward compat)', () => {
+    const snapshot = makeSnapshot({
+      title: 'My Great Extension',
+    });
+    const result = calculateQualityScore(snapshot);
+    // No recommendations should mention a specific keyword target
+    const keywordTargetRecs = result.recommendations.filter(
+      r => r.message.includes('does not contain the keyword')
+    );
+    expect(keywordTargetRecs).toHaveLength(0);
+  });
+
+  it('recommends improving keyword density when low', () => {
+    const snapshot = makeSnapshot({
+      title: 'Tab Manager Pro',
+      shortDescription: 'A tab manager for Chrome browsers.',
+      fullDescription: Array(200).fill('word').join(' '), // no keyword at all
+    });
+    const result = calculateQualityScore(snapshot, undefined, { keyword: 'tab manager' });
+    const densityRecs = result.recommendations.filter(
+      r => r.component === 'fullDescription' && r.message.includes('density')
+    );
+    expect(densityRecs.length).toBeGreaterThan(0);
   });
 });

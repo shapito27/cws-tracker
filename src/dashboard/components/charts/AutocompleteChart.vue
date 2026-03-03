@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
 import type { AutocompleteChartSeries } from '../../composables/useAutocomplete';
 import { CHART_COLORS } from '@/shared/utils/chart-colors';
+import ExtensionIcon from '../ExtensionIcon.vue';
 
 const props = defineProps<{
   series: AutocompleteChartSeries[];
@@ -59,9 +60,7 @@ const chartOptions = computed(() => ({
     },
   },
   legend: {
-    position: 'top' as const,
-    horizontalAlign: 'left' as const,
-    fontSize: '12px',
+    show: false,
   },
   grid: {
     borderColor: '#e5e7eb',
@@ -97,18 +96,24 @@ const chartSeries = computed(() =>
       :options="chartOptions"
       :series="chartSeries"
     />
-    <div class="mt-2 flex items-center gap-4 px-2">
+    <div class="mt-2 flex flex-wrap items-center gap-4 px-2">
       <div
         v-for="(s, i) in series"
         :key="`${s.extensionId}-${s.name}`"
-        class="flex items-center gap-1.5 text-xs text-gray-600"
+        class="flex min-w-0 items-center gap-1.5 text-xs text-gray-600"
       >
         <span
-          class="inline-block h-2 w-2 rounded-full"
+          class="inline-block h-3 w-3 shrink-0 rounded-full"
           :style="{ backgroundColor: CHART_COLORS[i % CHART_COLORS.length] }"
           aria-hidden="true"
         />
-        {{ s.name }}
+        <ExtensionIcon
+          v-if="s.iconUrl !== undefined"
+          :icon-url="s.iconUrl ?? null"
+          :name="s.name"
+          size="xs"
+        />
+        <span class="min-w-0 truncate" :title="s.name">{{ s.name }}</span>
       </div>
     </div>
   </div>

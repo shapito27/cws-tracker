@@ -6,6 +6,9 @@
 /** Subscription / license status. */
 export type SubscriptionStatus = 'free' | 'pro' | 'expired';
 
+/** Audit prompt variant for A/B testing. */
+export type AuditPromptVariant = 'default' | 'cot' | 'rubric';
+
 export interface Settings {
   // -- API keys & licensing --------------------------------------------------
 
@@ -58,6 +61,8 @@ export interface Settings {
   /** Custom user prompt template for the AI keyword audit. Empty string = use default.
    * Supports {{placeholder}} syntax for data interpolation. */
   auditUserPromptTemplate: string;
+  /** Active audit prompt variant for A/B testing. */
+  auditPromptVariant: AuditPromptVariant;
 
   // -- UI state --------------------------------------------------------------
 

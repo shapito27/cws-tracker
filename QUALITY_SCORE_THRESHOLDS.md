@@ -49,8 +49,10 @@ Short descriptions under 40 characters waste valuable real estate.
 | P75    | 450   |
 | P90    | 700   |
 
-**Optimal range:** 150-1000 words.
-Descriptions under 50 words are too thin. Over 1500 words may indicate keyword stuffing.
+**Optimal range:** 150+ words (no upper limit penalty).
+Descriptions under 50 words are too thin. There is no penalty for long descriptions —
+once past 150 words, the length score is maximized. Structure (paragraphs, bullet
+points) contributes to the remaining score weight.
 
 ### Screenshot Count
 
@@ -108,10 +110,10 @@ CWS displays up to 5 screenshots prominently. Having at least 3 provides adequat
 ### Update Freshness (days since last update)
 
 **Scoring tiers:**
-- Fresh: <= 30 days (100 points)
-- Recent: 31-90 days (80 points)
-- Aging: 91-180 days (50 points)
-- Stale: 181-365 days (20 points)
+- Fresh: <= 90 days (100 points)
+- Recent: 91-180 days (80 points)
+- Aging: 181-270 days (50 points)
+- Stale: 271-365 days (20 points)
 - Abandoned: > 365 days (0 points)
 
 ## Threshold Constants
@@ -130,11 +132,9 @@ SHORT_DESC_MIN_LENGTH = 40
 SHORT_DESC_OPTIMAL_MIN = 80
 SHORT_DESC_MAX_LENGTH = 132
 
-// Full description
+// Full description (no upper limit penalty)
 DESC_MIN_WORDS = 50
 DESC_OPTIMAL_MIN_WORDS = 150
-DESC_OPTIMAL_MAX_WORDS = 1000
-DESC_MAX_WORDS = 1500
 
 // Screenshots
 SCREENSHOTS_OPTIMAL_MIN = 3
@@ -155,9 +155,9 @@ REVIEWS_GOOD = 50
 REVIEWS_FAIR = 10
 
 // Update freshness (days)
-FRESHNESS_FRESH = 30
-FRESHNESS_RECENT = 90
-FRESHNESS_AGING = 180
+FRESHNESS_FRESH = 90
+FRESHNESS_RECENT = 180
+FRESHNESS_AGING = 270
 FRESHNESS_STALE = 365
 
 // Permission risk (inverse scoring)
@@ -179,9 +179,33 @@ en, es, pt_BR, fr, de, ja, zh_CN, zh_TW, ko, ru, ar, hi, it, nl, pl, tr
 | Short description  | 10%    |
 | Full description   | 15%    |
 | Visual assets      | 15%    |
-| Ratings & reviews  | 15%    |
+| Ratings & reviews  | 10%    |
 | Translations       | 10%    |
 | Update freshness   | 10%    |
-| Permissions        | 5%     |
+| Permissions        | 10%    |
 | Developer profile  | 5%     |
 | **Total**          | **100%** |
+
+## Keyword-Aware Scoring
+
+When a target keyword is provided via `KeywordScoreOptions`, scoring blends standard
+metrics with keyword relevance:
+
+### Title (with keyword)
+- 70% length score + 30% keyword presence (100 if present, 0 if absent)
+
+### Short Description (with keyword)
+- 70% length score + 30% keyword presence (100 if present, 0 if absent)
+
+### Full Description (with keyword)
+- 50% length score + 25% structure score + 25% keyword density score
+
+### Keyword Density Tiers
+- 0 occurrences → 0
+- < 0.5% density → scales linearly 0-100
+- 0.5-2.5% density → 100 (optimal)
+- 2.5-5% density → scales 100→40 (over-optimization)
+- > 5% density → 20 (keyword stuffing)
+
+Without a keyword, all scoring functions behave identically to the non-keyword path
+(full backward compatibility).
