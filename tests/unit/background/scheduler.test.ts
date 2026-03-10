@@ -156,6 +156,12 @@ describe('Scheduler', () => {
   beforeEach(async () => {
     resetChromeMock();
 
+    // Mock navigator.storage.persist (not available in Node)
+    vi.stubGlobal('navigator', {
+      ...globalThis.navigator,
+      storage: { persist: vi.fn().mockResolvedValue(true) },
+    });
+
     const name = 'test-scheduler-' + Date.now() + '-' + Math.random();
     testDb = new CWSDatabase(name);
     await testDb.open();

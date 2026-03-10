@@ -52,6 +52,12 @@ const defaultSettings = new SettingsManager();
  * Creates the recurring dailyScan alarm.
  */
 export function setupAlarms(): void {
+  // Request persistent storage to protect IndexedDB from eviction on low disk space.
+  // Fire-and-forget: idempotent, no need to await or check result.
+  navigator.storage.persist().catch((err) => {
+    console.warn('[CWS Tracker] Failed to request persistent storage:', err);
+  });
+
   chrome.alarms.create(ALARM_DAILY_SCAN, {
     delayInMinutes: MIN_ALARM_DELAY_MINUTES,
     periodInMinutes: 1440, // 24 hours
