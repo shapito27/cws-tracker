@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useSettings } from '../composables/useSettings';
+import { useDataTransfer } from '../composables/useDataTransfer';
 import {
   AUDIT_PLACEHOLDERS,
   getVariantSystemPrompt,
@@ -37,6 +38,34 @@ const localAuditSystemPrompt = ref('');
 const localAuditUserPromptTemplate = ref('');
 const localAuditPromptVariant = ref<AuditPromptVariant>('default');
 const showPlaceholderHelp = ref(false);
+const importFileInput = ref<HTMLInputElement | null>(null);
+
+const {
+  exporting: dataExporting,
+  importing: dataImporting,
+  importProgress,
+  error: dataTransferError,
+  successMessage: dataTransferSuccess,
+  validationResult,
+  exportData,
+  validateFile,
+  confirmImport,
+  cancelImport,
+} = useDataTransfer();
+
+function triggerFileSelect(): void {
+  importFileInput.value?.click();
+}
+
+function onFileSelected(event: Event): void {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (file) {
+    validateFile(file);
+  }
+  // Reset so the same file can be re-selected
+  input.value = '';
+}
 
 const VARIANT_OPTIONS: Array<{ value: AuditPromptVariant; label: string; description: string }> = [
   { value: 'default', label: 'Default', description: 'Standard prompt with narrative analysis' },
@@ -558,6 +587,97 @@ onUnmounted(() => {
             >
               Save Data Retention
             </button>
+          </div>
+
+          <!-- Divider -->
+          <div class="border-t border-gray-200 my-4"></div>
+
+          <!-- Export -->
+          <div>
+            <h4 class="text-sm font-medium text-gray-900">Export Data</h4>
+            <p class="text-xs text-gray-500 mt-0.5">Download all your projects, extensions, keywords, snapshots, events, and settings as a JSON file.</p>
+            <div class="mt-2">
+              <button
+                class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                :disabled="dataExporting"
+                @click="exportData"
+              >
+                <span v-if="dataExporting">Exporting...</span>
+                <span v-else>Export Data</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Import -->
+          <div>
+            <h4 class="text-sm font-medium text-gray-900">Import Data</h4>
+            <p class="text-xs text-gray-500 mt-0.5">Restore data from a previously exported JSON file.</p>
+            <p class="text-xs text-amber-600 mt-1">Warning: importing will replace all existing data.</p>
+            <div class="mt-2">
+              <input
+                ref="importFileInput"
+                type="file"
+                accept=".json"
+                class="hidden"
+                @change="onFileSelected"
+              />
+              <button
+                class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                :disabled="dataImporting"
+                @click="triggerFileSelect"
+              >
+                Import Data
+              </button>
+            </div>
+          </div>
+
+          <!-- Validation summary -->
+          <div v-if="validationResult" class="rounded-lg border p-4" :class="validationResult.valid ? 'border-blue-200 bg-blue-50' : 'border-red-200 bg-red-50'">
+            <div v-if="validationResult.errors.length > 0" class="mb-2">
+              <p v-for="err in validationResult.errors" :key="err" class="text-sm text-red-700">{{ err }}</p>
+            </div>
+            <div v-if="validationResult.warnings.length > 0" class="mb-2">
+              <p v-for="warn in validationResult.warnings" :key="warn" class="text-sm text-amber-700">{{ warn }}</p>
+            </div>
+            <div v-if="validationResult.valid" class="space-y-1">
+              <p class="text-sm font-medium text-gray-900">Records to import:</p>
+              <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-600">
+                <span v-for="(count, table) in validationResult.counts" :key="table">
+                  {{ table }}: {{ count }}
+                </span>
+              </div>
+            </div>
+            <div class="flex items-center gap-3 mt-3">
+              <button
+                v-if="validationResult.valid"
+                class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                :disabled="dataImporting"
+                @click="confirmImport"
+              >
+                Replace All Data
+              </button>
+              <button
+                class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                @click="cancelImport"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          <!-- Import progress -->
+          <div v-if="importProgress && dataImporting" class="rounded-md bg-blue-50 border border-blue-200 p-3">
+            <p class="text-sm text-blue-700">
+              Importing {{ importProgress.table }}... {{ importProgress.done }}/{{ importProgress.total }} tables
+            </p>
+          </div>
+
+          <!-- Data transfer status messages -->
+          <div v-if="dataTransferError" class="rounded-md bg-red-50 border border-red-200 p-3">
+            <p class="text-sm text-red-700">{{ dataTransferError }}</p>
+          </div>
+          <div v-if="dataTransferSuccess" class="rounded-md bg-green-50 border border-green-200 p-3">
+            <p class="text-sm text-green-700">{{ dataTransferSuccess }}</p>
           </div>
         </div>
       </section>
