@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.21.0] - 2026-03-11
+
+### Added
+- Import/export data feature in Settings > Data Management
+  - Export all projects, extensions, keywords, snapshots, events, and settings as JSON
+  - Import from previously exported JSON file with full data replacement
+  - Validation summary with record counts before import confirmation
+  - Progress indicator during import showing current table
+  - Date fields properly serialized/deserialized for round-trip fidelity
+  - Excludes transient tables (queue, scan_logs) from export
+  - Atomic import via single Dexie transaction — rolls back on any failure
+
 ## [0.20.0] - 2026-03-03
 
 ### Added
