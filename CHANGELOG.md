@@ -2,11 +2,6 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
-## [0.20.1] - 2026-03-11
-
-### Fixed
-- Request persistent storage to protect IndexedDB data from Chrome eviction on low disk space
-
 ## [0.20.0] - 2026-03-03
 
 ### Added
