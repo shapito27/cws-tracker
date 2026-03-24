@@ -2,6 +2,12 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.21.1] - 2026-03-24
+
+### Fixed
+- Autocomplete parser now handles CWS format changes: relaxed strict `entry[0] === null` check to detect extensions by valid 32-char ID instead, and added per-entry array unwrapping for new wrapped response format (`[[null, [...]]]` → `[null, [...]]`)
+- Added diagnostic logging for unrecognized autocomplete entry formats
+
 ## [0.21.0] - 2026-03-11
 
 ### Added
