@@ -2,6 +2,17 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.21.2] - 2026-03-24
+
+### Fixed
+- Scan logs now save 300-char response previews (up from 100) for better debugging
+- Scan log job descriptions enriched: listing scans show extension name, keyword/AC scans show keyword ID
+- Autocomplete scan logs now show "Autocomplete" label instead of raw `autocomplete_scan`
+- Autocomplete scans now save "not found" snapshots (position: null) for tracked extensions not in AC results, enabling proper appeared/disappeared change detection on rank-changes page
+
+### Added
+- Type filter (All / Rank / Autocomplete) on rank-changes page with counts
+
 ## [0.21.1] - 2026-03-24
 
 ### Fixed
