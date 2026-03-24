@@ -123,6 +123,47 @@ describe('autocompleteParserV1', () => {
     });
   });
 
+  describe('wrapped format (per-entry extra array, CWS 2026 format)', () => {
+    let json: string;
+    let result: AutocompleteData;
+
+    beforeAll(() => {
+      json = loadFixture('cws-autocomplete-pinterest-wrapped.json');
+      result = autocompleteParserV1.parse(json);
+    });
+
+    it('returns 3 suggestions', () => {
+      expect(result.suggestions).toHaveLength(3);
+    });
+
+    it('first suggestion is Pinterest Pin Stats extension', () => {
+      const first = result.suggestions[0];
+      expect(first.type).toBe('extension');
+      if (first.type === 'extension') {
+        expect(first.extensionId).toBe('mcmkeopcpbfgjlakblglpcccpodbjkel');
+        expect(first.name).toBe('Pinterest Pin Stats - Sort Pins');
+        expect(first.position).toBe(1);
+      }
+    });
+
+    it('second and third suggestions are text', () => {
+      expect(result.suggestions[1].type).toBe('text');
+      expect(result.suggestions[2].type).toBe('text');
+      if (result.suggestions[1].type === 'text') {
+        expect(result.suggestions[1].text).toContain('Pin Stats for Pinterest');
+      }
+      if (result.suggestions[2].type === 'text') {
+        expect(result.suggestions[2].text).toBe('Pinterest Pin Stats');
+      }
+    });
+
+    it('positions are 1-based and sequential', () => {
+      result.suggestions.forEach((s, idx) => {
+        expect(s.position).toBe(idx + 1);
+      });
+    });
+  });
+
   describe('version', () => {
     it('has correct version string', () => {
       expect(autocompleteParserV1.version).toBe('autocomplete-v1');
@@ -168,6 +209,62 @@ describe('autocompleteParserV1', () => {
       ]);
       const result = autocompleteParserV1.parse(json);
       expect(result.suggestions).toHaveLength(1);
+    });
+
+    it('parses extension entries where marker is not null (e.g. 0)', () => {
+      const json = JSON.stringify([
+        [0, ['Extension A', 'abcdefghijklmnopqrstuvwxyzabcdef', 1, 'https://icon.png']],
+        [1, ['Extension B', 'zyxwvutsrqponmlkjihgfedcbazyxwvu', 1, 'https://icon2.png']],
+        [['Some text suggestion']],
+      ]);
+      const result = autocompleteParserV1.parse(json);
+      expect(result.suggestions).toHaveLength(3);
+      expect(result.suggestions[0].type).toBe('extension');
+      expect(result.suggestions[1].type).toBe('extension');
+      expect(result.suggestions[2].type).toBe('text');
+      if (result.suggestions[0].type === 'extension') {
+        expect(result.suggestions[0].extensionId).toBe('abcdefghijklmnopqrstuvwxyzabcdef');
+        expect(result.suggestions[0].name).toBe('Extension A');
+      }
+    });
+
+    it('parses extension entries where marker is false or empty string', () => {
+      const json = JSON.stringify([
+        [false, ['Ext', 'abcdefghijklmnopqrstuvwxyzabcdef', 1, 'https://icon.png']],
+        ['', ['Ext2', 'zyxwvutsrqponmlkjihgfedcbazyxwvu', 1, 'https://icon2.png']],
+      ]);
+      const result = autocompleteParserV1.parse(json);
+      expect(result.suggestions).toHaveLength(2);
+      expect(result.suggestions[0].type).toBe('extension');
+      expect(result.suggestions[1].type).toBe('extension');
+    });
+
+    it('unwraps per-entry single-element array wrappers', () => {
+      const json = JSON.stringify([
+        [[null, ['Wrapped Ext', 'abcdefghijklmnopqrstuvwxyzabcdef', 1, 'https://icon.png']]],
+        [[['Wrapped text suggestion']]],
+      ]);
+      const result = autocompleteParserV1.parse(json);
+      expect(result.suggestions).toHaveLength(2);
+      expect(result.suggestions[0].type).toBe('extension');
+      expect(result.suggestions[1].type).toBe('text');
+      if (result.suggestions[0].type === 'extension') {
+        expect(result.suggestions[0].extensionId).toBe('abcdefghijklmnopqrstuvwxyzabcdef');
+      }
+      if (result.suggestions[1].type === 'text') {
+        expect(result.suggestions[1].text).toBe('Wrapped text suggestion');
+      }
+    });
+
+    it('does not misidentify text suggestions as extensions', () => {
+      const json = JSON.stringify([
+        [['pinterest pin stats']],
+        [['ad blocker for chrome']],
+      ]);
+      const result = autocompleteParserV1.parse(json);
+      expect(result.suggestions).toHaveLength(2);
+      expect(result.suggestions[0].type).toBe('text');
+      expect(result.suggestions[1].type).toBe('text');
     });
   });
 });
