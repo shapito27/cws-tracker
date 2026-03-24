@@ -702,7 +702,7 @@ describe('Queue Processor', () => {
       await processNextJob(deps);
 
       const logs = await testDb.scan_logs.toArray();
-      expect(logs[0].responsePreview).toHaveLength(100);
+      expect(logs[0].responsePreview).toHaveLength(300);
     });
 
     it('scan log records correct jobId', async () => {

@@ -208,7 +208,7 @@ export async function loadAutocompleteCoverage(
 
   for (const snapshots of allSnapshotsArray) {
     for (const snap of snapshots) {
-      if (counts.has(snap.extensionId)) {
+      if (snap.position !== null && counts.has(snap.extensionId)) {
         counts.set(snap.extensionId, (counts.get(snap.extensionId) ?? 0) + 1);
       }
     }

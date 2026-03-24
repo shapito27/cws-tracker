@@ -70,7 +70,7 @@ const MAX_BACKOFF_MS = 600_000;
 const RETRY_BASE_DELAY_MS = 120_000;
 
 /** Maximum length of response body preview stored in scan logs. */
-const SCAN_LOG_PREVIEW_LENGTH = 100;
+const SCAN_LOG_PREVIEW_LENGTH = 300;
 
 /** Minimum alarm delay in ms (1 minute per MV3 rules). */
 const MIN_ALARM_DELAY_MS = 60_000;
@@ -198,7 +198,7 @@ async function fetchCWSPageWithLogging(
   pageNumber: number | null = null
 ): Promise<CWSFetchResult> {
   const requestUrl = buildRequestUrl(type, params, settings);
-  const jobDetail = getJobDescription(job);
+  const jobDetail = await getJobDescription(job);
   const start = Date.now();
 
   try {
@@ -299,7 +299,7 @@ export async function processNextJob(
       type: 'SCAN_PROGRESS',
       completed: stats.completed,
       total: stats.completed + stats.pending + stats.running,
-      currentJob: getJobDescription(job),
+      currentJob: await getJobDescription(job),
       nextProcessingAt: hasPending
         ? new Date(Date.now() + Math.max(delayMs, MIN_ALARM_DELAY_MS)).toISOString()
         : undefined,
@@ -739,9 +739,11 @@ async function processAutocompleteScan(
   // Build autocomplete snapshots for tracked extensions that appear
   const snapshots: AutocompleteSnapshot[] = [];
   const textSuggestions: string[] = [];
+  const foundExtIds = new Set<string>();
 
   for (const suggestion of autocompleteData.suggestions) {
     if (suggestion.type === 'extension' && trackedExtIds.has(suggestion.extensionId)) {
+      foundExtIds.add(suggestion.extensionId);
       snapshots.push({
         keywordId,
         extensionId: suggestion.extensionId,
@@ -756,10 +758,22 @@ async function processAutocompleteScan(
     }
   }
 
-  // Save autocomplete snapshots (position tracking for tracked extensions)
-  if (snapshots.length > 0) {
-    await db.saveAutocompleteSnapshots(snapshots);
+  // Save "not found" snapshots for tracked extensions NOT in AC results
+  for (const extId of trackedExtIds) {
+    if (!foundExtIds.has(extId)) {
+      snapshots.push({
+        keywordId,
+        extensionId: extId,
+        date: dateStr,
+        position: null,
+        suggestedName: null,
+        scannedAt: new Date(),
+      });
+    }
   }
+
+  // Save autocomplete snapshots (position tracking for all tracked extensions)
+  await db.saveAutocompleteSnapshots(snapshots);
 
   // Save text suggestions (keyword discovery)
   if (textSuggestions.length > 0) {
@@ -793,7 +807,7 @@ async function fetchAutocompleteWithLogging(
   const logUrl = new URL(proxyUrl.toString());
   if (settings.proxyApiKey) logUrl.searchParams.set('key', '[REDACTED]');
   const requestUrl = logUrl.toString();
-  const jobDetail = `Autocomplete for "${keyword}"`;
+  const jobDetail = await getJobDescription(job);
   const start = Date.now();
 
   try {
@@ -1059,18 +1073,24 @@ async function updateExtensionMetadata(
   }
 }
 
-function getJobDescription(job: QueueJob): string {
+async function getJobDescription(job: QueueJob): Promise<string> {
   if (job.type === 'listing_scan') {
     const payload = job.payload as ListingScanPayload;
-    return `Scanning extension ${payload.extensionId.slice(0, 8)}...`;
+    try {
+      const ext = await db.extensions.get(payload.extensionId);
+      if (ext?.name) return `Listing: ${ext.name} (${payload.extensionId})`;
+    } catch {
+      // DB lookup failed — fall through to ID-only description
+    }
+    return `Listing: ${payload.extensionId}`;
   }
   if (job.type === 'keyword_scan') {
     const payload = job.payload as KeywordScanPayload;
-    return `Searching "${payload.keyword}"`;
+    return `Search: "${payload.keyword}" (kw#${payload.keywordId})`;
   }
   if (job.type === 'autocomplete_scan') {
     const payload = job.payload as AutocompleteScanPayload;
-    return `Autocomplete "${payload.keyword}"`;
+    return `Autocomplete: "${payload.keyword}" (kw#${payload.keywordId})`;
   }
   return `Processing ${job.type}`;
 }

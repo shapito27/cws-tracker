@@ -87,6 +87,8 @@ function jobTypeLabel(type: string): string {
       return 'Keyword';
     case 'translation_audit':
       return 'Translation';
+    case 'autocomplete_scan':
+      return 'Autocomplete';
     default:
       return type;
   }
