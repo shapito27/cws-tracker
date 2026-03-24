@@ -440,10 +440,10 @@ export interface AutocompleteSnapshot {
   extensionId: string;
   /** Indexed date: YYYY-MM-DD. */
   date: string;
-  /** 1-based position in the autocomplete dropdown (1-10). */
-  position: number;
-  /** Extension name as shown in autocomplete (may differ from listing title). */
-  suggestedName: string;
+  /** 1-based position in the autocomplete dropdown (1-10). null = not in autocomplete. */
+  position: number | null;
+  /** Extension name as shown in autocomplete (may differ from listing title). null when not found. */
+  suggestedName: string | null;
   scannedAt: Date;
 }
 
