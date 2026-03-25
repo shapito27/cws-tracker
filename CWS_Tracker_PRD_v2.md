@@ -962,12 +962,21 @@ Each component is scored 0-100 individually, then weighted. The dashboard shows 
 - After deduplication: ~1,200-1,950 unique requests/day
 - Cloudflare Workers free tier: 100K requests/day — ample headroom
 - Cloudflare D1 free tier: 5GB storage, 5M reads/day — ample headroom
-- Infrastructure cost: **$0/mo** until ~500+ users, then **$5/mo** (Workers Paid plan)
+- CF Workers + D1 infrastructure cost: **$0/mo** until ~500+ users, then **$5/mo** (Workers Paid plan)
+
+**Proxy/bandwidth cost (the primary expense):**
+CWS pages are large (~635 KB detail, ~569 KB search). Server-side scanning at scale requires rotating proxies to avoid CWS IP blocking.
+
+- Bandwidth estimate (50 users, after dedup): ~25 GB/month
+- Proxy cost range: $0 (CF IPs only) to $200-375/mo (residential proxies)
+- Recommended approach: start with CF Worker IPs ($0), escalate to datacenter proxies ($30-50/mo) only if CWS blocks, then to ISP/residential proxies ($75-375/mo) as last resort
+- If residential proxies are needed, consider raising Pro price to $19/mo to maintain healthy margins
 
 **CWS rate limiting mitigation:**
 - Spread scans across 24-hour window with configurable delays and jitter (reuse existing queue delay pattern)
 - ~1,200-1,950 requests/day ÷ 24h = ~1 request/minute (trivial load)
 - Exponential backoff on 429/5xx errors (existing retry logic)
+- Adaptive proxy escalation: CF IPs → datacenter → ISP → residential (only escalate when blocked)
 
 **Free tier behavior:** Manual scanning only, client-side via chrome.alarms (current architecture). No server storage. Data lives only in local IndexedDB with 14-day auto-prune.
 
