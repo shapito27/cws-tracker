@@ -1087,6 +1087,12 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
   - Fan out results to per-user `scan_results` table
 - [ ] **4.2b.10** Implement deduplication: if N users track same keyword, fetch CWS once, store result for all N users
 - [ ] **4.2b.11** Add error handling: retry on 429/5xx, skip and log on persistent failures, continue with remaining jobs
+- [ ] **4.2b.11b** Add rotating proxy support for CWS fetches:
+  - Environment variable `PROXY_URLS` (comma-separated list of upstream proxy URLs)
+  - Round-robin or random selection per request
+  - Fallback chain: CF Worker IPs → datacenter proxy → ISP/residential proxy
+  - Track block rate per proxy and auto-escalate when blocks exceed threshold
+  - Start with CF Worker IPs only ($0), add proxies only when CWS blocking detected
 
 #### Results Sync API (~3h)
 - [ ] **4.2b.12** Add `GET /api/results?since={date}` endpoint: return scan results since last sync (paginated)
