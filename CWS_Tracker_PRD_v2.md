@@ -56,8 +56,9 @@ Become the essential ASO toolkit for every Chrome Web Store publisher, giving de
 
 - **Personal use:** Measurable ranking improvement for tracked extensions within 30 days of optimization
 - **Public launch:** 500+ weekly active users within 3 months of CWS publication
-- **Revenue:** $500 MRR within 6 months of launching paid tier
+- **Revenue:** $700 MRR within 6 months of launching paid tier
 - **Retention:** 60%+ monthly retention for Pro subscribers
+- **Pricing:** $14/mo monthly or $120/year ($10/mo effective) via LemonSqueezy
 
 ### 2.3 Competitive Landscape
 
@@ -923,12 +924,12 @@ Each component is scored 0-100 individually, then weighted. The dashboard shows 
 
 #### 5.4.2 Tier Structure
 
-| Feature | Free | Pro ($9-12/mo) |
-|---------|------|----------------|
+| Feature | Free | Pro ($14/mo or $120/yr) |
+|---------|------|------------------------|
 | Projects | 1 | Unlimited |
 | Extensions per project | 3 (1 own + 2 competitors) | Unlimited |
-| Keywords per project | 10 | Unlimited |
-| Historical data retention | 30 days | Unlimited |
+| Keywords per project | 5 | Unlimited |
+| Historical data retention | 14 days | Unlimited |
 | Daily auto-scan | No (manual only) | Yes |
 | Rank position chart | Yes | Yes |
 | Listing comparison | Basic (2 extensions) | Full (unlimited) |
