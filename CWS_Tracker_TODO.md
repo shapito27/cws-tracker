@@ -1019,7 +1019,7 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 4.1 LemonSqueezy Integration (~6h)
 
-- [ ] **4.1.1** Create LemonSqueezy product and subscription plan ($9-12/mo)
+- [ ] **4.1.1** Create LemonSqueezy product and subscription plans ($14/mo monthly, $120/year annual)
 - [ ] **4.1.2** Create `src/dashboard/composables/useLicense.ts`:
   - `validateLicense(key)` - call LemonSqueezy API
   - `checkLicenseStatus()` - check cached status, revalidate if > 24h
@@ -1043,18 +1043,18 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 - [ ] **4.2.1** Create `src/shared/utils/tier-gates.ts`:
   - `canCreateProject(currentCount, plan)` - free: max 1, pro: unlimited
   - `canAddExtension(currentCount, plan)` - free: max 3 per project, pro: unlimited
-  - `canAddKeyword(currentCount, plan)` - free: max 10 per project, pro: unlimited
+  - `canAddKeyword(currentCount, plan)` - free: max 5 per project, pro: unlimited
   - `canUseDailyAutoScan(plan)` - pro only
   - `canUseFeature(feature, plan)` - general feature gate
 - [ ] **4.2.2** Add gate checks to all relevant composables (useProjects, useKeywords, etc.)
 - [ ] **4.2.3** Add upgrade prompts when free users hit limits: "Upgrade to Pro to track unlimited keywords"
 - [ ] **4.2.4** Disable daily auto-scan for free tier (manual only)
-- [ ] **4.2.5** Enforce 30-day data retention for free tier (auto-prune older data)
+- [ ] **4.2.5** Enforce 14-day data retention for free tier (auto-prune older data)
 
 **Tests:**
 - [ ] Free tier: creating 2nd project blocked
 - [ ] Free tier: adding 4th extension blocked
-- [ ] Free tier: adding 11th keyword blocked
+- [ ] Free tier: adding 6th keyword blocked
 - [ ] Pro tier: all limits lifted
 - [ ] Downgrade from pro to free: existing data preserved, but new data subject to free limits
 - [ ] Feature gates return correct boolean for each plan
