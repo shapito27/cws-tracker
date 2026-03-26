@@ -118,7 +118,7 @@ function getAcPosition(keywordId: number): number | null {
 
 function formatAcBadge(position: number | null): string {
   if (position === null) return '-';
-  return `AC: #${position}`;
+  return `#${position}`;
 }
 
 function acBadgeClasses(position: number | null): string {
@@ -191,7 +191,7 @@ function formatDateHeader(dateStr: string): string {
               class="px-2 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-gray-500 whitespace-nowrap border-r border-gray-100"
               aria-label="Autocomplete position (1 to 10)"
             >
-              <abbr title="Autocomplete position (1-10)">AC</abbr>
+              <abbr title="Autocomplete position (1-10)" class="no-underline">AC</abbr>
             </th>
             <th
               v-for="date in dateColumns"

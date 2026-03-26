@@ -60,7 +60,7 @@ onMounted(async () => {
         Dashboard
       </router-link>
       <span class="text-gray-300">/</span>
-      <h1 class="text-lg font-semibold text-gray-900">All Rank &amp; AC Changes</h1>
+      <h1 class="text-lg font-semibold text-gray-900">All Rank Changes</h1>
     </div>
 
     <!-- Type filter -->

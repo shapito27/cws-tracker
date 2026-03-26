@@ -2,6 +2,23 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.22.0] - 2026-03-26
+
+### Improved
+- Chart Y-axis labels now rotate properly instead of stacking characters vertically
+- Rank chart event annotations consolidated: overlapping labels replaced with dots and counts to reduce clutter
+- Rank Changes page title simplified from "All Rank & AC Changes" to "All Rank Changes" for consistency with sidebar
+- "AC" badge in RankChangeItem now has tooltip "Autocomplete" for clarity
+- Autocomplete chart Y-axis label spelled out as "Autocomplete Position"
+- Keyword position table AC badge simplified from "AC: #N" to "#N" (column header has abbr tooltip)
+- Events tab: rank change badges now color-coded green for improvements, red for drops (was all violet)
+- Extension IDs truncated to 8 chars with tooltip in Compare view and Extensions tab (was showing full 32-char ID)
+- Scan Logs page: added Simple/Advanced toggle — hides raw URLs, query params, and response previews by default
+- Project cards show "No keywords yet" instead of "0 keywords" to guide new users
+- Extensions Overview table dashes now show "No scan data for this date" tooltip
+- Translation audit locale buttons: unselected state uses hover highlight instead of looking disabled
+- Settings page: warns before navigating away with unsaved changes
+
 ## [0.21.2] - 2026-03-24
 
 ### Fixed

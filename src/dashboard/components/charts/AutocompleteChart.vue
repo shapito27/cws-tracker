@@ -38,7 +38,8 @@ const chartOptions = computed(() => ({
       },
     },
     title: {
-      text: 'AC Position',
+      text: 'Autocomplete Position',
+      rotate: -90,
       style: { fontSize: '12px', color: '#374151' },
     },
   },

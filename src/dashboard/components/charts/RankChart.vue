@@ -30,25 +30,41 @@ const eventAnnotations = computed(() => {
     }
   }
 
-  return props.events
-    .filter((e) => props.visibleEventTypes.has(e.type) && chartDates.has(e.date))
-    .map((e) => ({
-      x: new Date(e.date + 'T00:00:00Z').getTime(),
-      borderColor: EVENT_TYPE_COLORS[e.type],
-      strokeDashArray: 0,
+  // Group events by date to avoid overlapping annotations
+  const eventsByDate = new Map<string, EventRecord[]>();
+  for (const e of props.events) {
+    if (props.visibleEventTypes.has(e.type) && chartDates.has(e.date)) {
+      const existing = eventsByDate.get(e.date) ?? [];
+      existing.push(e);
+      eventsByDate.set(e.date, existing);
+    }
+  }
+
+  return [...eventsByDate.entries()].map(([date, events]) => {
+    const primary = events[0];
+    const tooltipText = events.length === 1
+      ? EVENT_TYPE_LABELS[primary.type]
+      : `${events.length} events`;
+    return {
+      x: new Date(date + 'T00:00:00Z').getTime(),
+      borderColor: EVENT_TYPE_COLORS[primary.type],
+      strokeDashArray: 2,
       label: {
-        text: EVENT_TYPE_LABELS[e.type],
-        borderColor: EVENT_TYPE_COLORS[e.type],
+        text: events.length > 1 ? String(events.length) : '•',
+        borderColor: 'transparent',
         style: {
-          color: '#fff',
-          background: EVENT_TYPE_COLORS[e.type],
-          fontSize: '10px',
-          padding: { left: 4, right: 4, top: 2, bottom: 2 },
+          color: EVENT_TYPE_COLORS[primary.type],
+          background: 'transparent',
+          fontSize: events.length > 1 ? '9px' : '14px',
+          fontWeight: '700',
+          padding: { left: 2, right: 2, top: 0, bottom: 0 },
         },
         orientation: 'horizontal' as const,
         position: 'top' as const,
+        tooltip: { enabled: true, text: tooltipText },
       },
-    }));
+    };
+  });
 });
 
 const chartOptions = computed(() => ({
@@ -81,6 +97,7 @@ const chartOptions = computed(() => ({
     },
     title: {
       text: 'Position',
+      rotate: -90,
       style: { fontSize: '12px', color: '#374151' },
     },
   },

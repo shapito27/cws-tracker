@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CWS Tracker",
   "description": "ASO and competitive intelligence for Chrome Web Store. Track keyword rankings, monitor competitor listings, and optimize your extension.",
-  "version": "0.21.2",
+  "version": "0.22.0",
   "action": {
     "default_popup": "src/popup/index.html",
     "default_icon": {
