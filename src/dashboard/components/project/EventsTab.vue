@@ -98,6 +98,23 @@ function parsePermissions(value: string | null): string[] {
   }
 }
 
+/**
+ * Override badge class for rank_change events to differentiate improvements (green) from drops (red).
+ * Falls back to the default event type badge class for non-rank events.
+ */
+function getSmartBadgeClass(event: EventRecord): string {
+  if (event.type === 'rank_change') {
+    const note = event.note.toLowerCase();
+    if (note.includes('improved') || note.includes('entered')) {
+      return 'bg-green-100 text-green-800';
+    }
+    if (note.includes('dropped') || note.includes('left')) {
+      return 'bg-red-100 text-red-800';
+    }
+  }
+  return getEventTypeBadgeClass(event.type);
+}
+
 function formatEventDateTime(event: EventRecord): string {
   if (!event.detectedAt) return event.date;
   const d = event.detectedAt;
@@ -178,7 +195,7 @@ function formatEventDateTime(event: EventRecord): string {
             <div class="mt-1.5 flex items-center gap-2">
               <span
                 class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="getEventTypeBadgeClass(event.type)"
+                :class="getSmartBadgeClass(event)"
               >
                 {{ EVENT_TYPE_LABELS[event.type] }}
               </span>

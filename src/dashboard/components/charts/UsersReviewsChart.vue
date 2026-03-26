@@ -58,6 +58,7 @@ const chartOptions = computed(() => ({
     {
       title: {
         text: 'Users',
+        rotate: -90,
         style: { fontSize: '12px', color: '#2563eb' },
       },
       labels: {
@@ -73,6 +74,7 @@ const chartOptions = computed(() => ({
       opposite: true,
       title: {
         text: 'Reviews',
+        rotate: -90,
         style: { fontSize: '12px', color: '#16a34a' },
       },
       labels: {

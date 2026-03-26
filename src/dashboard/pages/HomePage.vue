@@ -255,7 +255,9 @@ function formatTime(isoString: string): string {
         <p class="mt-2 text-xs text-gray-500">
           {{ 1 + project.competitorIds.length }} extension{{ project.competitorIds.length > 0 ? 's' : '' }}
           &middot;
-          {{ project.keywordIds.length }} keyword{{ project.keywordIds.length !== 1 ? 's' : '' }}
+          {{ project.keywordIds.length > 0
+            ? `${project.keywordIds.length} keyword${project.keywordIds.length !== 1 ? 's' : ''}`
+            : 'No keywords yet' }}
         </p>
         <div class="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
           <div class="flex items-center gap-1.5" :title="getLastScanTooltip(project)">

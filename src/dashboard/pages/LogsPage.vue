@@ -15,6 +15,7 @@ const {
 } = useScanLogs();
 
 const expandedIds = ref<Set<number>>(new Set());
+const advancedMode = ref(false);
 
 onMounted(() => {
   loadLogs();
@@ -194,7 +195,20 @@ const groupedLogs = computed<LogGroup[]>(() => {
       </select>
 
       <button
-        class="ml-auto inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+        class="ml-auto inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
+        :class="advancedMode
+          ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'"
+        @click="advancedMode = !advancedMode"
+      >
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+        </svg>
+        {{ advancedMode ? 'Advanced' : 'Simple' }}
+      </button>
+
+      <button
+        class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
         @click="loadLogs"
       >
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -327,57 +341,60 @@ const groupedLogs = computed<LogGroup[]>(() => {
               class="border-t border-gray-100 bg-gray-50 px-4 py-3 text-xs"
             >
               <div class="space-y-2">
-                <!-- Request: method + base URL -->
-                <div>
-                  <span class="font-medium text-gray-500">Request</span>
-                  <p class="mt-0.5 break-all font-mono text-gray-700">
-                    <span class="font-semibold">{{ log.httpMethod ?? 'GET' }}</span>
-                    {{ getParsedUrl(log.id).baseUrl }}
-                  </p>
-                </div>
-
-                <!-- Query parameters table -->
-                <div v-if="getParsedUrl(log.id).params.length > 0">
-                  <span class="font-medium text-gray-500">Parameters</span>
-                  <div class="mt-1 overflow-hidden rounded border border-gray-200 bg-white">
-                    <div
-                      v-for="param in getParsedUrl(log.id).params"
-                      :key="param.key"
-                      class="flex border-b border-gray-100 last:border-b-0"
-                    >
-                      <span class="w-20 shrink-0 border-r border-gray-100 px-2 py-1 font-mono font-medium text-gray-600">
-                        {{ param.key }}
-                      </span>
-                      <span class="min-w-0 flex-1 break-all px-2 py-1 font-mono text-gray-700">
-                        {{ param.value }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- Page info -->
-                <div v-if="log.pageNumber !== undefined && log.pageNumber !== null">
-                  <span class="font-medium text-gray-500">Page</span>
-                  <span class="ml-1 text-gray-600">{{ log.pageNumber }}</span>
-                </div>
-
-                <!-- Error -->
+                <!-- Error (always shown) -->
                 <div v-if="log.error">
                   <span class="font-medium text-red-600">Error</span>
                   <p class="mt-0.5 font-mono text-red-700">{{ log.error }}</p>
                 </div>
 
-                <!-- Response preview -->
-                <div v-if="log.responsePreview">
-                  <span class="font-medium text-gray-500">Response preview</span>
-                  <p class="mt-0.5 truncate font-mono text-gray-600">{{ log.responsePreview }}</p>
-                </div>
-
-                <!-- Job ID -->
+                <!-- Job ID (always shown) -->
                 <div v-if="log.jobId !== null">
                   <span class="font-medium text-gray-500">Job ID</span>
                   <span class="ml-1 text-gray-600">#{{ log.jobId }}</span>
                 </div>
+
+                <!-- Advanced details (behind toggle) -->
+                <template v-if="advancedMode">
+                  <!-- Request: method + base URL -->
+                  <div>
+                    <span class="font-medium text-gray-500">Request</span>
+                    <p class="mt-0.5 break-all font-mono text-gray-700">
+                      <span class="font-semibold">{{ log.httpMethod ?? 'GET' }}</span>
+                      {{ getParsedUrl(log.id).baseUrl }}
+                    </p>
+                  </div>
+
+                  <!-- Query parameters table -->
+                  <div v-if="getParsedUrl(log.id).params.length > 0">
+                    <span class="font-medium text-gray-500">Parameters</span>
+                    <div class="mt-1 overflow-hidden rounded border border-gray-200 bg-white">
+                      <div
+                        v-for="param in getParsedUrl(log.id).params"
+                        :key="param.key"
+                        class="flex border-b border-gray-100 last:border-b-0"
+                      >
+                        <span class="w-20 shrink-0 border-r border-gray-100 px-2 py-1 font-mono font-medium text-gray-600">
+                          {{ param.key }}
+                        </span>
+                        <span class="min-w-0 flex-1 break-all px-2 py-1 font-mono text-gray-700">
+                          {{ param.value }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Page info -->
+                  <div v-if="log.pageNumber !== undefined && log.pageNumber !== null">
+                    <span class="font-medium text-gray-500">Page</span>
+                    <span class="ml-1 text-gray-600">{{ log.pageNumber }}</span>
+                  </div>
+
+                  <!-- Response preview -->
+                  <div v-if="log.responsePreview">
+                    <span class="font-medium text-gray-500">Response preview</span>
+                    <p class="mt-0.5 truncate font-mono text-gray-600">{{ log.responsePreview }}</p>
+                  </div>
+                </template>
               </div>
             </div>
           </div>

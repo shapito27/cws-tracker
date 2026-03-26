@@ -30,7 +30,7 @@ const chartOptions = computed(() => ({
     },
   },
   yaxis: {
-    title: { text: 'Keywords', style: { fontSize: '11px', color: '#374151' } },
+    title: { text: 'Keywords', rotate: -90, style: { fontSize: '11px', color: '#374151' } },
     labels: { style: { fontSize: '11px', colors: '#6b7280' } },
     min: 0,
     forceNiceScale: true,

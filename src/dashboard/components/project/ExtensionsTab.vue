@@ -135,7 +135,7 @@ function getRiskColor(score: number): string {
                   >
                     {{ ext.name || ext.id }}
                   </a>
-                  <p v-if="ext.name" class="text-xs text-gray-400 font-mono">{{ ext.id }}</p>
+                  <p v-if="ext.name" class="text-xs text-gray-400 font-mono" :title="ext.id">{{ ext.id.slice(0, 8) }}…</p>
                 </div>
               </div>
             </td>

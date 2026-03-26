@@ -47,7 +47,7 @@ interface CellView {
 
 const EMPTY_CELL: CellView = {
   display: '-',
-  fullDisplay: '',
+  fullDisplay: 'No scan data for this date',
   deltaDisplay: '',
   deltaTooltip: '',
   deltaClasses: '',
@@ -306,7 +306,7 @@ function formatDateHeader(dateStr: string): string {
                     {{ getCell(row.extensionId, date, 'users').deltaDisplay }}
                   </div>
                 </template>
-                <span v-else class="text-xs text-gray-300">-</span>
+                <span v-else class="text-xs text-gray-300" title="No scan data for this date">-</span>
               </td>
 
               <!-- Reviews cell -->
@@ -328,7 +328,7 @@ function formatDateHeader(dateStr: string): string {
                     {{ getCell(row.extensionId, date, 'reviews').deltaDisplay }}
                   </div>
                 </template>
-                <span v-else class="text-xs text-gray-300">-</span>
+                <span v-else class="text-xs text-gray-300" title="No scan data for this date">-</span>
               </td>
             </template>
           </tr>

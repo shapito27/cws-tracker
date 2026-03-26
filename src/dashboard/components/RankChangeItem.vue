@@ -66,6 +66,7 @@ function isOut(rc: RankChange): boolean {
         <span
           v-if="rankChange.type === 'autocomplete'"
           class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold bg-indigo-100 text-indigo-700 shrink-0"
+          title="Autocomplete"
         >AC</span>
         <span class="truncate">"{{ rankChange.keyword }}"</span>
         <template v-if="formattedDateTime">

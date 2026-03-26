@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { onBeforeRouteLeave } from 'vue-router';
 import { useSettings } from '../composables/useSettings';
 import { useDataTransfer } from '../composables/useDataTransfer';
 import {
@@ -100,6 +101,29 @@ const AVAILABLE_LOCALES: Array<{ code: string; name: string }> = [
 onMounted(async () => {
   await loadSettings();
   syncLocalState();
+});
+
+/** Detect if any local form value differs from the saved settings. */
+const hasUnsavedChanges = computed(() => {
+  if (loading.value) return false;
+  return (
+    localQueueDelay.value !== Math.round(settings.queueDelayMs / 1000) ||
+    localQueueJitter.value !== Math.round(settings.queueJitterMs / 1000) ||
+    localDailyScanTime.value !== settings.dailyScanTime ||
+    localDailyScanEnabled.value !== settings.dailyScanEnabled ||
+    localDataRetention.value !== settings.dataRetentionDays ||
+    localProxyUrl.value !== settings.proxyUrl ||
+    localProxyApiKey.value !== (settings.proxyApiKey ?? '')
+  );
+});
+
+onBeforeRouteLeave((_to, _from, next) => {
+  if (hasUnsavedChanges.value) {
+    const leave = window.confirm('You have unsaved settings changes. Leave without saving?');
+    next(leave);
+  } else {
+    next();
+  }
 });
 
 function syncLocalState(): void {
@@ -736,8 +760,8 @@ onUnmounted(() => {
               :class="[
                 isLocaleSelected(loc.code)
                   ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50',
-                isLastSelectedLocale(loc.code) ? 'opacity-50 cursor-not-allowed' : '',
+                  : 'border-gray-200 bg-white text-gray-500 hover:border-blue-300 hover:text-blue-600 hover:bg-blue-50/30',
+                isLastSelectedLocale(loc.code) ? 'opacity-40 cursor-not-allowed' : '',
               ]"
               :disabled="isLastSelectedLocale(loc.code)"
               @click="toggleLocale(loc.code)"
