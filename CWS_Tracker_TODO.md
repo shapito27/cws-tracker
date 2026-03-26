@@ -1019,7 +1019,7 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 4.1 LemonSqueezy Integration (~6h)
 
-- [ ] **4.1.1** Create LemonSqueezy product and subscription plan ($9-12/mo)
+- [ ] **4.1.1** Create LemonSqueezy product and subscription plans ($14/mo monthly, $120/year annual)
 - [ ] **4.1.2** Create `src/dashboard/composables/useLicense.ts`:
   - `validateLicense(key)` - call LemonSqueezy API
   - `checkLicenseStatus()` - check cached status, revalidate if > 24h
@@ -1043,21 +1043,78 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 - [ ] **4.2.1** Create `src/shared/utils/tier-gates.ts`:
   - `canCreateProject(currentCount, plan)` - free: max 1, pro: unlimited
   - `canAddExtension(currentCount, plan)` - free: max 3 per project, pro: unlimited
-  - `canAddKeyword(currentCount, plan)` - free: max 10 per project, pro: unlimited
+  - `canAddKeyword(currentCount, plan)` - free: max 5 per project, pro: unlimited
   - `canUseDailyAutoScan(plan)` - pro only
   - `canUseFeature(feature, plan)` - general feature gate
 - [ ] **4.2.2** Add gate checks to all relevant composables (useProjects, useKeywords, etc.)
 - [ ] **4.2.3** Add upgrade prompts when free users hit limits: "Upgrade to Pro to track unlimited keywords"
 - [ ] **4.2.4** Disable daily auto-scan for free tier (manual only)
-- [ ] **4.2.5** Enforce 30-day data retention for free tier (auto-prune older data)
+- [ ] **4.2.5** Enforce 14-day data retention for free tier (auto-prune older data)
 
 **Tests:**
 - [ ] Free tier: creating 2nd project blocked
 - [ ] Free tier: adding 4th extension blocked
-- [ ] Free tier: adding 11th keyword blocked
+- [ ] Free tier: adding 6th keyword blocked
 - [ ] Pro tier: all limits lifted
 - [ ] Downgrade from pro to free: existing data preserved, but new data subject to free limits
 - [ ] Feature gates return correct boolean for each plan
+
+### 4.2b Server-Side Scanning (~16h) [depends: 4.1, 4.2]
+
+**Description:** Daily automated scanning via Cloudflare Worker + D1. This is the primary Pro feature — users get daily data without keeping the browser open.
+
+#### D1 Database Setup (~3h)
+- [ ] **4.2b.1** Add Cloudflare D1 binding to `proxy/wrangler.toml`
+- [ ] **4.2b.2** Create D1 schema migrations:
+  - `scan_configs` table: `user_id TEXT, config JSON, updated_at TEXT`
+  - `scan_results` table: `user_id TEXT, scan_type TEXT, query TEXT, locale TEXT, result JSON, date TEXT, created_at TEXT`
+  - `scan_dedup_cache` table: `query_key TEXT, result JSON, date TEXT` (shared results across users)
+- [ ] **4.2b.3** Create D1 query helpers in `proxy/src/d1-queries.ts`
+
+#### Scan Config API (~3h)
+- [ ] **4.2b.4** Add `PUT /api/scan-configs` endpoint: register user's projects/extensions/keywords for server-side scanning
+- [ ] **4.2b.5** Add `GET /api/scan-configs` endpoint: retrieve current config
+- [ ] **4.2b.6** Validate scan config against Pro license status (reject free tier users)
+- [ ] **4.2b.7** In extension: sync scan config to server on project/keyword/extension changes (Pro users only)
+
+#### Cron Trigger & Scan Execution (~5h)
+- [ ] **4.2b.8** Add Cloudflare Cron Trigger in `wrangler.toml` (daily schedule)
+- [ ] **4.2b.9** Implement `scheduled()` handler in proxy:
+  - Read all Pro user scan configs from D1
+  - Collect unique (keyword, locale) and (extensionId, locale) pairs for deduplication
+  - Execute fetches sequentially with delays and jitter (reuse existing queue delay pattern)
+  - Store deduplicated results in `scan_dedup_cache`
+  - Fan out results to per-user `scan_results` table
+- [ ] **4.2b.10** Implement deduplication: if N users track same keyword, fetch CWS once, store result for all N users
+- [ ] **4.2b.11** Add error handling: retry on 429/5xx, skip and log on persistent failures, continue with remaining jobs
+- [ ] **4.2b.11b** Add rotating proxy support for CWS fetches:
+  - Environment variable `PROXY_URLS` (comma-separated list of upstream proxy URLs)
+  - Round-robin or random selection per request
+  - Fallback chain: CF Worker IPs → datacenter proxy → ISP/residential proxy
+  - Track block rate per proxy and auto-escalate when blocks exceed threshold
+  - Start with CF Worker IPs only ($0), add proxies only when CWS blocking detected
+
+#### Results Sync API (~3h)
+- [ ] **4.2b.12** Add `GET /api/results?since={date}` endpoint: return scan results since last sync (paginated)
+- [ ] **4.2b.13** Add `GET /api/results/latest` endpoint: return most recent scan results only
+- [ ] **4.2b.14** In extension: create `src/dashboard/composables/useServerSync.ts`:
+  - `syncResults()` - pull server results, merge into local IndexedDB
+  - `lastSyncedAt` - track sync timestamp in `chrome.storage.local`
+  - Auto-sync on dashboard open (Pro users only)
+- [ ] **4.2b.15** Handle conflict resolution: server results take precedence over local for same date
+
+#### Proxy Auth for Sync API (~2h)
+- [ ] **4.2b.16** Authenticate sync API requests using LemonSqueezy license key (validate against LemonSqueezy API or cached status)
+- [ ] **4.2b.17** Rate limit sync API: max 60 requests/hour per user
+
+**Tests:**
+- [ ] Cron trigger collects unique queries across all users (deduplication works)
+- [ ] Single CWS fetch serves results to multiple users tracking same keyword
+- [ ] Free tier user rejected from scan config API
+- [ ] Extension syncs server results into local IndexedDB correctly
+- [ ] Scan continues if one user's config has errors
+- [ ] 429/5xx errors trigger retry with backoff
+- [ ] Results paginated correctly for users with large datasets
 
 ### 4.3 Onboarding Flow (~4h)
 

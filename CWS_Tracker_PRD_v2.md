@@ -56,8 +56,9 @@ Become the essential ASO toolkit for every Chrome Web Store publisher, giving de
 
 - **Personal use:** Measurable ranking improvement for tracked extensions within 30 days of optimization
 - **Public launch:** 500+ weekly active users within 3 months of CWS publication
-- **Revenue:** $500 MRR within 6 months of launching paid tier
+- **Revenue:** $700 MRR within 6 months of launching paid tier
 - **Retention:** 60%+ monthly retention for Pro subscribers
+- **Pricing:** $14/mo monthly or $120/year ($10/mo effective) via LemonSqueezy
 
 ### 2.3 Competitive Landscape
 
@@ -921,14 +922,74 @@ Each component is scored 0-100 individually, then weighted. The dashboard shows 
 - Grace period: 3 days of Pro access if validation fails (network issues)
 - Clear visual indicator of current plan in popup and dashboard header
 
-#### 5.4.2 Tier Structure
+#### 5.4.2 Server-Side Scanning (Pro Feature)
 
-| Feature | Free | Pro ($9-12/mo) |
-|---------|------|----------------|
+**Description:** Daily automated scanning that runs on the server regardless of whether the user's browser is open. This is the primary Pro feature and value proposition — users get daily ranking data without any manual action.
+
+**Architecture:** Extends the existing Cloudflare Worker proxy with:
+
+1. **Cloudflare D1** (SQLite) — Stores user scan configurations (which extensions/keywords to track) and scan results
+2. **Cloudflare Cron Triggers** — Triggers daily scan cycle (one cron trigger, processes all Pro users)
+3. **Sync API** — New endpoints for the extension to register scan configs and pull server-collected results
+
+**Data flow:**
+```
+1. Extension registers scan config (projects, keywords, extensions) → D1
+2. Cron Trigger fires daily → reads all Pro user configs from D1
+3. Deduplicates queries (same keyword/extension across users = one fetch)
+4. Fetches CWS via existing proxy logic (/detail, /search, /autocomplete)
+5. Stores results in D1 (keyed by user + date)
+6. Extension pulls latest results from D1 → merges into local IndexedDB → displays in dashboard
+```
+
+**New proxy endpoints:**
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/scan-configs` | PUT | Register/update user's scan configuration |
+| `/api/scan-configs` | GET | Retrieve current scan configuration |
+| `/api/results` | GET | Pull scan results since last sync (paginated) |
+| `/api/results/latest` | GET | Pull most recent scan results only |
+
+**Deduplication strategy:**
+- Many users track the same popular extensions (uBlock Origin, Grammarly, etc.) and keywords ("ad blocker", "vpn")
+- Before executing the daily scan, collect all unique (keyword, locale) and (extensionId, locale) pairs across all Pro users
+- Fetch each unique pair once, then fan out results to all users who track it
+- Estimated 50-70% overlap reduces CWS request volume significantly
+
+**Cost analysis (50 Pro users):**
+- ~78 requests/user/day × 50 users = 3,900 raw requests/day
+- After deduplication: ~1,200-1,950 unique requests/day
+- Cloudflare Workers free tier: 100K requests/day — ample headroom
+- Cloudflare D1 free tier: 5GB storage, 5M reads/day — ample headroom
+- CF Workers + D1 infrastructure cost: **$0/mo** until ~500+ users, then **$5/mo** (Workers Paid plan)
+
+**Proxy/bandwidth cost (the primary expense):**
+CWS pages are large (~635 KB detail, ~569 KB search). Server-side scanning at scale requires rotating proxies to avoid CWS IP blocking.
+
+- Bandwidth estimate (50 users, after dedup): ~25 GB/month
+- Proxy cost range: $0 (CF IPs only) to $200-375/mo (residential proxies)
+- Recommended approach: start with CF Worker IPs ($0), escalate to datacenter proxies ($30-50/mo) only if CWS blocks, then to ISP/residential proxies ($75-375/mo) as last resort
+- If residential proxies are needed, consider raising Pro price to $19/mo to maintain healthy margins
+
+**CWS rate limiting mitigation:**
+- Spread scans across 24-hour window with configurable delays and jitter (reuse existing queue delay pattern)
+- ~1,200-1,950 requests/day ÷ 24h = ~1 request/minute (trivial load)
+- Exponential backoff on 429/5xx errors (existing retry logic)
+- Adaptive proxy escalation: CF IPs → datacenter → ISP → residential (only escalate when blocked)
+
+**Free tier behavior:** Manual scanning only, client-side via chrome.alarms (current architecture). No server storage. Data lives only in local IndexedDB with 14-day auto-prune.
+
+**Pro tier behavior:** Server-side daily scanning. Results stored on server indefinitely. Extension syncs results on open. Future: web dashboard access, email/Slack alerts.
+
+#### 5.4.3 Tier Structure
+
+| Feature | Free | Pro ($14/mo or $120/yr) |
+|---------|------|------------------------|
 | Projects | 1 | Unlimited |
 | Extensions per project | 3 (1 own + 2 competitors) | Unlimited |
-| Keywords per project | 10 | Unlimited |
-| Historical data retention | 30 days | Unlimited |
+| Keywords per project | 5 | Unlimited |
+| Historical data retention | 14 days | Unlimited |
 | Daily auto-scan | No (manual only) | Yes |
 | Rank position chart | Yes | Yes |
 | Listing comparison | Basic (2 extensions) | Full (unlimited) |
