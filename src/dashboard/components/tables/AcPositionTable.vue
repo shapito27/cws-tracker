@@ -14,6 +14,7 @@ const props = defineProps<{
 
 const rows = ref<AcPositionRow[]>([]);
 const loading = ref(false);
+const loadError = ref<string | null>(null);
 const dateRange = ref<DateRange>(7);
 
 const rangeOptions: { label: string; value: DateRange }[] = [
@@ -32,12 +33,15 @@ const dateColumns = computed<string[]>(() => {
 
 async function load(): Promise<void> {
   loading.value = true;
+  loadError.value = null;
   try {
     rows.value = await loadKeywordAcPositionTable(
       props.keywords,
       props.ownExtensionId,
       dateRange.value
     );
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : 'Failed to load AC positions';
   } finally {
     loading.value = false;
   }
@@ -120,6 +124,11 @@ function formatDateHeader(dateStr: string): string {
     <!-- Loading -->
     <div v-if="loading" class="text-center py-8">
       <p class="text-sm text-gray-500">Loading autocomplete positions...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="loadError" class="rounded-lg bg-red-50 border border-red-200 p-6 text-center">
+      <p class="text-sm text-red-700">{{ loadError }}</p>
     </div>
 
     <!-- Empty state -->
