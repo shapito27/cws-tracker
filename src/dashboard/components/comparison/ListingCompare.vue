@@ -279,7 +279,7 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
               <ExtensionIcon :icon-url="getExtIconUrl(id)" :name="getExtName(id)" size="sm" />
               <p class="text-sm font-semibold text-gray-900">{{ getExtName(id) }}</p>
             </div>
-            <p class="text-xs text-gray-400 font-mono">{{ id }}</p>
+            <p class="text-xs text-gray-400 font-mono truncate" :title="id">{{ id.slice(0, 8) }}…</p>
           </div>
         </div>
 

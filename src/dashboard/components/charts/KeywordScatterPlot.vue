@@ -146,6 +146,7 @@ const chartOptions = computed(() => ({
     tickAmount: 6,
     title: {
       text: 'Your Position (lower is better)',
+      rotate: -90,
       style: { fontSize: '12px', fontWeight: '600', color: '#374151' },
     },
     labels: {
