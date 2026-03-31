@@ -97,28 +97,37 @@ describe('autocompleteParserV1', () => {
       expect(result.suggestions).toHaveLength(10);
     });
 
-    it('first suggestion is a text suggestion (Hola VPN)', () => {
+    it('extensions come before text suggestions (matching CWS visual order)', () => {
+      const types = result.suggestions.map((s) => s.type);
+      const lastExtIdx = types.lastIndexOf('extension');
+      const firstTextIdx = types.indexOf('text');
+      expect(lastExtIdx).toBeLessThan(firstTextIdx);
+    });
+
+    it('first suggestion is Urban VPN extension (extensions reordered before text)', () => {
       const first = result.suggestions[0];
-      expect(first.type).toBe('text');
-      if (first.type === 'text') {
-        expect(first.text).toContain('Hola VPN');
+      expect(first.type).toBe('extension');
+      if (first.type === 'extension') {
+        expect(first.extensionId).toBe('eppiocemhmnlbhjplcgkofciiegomcon');
+        expect(first.name).toBe('Urban VPN Proxy');
+        expect(first.position).toBe(1);
       }
     });
 
-    it('has both extension and text suggestions', () => {
-      const types = new Set(result.suggestions.map((s) => s.type));
-      expect(types.has('extension')).toBe(true);
-      expect(types.has('text')).toBe(true);
+    it('has 8 extension and 2 text suggestions', () => {
+      const extSuggestions = result.suggestions.filter((s) => s.type === 'extension');
+      const textSuggestions = result.suggestions.filter((s) => s.type === 'text');
+      expect(extSuggestions).toHaveLength(8);
+      expect(textSuggestions).toHaveLength(2);
     });
 
-    it('text suggestions have correct structure', () => {
+    it('text suggestions appear after all extensions', () => {
       const textSuggestions = result.suggestions.filter((s) => s.type === 'text');
-      expect(textSuggestions.length).toBeGreaterThan(0);
-      for (const s of textSuggestions) {
-        if (s.type === 'text') {
-          expect(s.text.length).toBeGreaterThan(0);
-          expect(s.position).toBeGreaterThan(0);
-        }
+      expect(textSuggestions).toHaveLength(2);
+      expect(textSuggestions[0].position).toBe(9);
+      expect(textSuggestions[1].position).toBe(10);
+      if (textSuggestions[0].type === 'text') {
+        expect(textSuggestions[0].text).toContain('Hola VPN');
       }
     });
   });

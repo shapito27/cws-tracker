@@ -342,7 +342,10 @@ export async function loadRecentAutocompleteChanges(limit: number = 5, ownOnly =
     let change: number | null = null;
     if (currPos !== null && prevPos === null) {
       change = AC_APPEARED_SENTINEL; // appeared in autocomplete
-    } else if (currPos === null && prevPos !== null) {
+    } else if (curr && currPos === null && prevPos !== null) {
+      // Only report "disappeared" when a snapshot actually exists for today
+      // (keyword was scanned, extension not found). Skip when curr is undefined
+      // (keyword not yet scanned — avoids false "Out" entries mid-crawl).
       change = AC_DISAPPEARED_SENTINEL; // disappeared from autocomplete
     } else if (currPos !== null && prevPos !== null && currPos !== prevPos) {
       change = prevPos - currPos; // positive = improved (lower position number)
@@ -524,7 +527,10 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
       let change: number | null = null;
       if (currPos !== null && prevPos === null) {
         change = AC_APPEARED_SENTINEL;
-      } else if (currPos === null && prevPos !== null) {
+      } else if (curr && currPos === null && prevPos !== null) {
+        // Only report "disappeared" when a snapshot exists for today
+        // (keyword was scanned, extension not found). Skip when curr is undefined
+        // (keyword not yet scanned — avoids false "Out" entries mid-crawl).
         change = AC_DISAPPEARED_SENTINEL;
       } else if (currPos !== null && prevPos !== null && currPos !== prevPos) {
         change = prevPos - currPos;
