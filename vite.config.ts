@@ -5,7 +5,7 @@ import tailwindcss from '@tailwindcss/vite';
 import manifest from './manifest.json';
 import { resolve } from 'path';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     vue(),
     tailwindcss(),
@@ -23,10 +23,10 @@ export default defineConfig({
         dashboard: resolve(__dirname, 'src/dashboard/index.html'),
       },
       output: {
-        manualChunks: {
-          apexcharts: ['apexcharts', 'vue3-apexcharts'],
-        },
+        manualChunks: mode === 'production'
+          ? { apexcharts: ['apexcharts', 'vue3-apexcharts'] }
+          : undefined,
       },
     },
   },
-});
+}));
