@@ -106,14 +106,19 @@ onMounted(async () => {
 /** Detect if any local form value differs from the saved settings. */
 const hasUnsavedChanges = computed(() => {
   if (loading.value) return false;
+  // Audit prompts are excluded: saved value is '' when matching the variant default,
+  // but the local textarea always shows the full prompt text, causing false positives.
   return (
     localQueueDelay.value !== Math.round(settings.queueDelayMs / 1000) ||
     localQueueJitter.value !== Math.round(settings.queueJitterMs / 1000) ||
     localDailyScanTime.value !== settings.dailyScanTime ||
     localDailyScanEnabled.value !== settings.dailyScanEnabled ||
+    localOpenAIKey.value !== (settings.openaiApiKey ?? '') ||
+    localLemonSqueezyLicense.value !== (settings.lemonSqueezyLicense ?? '') ||
     localDataRetention.value !== settings.dataRetentionDays ||
     localProxyUrl.value !== settings.proxyUrl ||
-    localProxyApiKey.value !== (settings.proxyApiKey ?? '')
+    localProxyApiKey.value !== (settings.proxyApiKey ?? '') ||
+    localTranslationLocales.value !== settings.translationLocales.join(', ')
   );
 });
 
