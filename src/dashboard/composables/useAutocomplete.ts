@@ -223,6 +223,95 @@ export async function loadAutocompleteCoverage(
   }));
 }
 
+/** A single day's AC position data for one keyword. */
+export interface AcDayCell {
+  /** Position on this date. 1-10 or null (not in autocomplete). */
+  position: number | null;
+  /** Change vs previous day. Positive = improved (moved up). null if no previous data. */
+  delta: number | null;
+}
+
+/** One row in the AC position table. */
+export interface AcPositionRow {
+  keywordId: number;
+  keywordText: string;
+  /** Map of date (YYYY-MM-DD) -> AcDayCell */
+  days: Map<string, AcDayCell>;
+}
+
+/**
+ * Load AC position table data for the user's own extension.
+ * Returns per-day AC position and delta for each keyword over the given range.
+ */
+export async function loadKeywordAcPositionTable(
+  keywords: Keyword[],
+  ownExtensionId: string,
+  rangeDays: number
+): Promise<AcPositionRow[]> {
+  const withId = keywords.filter((kw) => kw.id !== undefined);
+  const endDate = today();
+  const startDate = daysAgo(rangeDays);
+
+  const snapshotsArray = await Promise.all(
+    withId.map((kw) =>
+      db.getAutocompleteSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+    )
+  );
+
+  // Build the list of visible dates
+  const visibleDates: string[] = [];
+  for (let i = rangeDays - 1; i >= 0; i--) {
+    visibleDates.push(daysAgo(i));
+  }
+
+  const rows: AcPositionRow[] = [];
+
+  withId.forEach((kw, idx) => {
+    // Deduplicate by date (keep latest scannedAt per day)
+    const byDate = new Map<string, AutocompleteSnapshot>();
+    for (const snap of snapshotsArray[idx]) {
+      const existing = byDate.get(snap.date);
+      if (!existing || snap.scannedAt > existing.scannedAt) {
+        byDate.set(snap.date, snap);
+      }
+    }
+
+    const days = new Map<string, AcDayCell>();
+
+    for (let i = 0; i < visibleDates.length; i++) {
+      const date = visibleDates[i];
+      const snap = byDate.get(date);
+      if (!snap) continue;
+
+      // Find the previous day's snapshot by looking backwards
+      let prevSnap: AutocompleteSnapshot | undefined;
+      for (let j = i - 1; j >= 0; j--) {
+        prevSnap = byDate.get(visibleDates[j]);
+        if (prevSnap) break;
+      }
+      // For the first visible date, check the day before the range
+      if (!prevSnap) {
+        prevSnap = byDate.get(startDate);
+      }
+
+      let delta: number | null = null;
+      if (prevSnap && prevSnap.position !== null && snap.position !== null) {
+        delta = prevSnap.position - snap.position; // positive = improved
+      }
+
+      days.set(date, { position: snap.position, delta });
+    }
+
+    rows.push({
+      keywordId: kw.id!,
+      keywordText: kw.text,
+      days,
+    });
+  });
+
+  return rows;
+}
+
 export function useAutocomplete() {
   return {
     loadAutocompletePositions,
@@ -230,5 +319,6 @@ export function useAutocomplete() {
     loadOwnExtensionAutocompleteHistory,
     loadKeywordSuggestions,
     loadAutocompleteCoverage,
+    loadKeywordAcPositionTable,
   };
 }
