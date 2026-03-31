@@ -2,6 +2,12 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.22.0] - 2026-03-31
+
+### Added
+- Autocomplete position history chart on Overview tab ("My Autocomplete Positions" last 30 days)
+- Autocomplete position history table on Overview tab with 7d/14d/30d date range, deltas, and color-coded positions
+
 ## [0.21.3] - 2026-03-31
 
 ### Fixed
