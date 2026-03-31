@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import type { Keyword } from '@/shared/types';
-import type { KeywordPositionRow, KeywordDayCell } from '../../composables/useRankings';
-import { loadKeywordPositionTable } from '../../composables/useRankings';
+import type { AcPositionRow, AcDayCell } from '../../composables/useAutocomplete';
+import { loadKeywordAcPositionTable } from '../../composables/useAutocomplete';
 import { daysAgo } from '@/shared/utils/dates';
 
 type DateRange = 7 | 14 | 30;
@@ -12,8 +12,9 @@ const props = defineProps<{
   ownExtensionId: string;
 }>();
 
-const rows = ref<KeywordPositionRow[]>([]);
+const rows = ref<AcPositionRow[]>([]);
 const loading = ref(false);
+const loadError = ref<string | null>(null);
 const dateRange = ref<DateRange>(7);
 
 const rangeOptions: { label: string; value: DateRange }[] = [
@@ -22,7 +23,6 @@ const rangeOptions: { label: string; value: DateRange }[] = [
   { label: '30d', value: 30 },
 ];
 
-/** Sorted visible date strings for the selected range. */
 const dateColumns = computed<string[]>(() => {
   const dates: string[] = [];
   for (let i = dateRange.value - 1; i >= 0; i--) {
@@ -33,12 +33,15 @@ const dateColumns = computed<string[]>(() => {
 
 async function load(): Promise<void> {
   loading.value = true;
+  loadError.value = null;
   try {
-    rows.value = await loadKeywordPositionTable(
+    rows.value = await loadKeywordAcPositionTable(
       props.keywords,
       props.ownExtensionId,
       dateRange.value
     );
+  } catch (e) {
+    loadError.value = e instanceof Error ? e.message : 'Failed to load AC positions';
   } finally {
     loading.value = false;
   }
@@ -52,27 +55,26 @@ async function setRange(range: DateRange): Promise<void> {
 onMounted(load);
 watch(() => props.keywords, load);
 
-function getCell(row: KeywordPositionRow, date: string): KeywordDayCell | null {
+function getCell(row: AcPositionRow, date: string): AcDayCell | null {
   return row.days.get(date) ?? null;
 }
 
 function formatPosition(position: number | null): string {
-  if (position === null) return '30+';
+  if (position === null) return '-';
   return `#${position}`;
 }
 
 function positionColorClass(position: number | null): string {
   if (position === null) return 'text-gray-400';
   if (position <= 3) return 'text-green-700 font-bold';
-  if (position <= 10) return 'text-blue-700';
-  if (position <= 20) return 'text-gray-700';
-  return 'text-orange-600';
+  if (position <= 5) return 'text-blue-700';
+  return 'text-gray-600';
 }
 
 function positionBgClass(position: number | null): string {
   if (position === null) return '';
   if (position <= 3) return 'bg-green-50/60';
-  if (position <= 10) return 'bg-blue-50/40';
+  if (position <= 5) return 'bg-blue-50/40';
   return '';
 }
 
@@ -91,7 +93,6 @@ function deltaText(delta: number | null): string {
   return String(Math.abs(delta));
 }
 
-/** Format date header: "Feb 7" from "2026-02-07" */
 function formatDateHeader(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -102,7 +103,7 @@ function formatDateHeader(dateStr: string): string {
   <div>
     <!-- Header with range switcher -->
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-base font-semibold text-gray-900">Keyword Positions</h3>
+      <h3 class="text-base font-semibold text-gray-900">AC Positions</h3>
       <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
         <button
           v-for="opt in rangeOptions"
@@ -122,7 +123,12 @@ function formatDateHeader(dateStr: string): string {
 
     <!-- Loading -->
     <div v-if="loading" class="text-center py-8">
-      <p class="text-sm text-gray-500">Loading keyword positions...</p>
+      <p class="text-sm text-gray-500">Loading autocomplete positions...</p>
+    </div>
+
+    <!-- Error state -->
+    <div v-else-if="loadError" class="rounded-lg bg-red-50 border border-red-200 p-6 text-center">
+      <p class="text-sm text-red-700">{{ loadError }}</p>
     </div>
 
     <!-- Empty state -->
@@ -131,7 +137,7 @@ function formatDateHeader(dateStr: string): string {
       class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center"
     >
       <p class="text-sm text-gray-500">
-        No keyword data yet. Add keywords and run a scan.
+        No autocomplete data yet. Run a scan to track AC positions.
       </p>
     </div>
 
@@ -139,7 +145,7 @@ function formatDateHeader(dateStr: string): string {
     <div v-else class="overflow-x-auto rounded-lg border border-gray-200">
       <table
         class="min-w-full divide-y divide-gray-200"
-        aria-label="Keyword positions per day for your extension"
+        aria-label="Autocomplete positions per day for your extension"
       >
         <thead class="bg-gray-50">
           <tr>

@@ -160,13 +160,22 @@ export const autocompleteParserV1: AutocompleteParser = {
       entries = entries[0];
     }
 
-    const suggestions: AutocompleteSuggestion[] = [];
+    const raw: AutocompleteSuggestion[] = [];
     for (let i = 0; i < entries.length; i++) {
       const suggestion = parseSuggestionEntry(entries[i], i + 1);
       if (suggestion) {
-        suggestions.push(suggestion);
+        raw.push(suggestion);
       }
     }
+
+    // CWS dropdown shows extensions first, then text suggestions.
+    // Reorder to match visual display and reassign 1-based positions.
+    const extensions = raw.filter((s) => s.type === 'extension');
+    const textSuggestions = raw.filter((s) => s.type === 'text');
+    const suggestions: AutocompleteSuggestion[] = [...extensions, ...textSuggestions];
+    suggestions.forEach((s, idx) => {
+      s.position = idx + 1;
+    });
 
     return { suggestions };
   },

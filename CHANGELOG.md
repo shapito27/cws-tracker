@@ -2,7 +2,7 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
-## [0.22.0] - 2026-03-26
+## [0.23.0] - 2026-03-31
 
 ### Improved
 - Chart Y-axis labels now rotate properly instead of stacking characters vertically
@@ -10,7 +10,6 @@ All notable changes to CWS Tracker will be documented in this file.
 - Rank Changes page title simplified from "All Rank & AC Changes" to "All Rank Changes" for consistency with sidebar
 - "AC" badge in RankChangeItem now has tooltip "Autocomplete" for clarity
 - Autocomplete chart Y-axis label spelled out as "Autocomplete Position"
-- Keyword position table AC badge simplified from "AC: #N" to "#N" (column header has abbr tooltip)
 - Events tab: rank change badges now color-coded green for improvements, red for drops (was all violet)
 - Extension IDs truncated to 8 chars with tooltip in Compare view and Extensions tab (was showing full 32-char ID)
 - Scan Logs page: added Simple/Advanced toggle — hides raw URLs, query params, and response previews by default
@@ -18,6 +17,18 @@ All notable changes to CWS Tracker will be documented in this file.
 - Extensions Overview table dashes now show "No scan data for this date" tooltip
 - Translation audit locale buttons: unselected state uses hover highlight instead of looking disabled
 - Settings page: warns before navigating away with unsaved changes
+
+## [0.22.0] - 2026-03-31
+
+### Added
+- Autocomplete position history chart on Overview tab ("My Autocomplete Positions" last 30 days)
+- Autocomplete position history table on Overview tab with 7d/14d/30d date range, deltas, and color-coded positions
+
+## [0.21.3] - 2026-03-31
+
+### Fixed
+- Autocomplete keywords no longer falsely show as "Out" during active crawls — only report disappeared when the keyword has actually been scanned today
+- Autocomplete positions now match CWS visual dropdown order (extensions first, then text suggestions) instead of raw API array order
 
 ## [0.21.2] - 2026-03-24
 
