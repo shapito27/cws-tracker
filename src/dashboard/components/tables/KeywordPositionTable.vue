@@ -3,9 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import type { Keyword } from '@/shared/types';
 import type { KeywordPositionRow, KeywordDayCell } from '../../composables/useRankings';
 import { loadKeywordPositionTable } from '../../composables/useRankings';
-import { loadAutocompletePositions } from '../../composables/useAutocomplete';
 import { daysAgo } from '@/shared/utils/dates';
-import { db } from '@/shared/db/database';
 
 type DateRange = 7 | 14 | 30;
 
@@ -15,8 +13,6 @@ const props = defineProps<{
 }>();
 
 const rows = ref<KeywordPositionRow[]>([]);
-/** Autocomplete position per keyword for own extension. keywordId -> position (1-10 or null). */
-const acPositions = ref<Map<number, number | null>>(new Map());
 const loading = ref(false);
 const dateRange = ref<DateRange>(7);
 
@@ -43,23 +39,6 @@ async function load(): Promise<void> {
       props.ownExtensionId,
       dateRange.value
     );
-
-    // Load autocomplete positions for own extension across all keywords in parallel
-    const ownExt = await db.extensions.get(props.ownExtensionId);
-    const map = new Map<number, number | null>();
-    if (ownExt) {
-      const keywordsWithId = props.keywords.filter((kw) => kw.id !== undefined);
-      const positionsArray = await Promise.all(
-        keywordsWithId.map((kw) => loadAutocompletePositions(kw.id!, [ownExt]))
-      );
-      keywordsWithId.forEach((kw, idx) => {
-        const own = positionsArray[idx]?.find(
-          (p) => p.extensionId === props.ownExtensionId
-        );
-        map.set(kw.id!, own?.position ?? null);
-      });
-    }
-    acPositions.value = map;
   } finally {
     loading.value = false;
   }
@@ -110,22 +89,6 @@ function deltaColorClass(delta: number | null): string {
 function deltaText(delta: number | null): string {
   if (delta === null || delta === 0) return '';
   return String(Math.abs(delta));
-}
-
-function getAcPosition(keywordId: number): number | null {
-  return acPositions.value.get(keywordId) ?? null;
-}
-
-function formatAcBadge(position: number | null): string {
-  if (position === null) return '-';
-  return `AC: #${position}`;
-}
-
-function acBadgeClasses(position: number | null): string {
-  if (position === null) return 'text-gray-400 bg-gray-50';
-  if (position <= 3) return 'text-green-700 bg-green-50 border-green-200';
-  if (position <= 5) return 'text-blue-700 bg-blue-50 border-blue-200';
-  return 'text-gray-600 bg-gray-50 border-gray-200';
 }
 
 /** Format date header: "Feb 7" from "2026-02-07" */
@@ -187,13 +150,6 @@ function formatDateHeader(dateStr: string): string {
               Keyword
             </th>
             <th
-              scope="col"
-              class="px-2 py-2.5 text-center text-xs font-medium uppercase tracking-wide text-gray-500 whitespace-nowrap border-r border-gray-100"
-              aria-label="Autocomplete position (1 to 10)"
-            >
-              <abbr title="Autocomplete position (1-10)">AC</abbr>
-            </th>
-            <th
               v-for="date in dateColumns"
               :key="date"
               scope="col"
@@ -217,20 +173,6 @@ function formatDateHeader(dateStr: string): string {
               <span class="text-sm font-medium text-gray-900 truncate block" :title="row.keywordText">
                 {{ row.keywordText }}
               </span>
-            </td>
-
-            <!-- Autocomplete position badge -->
-            <td class="px-2 py-2 text-center whitespace-nowrap border-r border-gray-100">
-              <span
-                v-if="getAcPosition(row.keywordId) !== null"
-                class="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold"
-                :class="acBadgeClasses(getAcPosition(row.keywordId))"
-                :aria-label="`Autocomplete position ${getAcPosition(row.keywordId)} for ${row.keywordText}`"
-                :title="`Autocomplete position: #${getAcPosition(row.keywordId)}`"
-              >
-                {{ formatAcBadge(getAcPosition(row.keywordId)) }}
-              </span>
-              <span v-else class="text-xs text-gray-300" aria-label="No autocomplete data">-</span>
             </td>
 
             <!-- Day cells -->

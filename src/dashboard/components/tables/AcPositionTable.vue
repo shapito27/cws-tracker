@@ -60,7 +60,7 @@ function getCell(row: AcPositionRow, date: string): AcDayCell | null {
 }
 
 function formatPosition(position: number | null): string {
-  if (position === null) return '10+';
+  if (position === null) return '-';
   return `#${position}`;
 }
 
