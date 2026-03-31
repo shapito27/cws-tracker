@@ -2,6 +2,12 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.21.3] - 2026-03-31
+
+### Fixed
+- Autocomplete keywords no longer falsely show as "Out" during active crawls — only report disappeared when the keyword has actually been scanned today
+- Autocomplete positions now match CWS visual dropdown order (extensions first, then text suggestions) instead of raw API array order
+
 ## [0.21.2] - 2026-03-24
 
 ### Fixed
