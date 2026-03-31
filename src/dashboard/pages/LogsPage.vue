@@ -395,6 +395,11 @@ const groupedLogs = computed<LogGroup[]>(() => {
                     <p class="mt-0.5 truncate font-mono text-gray-600">{{ log.responsePreview }}</p>
                   </div>
                 </template>
+
+                <!-- Hint when simple mode and no error/jobId shown -->
+                <p v-if="!advancedMode && !log.error && log.jobId === null" class="text-gray-400 italic">
+                  Switch to Advanced mode for request details.
+                </p>
               </div>
             </div>
           </div>

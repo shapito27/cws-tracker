@@ -42,26 +42,26 @@ const eventAnnotations = computed(() => {
 
   return [...eventsByDate.entries()].map(([date, events]) => {
     const primary = events[0];
-    const tooltipText = events.length === 1
-      ? EVENT_TYPE_LABELS[primary.type]
-      : `${events.length} events`;
+    // Show event count or type label as the annotation marker text
+    const markerText = events.length > 1
+      ? String(events.length)
+      : EVENT_TYPE_LABELS[primary.type].charAt(0);
     return {
       x: new Date(date + 'T00:00:00Z').getTime(),
       borderColor: EVENT_TYPE_COLORS[primary.type],
       strokeDashArray: 2,
       label: {
-        text: events.length > 1 ? String(events.length) : '•',
+        text: markerText,
         borderColor: 'transparent',
         style: {
           color: EVENT_TYPE_COLORS[primary.type],
           background: 'transparent',
-          fontSize: events.length > 1 ? '9px' : '14px',
+          fontSize: '9px',
           fontWeight: '700',
           padding: { left: 2, right: 2, top: 0, bottom: 0 },
         },
         orientation: 'horizontal' as const,
         position: 'top' as const,
-        tooltip: { enabled: true, text: tooltipText },
       },
     };
   });
