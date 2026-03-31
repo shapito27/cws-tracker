@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import type { Project, Extension, EventRecord, Keyword, ListingSnapshot } from '@/shared/types';
 import type { RankChartSeries } from '../../composables/useRankings';
+import type { AutocompleteChartSeries } from '../../composables/useAutocomplete';
 import {
   loadRecentRankChanges,
   loadRecentAutocompleteChanges,
@@ -12,12 +13,15 @@ import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
 import { useSettings } from '../../composables/useSettings';
 import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
+import { loadOwnExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
 import { daysAgo, today } from '@/shared/utils/dates';
 import ListingEventItem from '../ListingEventItem.vue';
 import RankChangeItem from '../RankChangeItem.vue';
 import RankChart from '../charts/RankChart.vue';
+import AutocompleteChart from '../charts/AutocompleteChart.vue';
 import UsersReviewsChart from '../charts/UsersReviewsChart.vue';
 import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
+import AcPositionTable from '../tables/AcPositionTable.vue';
 
 const props = defineProps<{
   project: Project;
@@ -36,6 +40,7 @@ const ownExtension = ref<Extension | undefined>(undefined);
 const recentEvents = ref<EventRecord[]>([]);
 const projectRankChanges = ref<RankChange[]>([]);
 const ownKeywordSeries = ref<RankChartSeries[]>([]);
+const ownAcSeries = ref<AutocompleteChartSeries[]>([]);
 const keywords = ref<Keyword[]>([]);
 const ownSnapshot = ref<ListingSnapshot | undefined>(undefined);
 const snapshotHistory = ref<ListingSnapshot[]>([]);
@@ -70,12 +75,22 @@ onMounted(async () => {
     // Load keyword position history for own extension
     keywords.value = await db.getKeywordsByProject(props.project.id);
     if (keywords.value.length > 0) {
-      ownKeywordSeries.value = await loadOwnExtensionRankHistory(
-        keywords.value,
-        props.project.ownExtensionId,
-        daysAgo(30),
-        today()
-      );
+      const [rankSeries, acSeries] = await Promise.all([
+        loadOwnExtensionRankHistory(
+          keywords.value,
+          props.project.ownExtensionId,
+          daysAgo(30),
+          today()
+        ),
+        loadOwnExtensionAutocompleteHistory(
+          keywords.value,
+          props.project.ownExtensionId,
+          daysAgo(30),
+          today()
+        ),
+      ]);
+      ownKeywordSeries.value = rankSeries;
+      ownAcSeries.value = acSeries;
     }
 
     await Promise.all([loadProjectRankChanges(), loadProjectEvents()]);
@@ -423,9 +438,26 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
       <RankChart v-else :series="ownKeywordSeries" />
     </div>
 
+    <!-- Autocomplete positions chart (own extension only) -->
+    <div class="mb-8">
+      <h3 class="text-base font-semibold text-gray-900 mb-3">My Autocomplete Positions (Last 30 Days)</h3>
+      <div v-if="ownAcSeries.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
+        <p class="text-sm text-gray-500">No autocomplete data yet. Run a scan to track autocomplete positions.</p>
+      </div>
+      <AutocompleteChart v-else :series="ownAcSeries" />
+    </div>
+
     <!-- Keyword positions table -->
     <div v-if="keywords.length > 0" class="mb-8">
       <KeywordPositionTable
+        :keywords="keywords"
+        :own-extension-id="project.ownExtensionId"
+      />
+    </div>
+
+    <!-- AC positions table -->
+    <div v-if="keywords.length > 0" class="mb-8">
+      <AcPositionTable
         :keywords="keywords"
         :own-extension-id="project.ownExtensionId"
       />
