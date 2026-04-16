@@ -378,6 +378,18 @@ describe('listingParserV1', () => {
       expect(result.badgeFlags.featured).toBe(false);
     });
 
+    it('is not featured when badge flag A is 1 and badge flag B is null', () => {
+      const html = buildDetailHtml(1, null);
+      const result = listingParserV1.parse(html);
+      expect(result.badgeFlags.featured).toBe(false);
+    });
+
+    it('is not featured when badge flag A is null and badge flag B is 1', () => {
+      const html = buildDetailHtml(null, 1);
+      const result = listingParserV1.parse(html);
+      expect(result.badgeFlags.featured).toBe(false);
+    });
+
     it('is featured only when both badge flags are 1', () => {
       const html = buildDetailHtml(1, 1);
       const result = listingParserV1.parse(html);

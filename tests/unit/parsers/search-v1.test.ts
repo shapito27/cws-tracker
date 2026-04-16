@@ -267,6 +267,11 @@ describe('searchParserV1', () => {
       expect(result.results[0].isFeatured).toBe(false);
     });
 
+    it('is not featured when both badge flags are absent', () => {
+      const result = searchParserV1.parse(buildSearchHtml(null, null));
+      expect(result.results[0].isFeatured).toBe(false);
+    });
+
     it('is featured only when both badge flags are 1', () => {
       const result = searchParserV1.parse(buildSearchHtml(1, 1));
       expect(result.results[0].isFeatured).toBe(true);
