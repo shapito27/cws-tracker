@@ -297,6 +297,92 @@ describe('listingParserV1', () => {
       const result = listingParserV1.parse(html);
       expect(result.badgeFlags.featured).toBe(true);
     });
+
+    // Regression: card[12] alone is 1 for many non-featured extensions, which
+    // caused a false-positive Featured badge for new/low-traffic listings.
+    // Featured now requires both card[12] === 1 AND card[13] === 1.
+    function buildDetailHtml(badgeA: number | null, badgeB: number | null): string {
+      const card = [
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'https://icon.example/i.png',
+        'Test Extension',
+        0,
+        0,
+        'https://screenshot.example/s.png',
+        'A non-featured extension.',
+        null,
+        null,
+        null,
+        null,
+        ['productivity/tools', null, 10],
+        badgeA,
+        badgeB,
+        42,
+        null,
+        'https://screenshot.example/s2.png',
+        [1700000000, 0],
+        '{}',
+        'Test Extension',
+      ];
+      const developer = [
+        'dev@example.com',
+        null,
+        null,
+        null,
+        1,
+        'Test Dev',
+        null,
+        null,
+        null,
+        null,
+        'devid00000000000000000000000000',
+      ];
+      const payload = [
+        card,
+        null,
+        null,
+        null,
+        null,
+        [[1, 'https://screenshot.example/s.png']],
+        'Full description',
+        null,
+        null,
+        null,
+        developer,
+        null,
+        null,
+        '1.0.0',
+        [1700000000, 0],
+        '10KiB',
+        ['English'],
+      ];
+      const json = JSON.stringify(payload);
+      return `AF_initDataCallback({key: 'ds:0', hash: '1', data:${json}});`;
+    }
+
+    it('is not featured when only badge flag A is set (regression: #idevext report)', () => {
+      const html = buildDetailHtml(1, 0);
+      const result = listingParserV1.parse(html);
+      expect(result.badgeFlags.featured).toBe(false);
+    });
+
+    it('is not featured when only badge flag B is set', () => {
+      const html = buildDetailHtml(0, 1);
+      const result = listingParserV1.parse(html);
+      expect(result.badgeFlags.featured).toBe(false);
+    });
+
+    it('is not featured when both badge flags are absent', () => {
+      const html = buildDetailHtml(null, null);
+      const result = listingParserV1.parse(html);
+      expect(result.badgeFlags.featured).toBe(false);
+    });
+
+    it('is featured only when both badge flags are 1', () => {
+      const html = buildDetailHtml(1, 1);
+      const result = listingParserV1.parse(html);
+      expect(result.badgeFlags.featured).toBe(true);
+    });
   });
 
   describe('404 page (non-existent extension)', () => {
