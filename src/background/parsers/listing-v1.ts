@@ -6,8 +6,8 @@
  *
  * ds:0 data layout:
  *   data[0]  = Extension card (20 fields): [id, iconUrl, name, rating, ratingCount,
- *              screenshot1, shortDesc, null, null, null, null, category, featured,
- *              promoted, userCount, null, screenshot2, timestamp, manifest, nameRepeat]
+ *              screenshot1, shortDesc, null, null, null, null, category, badgeA,
+ *              badgeB, userCount, null, screenshot2, timestamp, manifest, nameRepeat]
  *   data[5]  = Screenshots array: [[1, url], [1, url], ...]
  *   data[6]  = Full description text
  *   data[10] = Developer info: [email, null, null, null, 1, displayName, ..., developerId]
@@ -20,6 +20,12 @@
  *   data[27] = Browser min version
  *   data[33] = Privacy policy URL
  *   data[38] = Language codes array
+ *
+ * Featured badge detection:
+ *   card[12] and card[13] are both `1` for editorially "Featured" extensions
+ *   (verified against uBlock Origin fixture). card[12] alone is unreliable and
+ *   appears to be `1` for newly-published non-featured extensions too, which
+ *   caused false positives. Requiring both flags keeps the badge conservative.
  */
 
 import { extractCallbackData, safeGet } from './extract.js';
@@ -175,7 +181,7 @@ export const listingParserV1: ListingParser = {
       categoryId = typeof categoryArr[2] === 'number' ? categoryArr[2] : null;
     }
 
-    const isFeatured = card[12] === 1;
+    const isFeatured = card[12] === 1 && card[13] === 1;
 
     // Full description at data[6]
     const fullDescription = typeof data[6] === 'string' ? data[6] : '';
