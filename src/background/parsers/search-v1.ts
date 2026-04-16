@@ -19,8 +19,12 @@
  *   [6] = short description
  *   [7] = website URL or null
  *   [11] = category array ["category/subcategory", null, categoryId]
- *   [12] = featured flag (1 or 0)
+ *   [12] = badge flag A (1 or 0) — insufficient on its own for "Featured"
+ *   [13] = badge flag B (1 or 0) — required alongside [12] for "Featured"
  *   [14] = user count
+ *
+ * Featured badge: require both [12] and [13] to be 1. [12] alone flips on for
+ * many non-featured listings, producing false positives.
  */
 
 import { extractCallbackData, safeGet } from './extract.js';
@@ -50,7 +54,7 @@ function parseSearchCard(card: unknown[], position: number): SearchResultEntry |
     ? categoryArr[0]
     : null;
 
-  const isFeatured = card[12] === 1;
+  const isFeatured = card[12] === 1 && card[13] === 1;
 
   return {
     extensionId,

@@ -226,6 +226,53 @@ describe('searchParserV1', () => {
     });
   });
 
+  describe('featured flag', () => {
+    // Regression: requiring only card[12] === 1 flipped isFeatured=true for many
+    // non-featured extensions. Featured now requires both card[12] and card[13].
+    function buildSearchHtml(badgeA: number | null, badgeB: number | null): string {
+      const card = [
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        'https://icon.example/i.png',
+        'Test Extension',
+        0,
+        0,
+        'https://screenshot.example/s.png',
+        'A non-featured extension.',
+        null,
+        null,
+        null,
+        null,
+        ['productivity/tools', null, 10],
+        badgeA,
+        badgeB,
+        42,
+      ];
+      // data[0][0][0][5][0][0] must be an array of wrappers; each wrapper[0][0] = card.
+      const resultsWrapper = [[[card]]];
+      const payload = [
+        [[[null, null, null, null, null, [[resultsWrapper]]]]],
+        null,
+        [null, null, null, 1],
+      ];
+      return `AF_initDataCallback({key: 'ds:1', hash: '2', data:${JSON.stringify(payload)}});`;
+    }
+
+    it('is not featured when only badge flag A is set', () => {
+      const result = searchParserV1.parse(buildSearchHtml(1, 0));
+      expect(result.results[0].isFeatured).toBe(false);
+    });
+
+    it('is not featured when only badge flag B is set', () => {
+      const result = searchParserV1.parse(buildSearchHtml(0, 1));
+      expect(result.results[0].isFeatured).toBe(false);
+    });
+
+    it('is featured only when both badge flags are 1', () => {
+      const result = searchParserV1.parse(buildSearchHtml(1, 1));
+      expect(result.results[0].isFeatured).toBe(true);
+    });
+  });
+
   describe('edge cases', () => {
     it('throws ParserError for empty HTML', () => {
       expect(() => searchParserV1.parse('')).toThrow(ParserError);
