@@ -5,7 +5,7 @@ All notable changes to CWS Tracker will be documented in this file.
 ## [0.23.1] - 2026-04-16
 
 ### Fixed
-- Featured badge no longer appears for non-featured extensions on the Overview tab. The listing and search parsers now require both card[12] and card[13] to be `1` before flagging an extension as Featured — previously card[12] alone was trusted, which produced false positives for newly published or low-traffic extensions. On the next scheduled scan, affected projects will emit a single `badge_change` event reflecting the corrected flag.
+- Featured badge no longer appears for non-featured extensions on the Overview tab. The listing and search parsers now require both card[12] and card[13] to be `1` before flagging an extension as Featured — previously card[12] alone was trusted, which produced false positives for newly published or low-traffic extensions. On the next scheduled scan, each affected extension will emit one corrective `badge_change` event reflecting the flag transitioning from true to false.
 
 ## [0.23.0] - 2026-03-31
 
