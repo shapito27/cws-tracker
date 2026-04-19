@@ -2,20 +2,21 @@
  * Composable for loading listing snapshot history for own extensions.
  *
  * Used by the ExtensionsOverviewTable on the HomePage to show
- * daily user count and review count trends across all projects.
+ * user count and review count trends across all projects, either
+ * day-by-day (Daily) or week-by-week (Weekly).
  */
 
 import { ref, computed } from 'vue';
-import type { Extension, ListingSnapshot } from '@/shared/types';
+import type { ListingSnapshot } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { today, daysAgo } from '@/shared/utils/dates';
 import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
 
-/** A single day's data for one extension. */
+/** A single column's data for one extension. */
 export interface DayCell {
   users: number;
   reviews: number;
-  /** Delta vs previous day. null if no previous day data. */
+  /** Delta vs previous visible column. null if no previous data. */
   usersDelta: number | null;
   reviewsDelta: number | null;
 }
@@ -31,20 +32,28 @@ export interface ExtensionRow {
   days: Map<string, DayCell>;
 }
 
-export type DateRange = 7 | 14 | 30;
+export type StepMode = 'daily' | 'weekly';
+/** Total days in the visible window. Daily: 7/14/30. Weekly: 28/84/182. */
+export type RangeDays = 7 | 14 | 30 | 28 | 84 | 182;
+
+const DAILY_RANGES: RangeDays[] = [7, 14, 30];
+const WEEKLY_RANGES: RangeDays[] = [28, 84, 182];
 
 export function useExtensionSnapshots() {
   const rows = ref<ExtensionRow[]>([]);
   const loading = ref(false);
-  const dateRange = ref<DateRange>(7);
+  const step = ref<StepMode>('daily');
+  const rangeDays = ref<RangeDays>(7);
 
-  /** Sorted date strings for the selected range. */
+  const stepSize = computed<number>(() => (step.value === 'weekly' ? 7 : 1));
+
+  /** Sorted date strings for the selected range, oldest first, today last. */
   const dateColumns = computed<string[]>(() => {
     const dates: string[] = [];
-    for (let i = dateRange.value - 1; i >= 0; i--) {
+    for (let i = 0; i < rangeDays.value; i += stepSize.value) {
       dates.push(daysAgo(i));
     }
-    return dates;
+    return dates.reverse();
   });
 
   async function loadSnapshots(): Promise<void> {
@@ -56,7 +65,6 @@ export function useExtensionSnapshots() {
         return;
       }
 
-      // Collect unique own extension IDs with their project names and IDs
       const ownExtensions = new Map<string, { projectName: string; projectId: number }>();
       for (const project of projects) {
         if (!project.id) continue;
@@ -68,24 +76,29 @@ export function useExtensionSnapshots() {
         }
       }
 
-      const startDate = daysAgo(dateRange.value);
-      const endDate = today();
+      // Fetch one extra step beyond the visible window so the leftmost
+      // column has a snapshot to compute its delta against.
+      const currentStep = stepSize.value;
+      const fetchStart = daysAgo(rangeDays.value + currentStep - 1);
+      const fetchEnd = today();
+      const lastVisibleOffset =
+        Math.floor((rangeDays.value - 1) / currentStep) * currentStep;
+      const firstColumnFallbackDate = daysAgo(lastVisibleOffset + currentStep);
+
       const newRows: ExtensionRow[] = [];
 
       for (const [extId, { projectName, projectId }] of ownExtensions) {
         const ext = await db.getExtension(extId);
         if (!ext) continue;
 
-        const snapshots = await db.getListingSnapshots(extId, startDate, endDate);
+        const snapshots = await db.getListingSnapshots(extId, fetchStart, fetchEnd);
 
-        // Deduplicate: take latest snapshot per day
         const dedupedSnapshots = deduplicateByDate(snapshots);
         const byDate = new Map<string, ListingSnapshot>();
         for (const snap of dedupedSnapshots) {
           byDate.set(snap.date, snap);
         }
 
-        // Build day cells with deltas
         const days = new Map<string, DayCell>();
         const allDates = dateColumns.value;
 
@@ -94,15 +107,13 @@ export function useExtensionSnapshots() {
           const snap = byDate.get(date);
           if (!snap) continue;
 
-          // Find previous day's snapshot (look backwards through visible dates,
-          // then fall back to the day-before-range for the first column)
           let prevSnap: ListingSnapshot | undefined;
           for (let j = i - 1; j >= 0; j--) {
             prevSnap = byDate.get(allDates[j]);
             if (prevSnap) break;
           }
           if (!prevSnap) {
-            prevSnap = byDate.get(daysAgo(dateRange.value));
+            prevSnap = byDate.get(firstColumnFallbackDate);
           }
 
           days.set(date, {
@@ -138,17 +149,38 @@ export function useExtensionSnapshots() {
     }
   }
 
-  async function setDateRange(range: DateRange): Promise<void> {
-    dateRange.value = range;
+  async function setRangeDays(next: RangeDays): Promise<void> {
+    const valid = step.value === 'daily' ? DAILY_RANGES : WEEKLY_RANGES;
+    if (!valid.includes(next)) {
+      console.warn(
+        `setRangeDays(${next}) ignored: not valid for step='${step.value}'`
+      );
+      return;
+    }
+    rangeDays.value = next;
+    await loadSnapshots();
+  }
+
+  async function setStep(next: StepMode): Promise<void> {
+    if (next === step.value) return;
+    // Preserve range "position" (index 0/1/2) across step change.
+    const current = step.value === 'daily' ? DAILY_RANGES : WEEKLY_RANGES;
+    const target = next === 'daily' ? DAILY_RANGES : WEEKLY_RANGES;
+    const idx = Math.max(0, current.indexOf(rangeDays.value));
+    rangeDays.value = target[idx];
+    step.value = next;
     await loadSnapshots();
   }
 
   return {
     rows,
     loading,
-    dateRange,
+    step,
+    rangeDays,
+    stepSize,
     dateColumns,
     loadSnapshots,
-    setDateRange,
+    setStep,
+    setRangeDays,
   };
 }
