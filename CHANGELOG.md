@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.24.0] - 2026-04-19
+
+### Added
+- Extensions Overview table now has a Daily/Weekly step toggle. In Weekly mode, columns are spaced 7 days apart and deltas show week-over-week change. The range options swap from `7d / 14d / 30d` to `4w / 12w / 26w` to match. Toggling Daily↔Weekly preserves the range "position" (e.g., 30d ↔ 26w).
+
 ## [0.23.1] - 2026-04-16
 
 ### Fixed

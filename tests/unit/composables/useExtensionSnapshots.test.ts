@@ -511,17 +511,17 @@ describe('useExtensionSnapshots', () => {
         updatedAt: now,
       });
 
-      const { dateColumns, setDateRange } = useExtensionSnapshots();
+      const { dateColumns, setRangeDays } = useExtensionSnapshots();
       expect(dateColumns.value).toHaveLength(7);
 
-      await setDateRange(14);
+      await setRangeDays(14);
       expect(dateColumns.value).toHaveLength(14);
       expect(dateColumns.value[0]).toBe(daysAgo(13));
       expect(dateColumns.value[13]).toBe(today());
     });
   });
 
-  describe('setDateRange', () => {
+  describe('setRangeDays', () => {
     it('updates date range and reloads data', async () => {
       const now = new Date();
       await db.saveExtension({
@@ -547,17 +547,157 @@ describe('useExtensionSnapshots', () => {
         makeSnapshot(EXT_ID_1, daysAgo(20), { userCountNumeric: 500 }) as ListingSnapshot
       );
 
-      const { rows, dateRange, loadSnapshots, setDateRange } = useExtensionSnapshots();
+      const { rows, rangeDays, loadSnapshots, setRangeDays } = useExtensionSnapshots();
 
       await loadSnapshots();
       const row7 = rows.value[0];
       expect(row7?.days.get(daysAgo(20))).toBeUndefined();
 
-      await setDateRange(30);
-      expect(dateRange.value).toBe(30);
+      await setRangeDays(30);
+      expect(rangeDays.value).toBe(30);
       const row30 = rows.value[0];
       expect(row30?.days.get(daysAgo(20))).toBeDefined();
       expect(row30!.days.get(daysAgo(20))!.users).toBe(500);
+    });
+  });
+
+  describe('setStep (Daily/Weekly toggle)', () => {
+    async function seedExtension(): Promise<void> {
+      const now = new Date();
+      await db.saveExtension({
+        id: EXT_ID_1,
+        name: 'Test Ext',
+        iconUrl: null,
+        addedAt: now,
+        lastScannedAt: null,
+        status: 'active',
+        projectRefs: [1],
+      });
+      await db.saveProject({
+        name: 'Project',
+        ownExtensionId: EXT_ID_1,
+        competitorIds: [],
+        keywordIds: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+
+    it('defaults to daily mode with 7-day range', () => {
+      const { step, rangeDays, dateColumns } = useExtensionSnapshots();
+      expect(step.value).toBe('daily');
+      expect(rangeDays.value).toBe(7);
+      expect(dateColumns.value).toHaveLength(7);
+    });
+
+    it('switching to weekly from default produces 4 weekly columns', async () => {
+      await seedExtension();
+      const { step, rangeDays, dateColumns, setStep } = useExtensionSnapshots();
+
+      await setStep('weekly');
+
+      expect(step.value).toBe('weekly');
+      expect(rangeDays.value).toBe(28);
+      expect(dateColumns.value).toHaveLength(4);
+      expect(dateColumns.value[0]).toBe(daysAgo(21));
+      expect(dateColumns.value[1]).toBe(daysAgo(14));
+      expect(dateColumns.value[2]).toBe(daysAgo(7));
+      expect(dateColumns.value[3]).toBe(today());
+    });
+
+    it('preserves range "position" when toggling Daily -> Weekly', async () => {
+      await seedExtension();
+      const { rangeDays, setRangeDays, setStep } = useExtensionSnapshots();
+
+      await setRangeDays(30);
+      await setStep('weekly');
+      expect(rangeDays.value).toBe(182);
+    });
+
+    it('preserves range "position" when toggling Weekly -> Daily', async () => {
+      await seedExtension();
+      const { rangeDays, setRangeDays, setStep } = useExtensionSnapshots();
+
+      await setStep('weekly');
+      await setRangeDays(84);
+      await setStep('daily');
+      expect(rangeDays.value).toBe(14);
+    });
+
+    it('renders 26 weekly columns at the longest range', async () => {
+      await seedExtension();
+      const { dateColumns, setStep, setRangeDays } = useExtensionSnapshots();
+
+      await setStep('weekly');
+      await setRangeDays(182);
+
+      expect(dateColumns.value).toHaveLength(26);
+      expect(dateColumns.value[25]).toBe(today());
+      expect(dateColumns.value[0]).toBe(daysAgo(175));
+    });
+
+    it('computes week-over-week deltas from the previous visible column', async () => {
+      await seedExtension();
+
+      // Snapshots exactly 7 days apart so each weekly column has data.
+      await db.saveListingSnapshot(
+        makeSnapshot(EXT_ID_1, daysAgo(21), { userCountNumeric: 1000, reviewCount: 50 }) as ListingSnapshot
+      );
+      await db.saveListingSnapshot(
+        makeSnapshot(EXT_ID_1, daysAgo(14), { userCountNumeric: 1100, reviewCount: 55 }) as ListingSnapshot
+      );
+      await db.saveListingSnapshot(
+        makeSnapshot(EXT_ID_1, daysAgo(7), { userCountNumeric: 1300, reviewCount: 60 }) as ListingSnapshot
+      );
+      await db.saveListingSnapshot(
+        makeSnapshot(EXT_ID_1, today(), { userCountNumeric: 1500, reviewCount: 70 }) as ListingSnapshot
+      );
+
+      const { rows, setStep, loadSnapshots } = useExtensionSnapshots();
+      await setStep('weekly');
+      await loadSnapshots();
+
+      const row = rows.value[0];
+      // Rightmost column: today vs 7d ago
+      const todayCell = row.days.get(today());
+      expect(todayCell).toBeDefined();
+      expect(todayCell!.usersDelta).toBe(200);
+      expect(todayCell!.reviewsDelta).toBe(10);
+
+      // Middle column: 7d ago vs 14d ago
+      const week1Cell = row.days.get(daysAgo(7));
+      expect(week1Cell!.usersDelta).toBe(200);
+      expect(week1Cell!.reviewsDelta).toBe(5);
+    });
+
+    it('uses buffer snapshot for leftmost-column delta in weekly mode', async () => {
+      await seedExtension();
+
+      // Buffer snapshot 28 days ago (one week before the leftmost visible column at 21d)
+      await db.saveListingSnapshot(
+        makeSnapshot(EXT_ID_1, daysAgo(28), { userCountNumeric: 800, reviewCount: 40 }) as ListingSnapshot
+      );
+      await db.saveListingSnapshot(
+        makeSnapshot(EXT_ID_1, daysAgo(21), { userCountNumeric: 1000, reviewCount: 50 }) as ListingSnapshot
+      );
+
+      const { rows, setStep, loadSnapshots } = useExtensionSnapshots();
+      await setStep('weekly');
+      await loadSnapshots();
+
+      const cell = rows.value[0].days.get(daysAgo(21));
+      expect(cell).toBeDefined();
+      expect(cell!.usersDelta).toBe(200);
+      expect(cell!.reviewsDelta).toBe(10);
+    });
+
+    it('is a no-op when switching to the current step', async () => {
+      await seedExtension();
+      const { step, rangeDays, setStep } = useExtensionSnapshots();
+
+      await setStep('daily');
+      expect(step.value).toBe('daily');
+      expect(rangeDays.value).toBe(7);
     });
   });
 });
