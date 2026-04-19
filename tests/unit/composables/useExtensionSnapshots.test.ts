@@ -694,10 +694,61 @@ describe('useExtensionSnapshots', () => {
     it('is a no-op when switching to the current step', async () => {
       await seedExtension();
       const { step, rangeDays, setStep } = useExtensionSnapshots();
+      const spy = vi.spyOn(db, 'getAllProjects');
 
       await setStep('daily');
+
       expect(step.value).toBe('daily');
       expect(rangeDays.value).toBe(7);
+      expect(spy).not.toHaveBeenCalled();
+      spy.mockRestore();
+    });
+  });
+
+  describe('setRangeDays cross-mode guard', () => {
+    it('ignores a daily range value when in weekly mode', async () => {
+      const now = new Date();
+      await db.saveExtension({
+        id: EXT_ID_1,
+        name: 'Test',
+        iconUrl: null,
+        addedAt: now,
+        lastScannedAt: null,
+        status: 'active',
+        projectRefs: [1],
+      });
+      await db.saveProject({
+        name: 'Project',
+        ownExtensionId: EXT_ID_1,
+        competitorIds: [],
+        keywordIds: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { rangeDays, setStep, setRangeDays } = useExtensionSnapshots();
+
+      await setStep('weekly');
+      expect(rangeDays.value).toBe(28);
+
+      // 14 is a daily range — should be rejected in weekly mode.
+      await setRangeDays(14);
+      expect(rangeDays.value).toBe(28);
+      expect(warnSpy).toHaveBeenCalled();
+
+      warnSpy.mockRestore();
+    });
+
+    it('ignores a weekly range value when in daily mode', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { rangeDays, setRangeDays } = useExtensionSnapshots();
+
+      await setRangeDays(84);
+      expect(rangeDays.value).toBe(7);
+      expect(warnSpy).toHaveBeenCalled();
+
+      warnSpy.mockRestore();
     });
   });
 });
