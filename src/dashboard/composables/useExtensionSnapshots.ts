@@ -150,6 +150,13 @@ export function useExtensionSnapshots() {
   }
 
   async function setRangeDays(next: RangeDays): Promise<void> {
+    const valid = step.value === 'daily' ? DAILY_RANGES : WEEKLY_RANGES;
+    if (!valid.includes(next)) {
+      console.warn(
+        `setRangeDays(${next}) ignored: not valid for step='${step.value}'`
+      );
+      return;
+    }
     rangeDays.value = next;
     await loadSnapshots();
   }
