@@ -2,7 +2,8 @@
 import { onMounted, computed } from 'vue';
 import {
   useExtensionSnapshots,
-  type DateRange,
+  type RangeDays,
+  type StepMode,
   type DayCell,
   type ExtensionRow,
 } from '../../composables/useExtensionSnapshots';
@@ -10,19 +11,34 @@ import {
 const {
   rows,
   loading,
-  dateRange,
+  step,
+  rangeDays,
   dateColumns,
   loadSnapshots,
-  setDateRange,
+  setStep,
+  setRangeDays,
 } = useExtensionSnapshots();
 
 onMounted(loadSnapshots);
 
-const rangeOptions: { label: string; value: DateRange }[] = [
-  { label: '7d', value: 7 },
-  { label: '14d', value: 14 },
-  { label: '30d', value: 30 },
+const stepOptions: { label: string; value: StepMode }[] = [
+  { label: 'Daily', value: 'daily' },
+  { label: 'Weekly', value: 'weekly' },
 ];
+
+const rangeOptions = computed<{ label: string; value: RangeDays }[]>(() =>
+  step.value === 'daily'
+    ? [
+        { label: '7d', value: 7 },
+        { label: '14d', value: 14 },
+        { label: '30d', value: 30 },
+      ]
+    : [
+        { label: '4w', value: 28 },
+        { label: '12w', value: 84 },
+        { label: '26w', value: 182 },
+      ]
+);
 
 /** Threshold for highlighting a cell as "significant change". */
 const SIGNIFICANCE_THRESHOLD = 0.1;
@@ -173,22 +189,39 @@ function formatDateHeader(dateStr: string): string {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
       <h2 class="text-lg font-semibold text-gray-900">Extensions Overview</h2>
-      <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
-        <button
-          v-for="opt in rangeOptions"
-          :key="opt.value"
-          :aria-label="`Show ${opt.label} of data`"
-          :aria-pressed="dateRange === opt.value"
-          class="rounded-md px-3 py-1 text-xs font-medium transition-colors"
-          :class="dateRange === opt.value
-            ? 'bg-blue-600 text-white'
-            : 'text-gray-600 hover:bg-gray-100'"
-          @click="setDateRange(opt.value)"
-        >
-          {{ opt.label }}
-        </button>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
+          <button
+            v-for="opt in stepOptions"
+            :key="opt.value"
+            :aria-label="`Show ${opt.label.toLowerCase()} columns`"
+            :aria-pressed="step === opt.value"
+            class="rounded-md px-3 py-1 text-xs font-medium transition-colors"
+            :class="step === opt.value
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-600 hover:bg-gray-100'"
+            @click="setStep(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
+        <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
+          <button
+            v-for="opt in rangeOptions"
+            :key="opt.value"
+            :aria-label="`Show ${opt.label} of data`"
+            :aria-pressed="rangeDays === opt.value"
+            class="rounded-md px-3 py-1 text-xs font-medium transition-colors"
+            :class="rangeDays === opt.value
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-600 hover:bg-gray-100'"
+            @click="setRangeDays(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
       </div>
     </div>
 
