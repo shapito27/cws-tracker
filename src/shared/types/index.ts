@@ -21,6 +21,7 @@ export type {
   CancelScanMessage,
   ServiceWorkerMessage,
   DashboardMessage,
+  ScanType,
 } from './messages';
 
 export type { Settings, SubscriptionStatus, AuditPromptVariant } from './settings';

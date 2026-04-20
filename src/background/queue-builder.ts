@@ -95,6 +95,26 @@ export function buildDailyScanJobs(
   return jobs;
 }
 
+/**
+ * Build only keyword_scan jobs for the given keywords.
+ * Used for section-scoped manual refresh (e.g. "rescan keyword positions
+ * for this project").
+ */
+export function buildKeywordScanJobs(keywords: Keyword[]): QueueJob[] {
+  const now = new Date();
+  return keywords.map((k) => createKeywordScanJob(k, now));
+}
+
+/**
+ * Build only autocomplete_scan jobs for the given keywords.
+ * Used for section-scoped manual refresh (e.g. "rescan AC positions
+ * for this project").
+ */
+export function buildAutocompleteScanJobs(keywords: Keyword[]): QueueJob[] {
+  const now = new Date();
+  return keywords.map((k) => createAutocompleteScanJob(k, now));
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

@@ -86,7 +86,7 @@ async function handleMessage(
 ): Promise<{ ok: boolean; [key: string]: unknown }> {
   switch (message.type) {
     case 'TRIGGER_REFRESH':
-      await triggerManualRefresh(message.projectId);
+      await triggerManualRefresh(message.projectId, message.scanType ?? 'full');
       return { ok: true };
 
     case 'PAUSE_SCAN':

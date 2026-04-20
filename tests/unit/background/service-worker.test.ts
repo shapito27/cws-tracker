@@ -182,7 +182,7 @@ describe('Service Worker Entry Point', () => {
       });
 
       await vi.waitFor(() => {
-        expect(mockTriggerManualRefresh).toHaveBeenCalledWith(42);
+        expect(mockTriggerManualRefresh).toHaveBeenCalledWith(42, 'full');
       });
       expect(response).toEqual({ ok: true });
     });

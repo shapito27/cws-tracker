@@ -373,7 +373,7 @@ describe('Scheduler', () => {
       ]);
 
       const deps = createSchedulerDeps();
-      await triggerManualRefresh(undefined, deps);
+      await triggerManualRefresh(undefined, 'full', deps);
 
       // Old pending job should be gone, new ones created
       const jobs = await testDb.queue.toArray();
@@ -396,7 +396,7 @@ describe('Scheduler', () => {
 
       const deps = createSchedulerDeps();
       const beforeTime = Date.now();
-      await triggerManualRefresh(undefined, deps);
+      await triggerManualRefresh(undefined, 'full', deps);
 
       // chrome.runtime.sendMessage should have been called with nextProcessingAt
       const sendCalls = getCalls('runtime.sendMessage');
@@ -419,13 +419,72 @@ describe('Scheduler', () => {
       await seedProject();
 
       const deps = createSchedulerDeps();
-      await triggerManualRefresh(undefined, deps);
+      await triggerManualRefresh(undefined, 'full', deps);
 
       const alarmCalls = getCalls('alarms.create');
       const processQueueAlarm = alarmCalls.find(
         (c) => c.args[0] === 'processQueue'
       );
       expect(processQueueAlarm).toBeDefined();
+    });
+
+    it('scanType="keywords" enqueues only keyword_scan jobs for the project', async () => {
+      const { triggerManualRefresh } = await import('@/background/scheduler');
+
+      await seedProject();
+
+      const deps = createSchedulerDeps();
+      await triggerManualRefresh(1, 'keywords', deps);
+
+      const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pendingJobs.length).toBeGreaterThan(0);
+      expect(pendingJobs.every((j) => j.type === 'keyword_scan')).toBe(true);
+    });
+
+    it('scanType="autocomplete" enqueues only autocomplete_scan jobs for the project', async () => {
+      const { triggerManualRefresh } = await import('@/background/scheduler');
+
+      await seedProject();
+
+      const deps = createSchedulerDeps();
+      await triggerManualRefresh(1, 'autocomplete', deps);
+
+      const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pendingJobs.length).toBeGreaterThan(0);
+      expect(pendingJobs.every((j) => j.type === 'autocomplete_scan')).toBe(true);
+    });
+
+    it('scanType filters keywords by projectId so other projects are not scanned', async () => {
+      const { triggerManualRefresh } = await import('@/background/scheduler');
+
+      // Seed project 1 with a keyword
+      await seedProject();
+
+      // Seed project 2 with its own keyword
+      await testDb.saveProject({
+        id: 2,
+        name: 'Other Project',
+        ownExtensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        competitorIds: [],
+        keywordIds: [2],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      await testDb.saveKeyword({
+        id: 2,
+        text: 'privacy tool',
+        projectId: 2,
+        createdAt: new Date(),
+      });
+
+      const deps = createSchedulerDeps();
+      await triggerManualRefresh(1, 'keywords', deps);
+
+      const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
+      // Only keyword 1 (project 1) should be enqueued, not keyword 2
+      expect(pendingJobs).toHaveLength(1);
+      expect(pendingJobs[0].type).toBe('keyword_scan');
+      expect((pendingJobs[0].payload as { keywordId: number }).keywordId).toBe(1);
     });
   });
 
