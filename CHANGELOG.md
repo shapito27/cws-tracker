@@ -2,15 +2,19 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
-## [0.25.2] - 2026-04-20
+## [0.26.1] - 2026-04-20
 
 ### Fixed
-- Logs page daily stats chart: legend items (Info, Warnings, Errors, Avg duration) now render on a single row instead of wrapping to two lines, via tighter item spacing and a `nowrap` rule on the legend container.
+- Logs page daily stats chart:
+  - Error and warning columns were visually swamped by the info column on busy days. A compact text label (e.g., `2 err · 5 warn`) now appears above each day's bar whenever errors or warnings are non-zero, so small counts are readable regardless of scale.
+  - The avg-duration line no longer dips to 0ms on zero-request days — it emits a gap instead.
+  - Legend items (Info, Warnings, Errors, Avg duration) now render on a single row instead of wrapping to two lines, via tighter item spacing and a `nowrap` rule on the legend container.
 
-## [0.25.1] - 2026-04-20
+## [0.26.0] - 2026-04-20
 
-### Fixed
-- Logs page daily stats chart: error and warning columns were visually swamped by the info column on busy days. Now a compact text label (e.g., `2 err · 5 warn`) appears above each day's bar whenever errors or warnings are non-zero, so small counts are readable regardless of scale. The avg-duration line now also skips (rather than dipping to 0ms on) days with zero requests.
+### Added
+- Section-scoped `Scan` buttons next to the `Keyword Positions` and `AC Positions` tables on the project Overview tab. Clicking `Scan` next to `Keyword Positions` enqueues only `keyword_scan` jobs for the project's keywords; clicking `Scan` next to `AC Positions` enqueues only `autocomplete_scan` jobs. Useful for targeted rescans without paying the cost of a full listing + keyword + autocomplete scan. Buttons are disabled while any scan is running to preserve the single-queue model.
+- `TRIGGER_REFRESH` message accepts an optional `scanType: 'full' | 'keywords' | 'autocomplete'` field (default `'full'`, backward compatible).
 
 ## [0.25.0] - 2026-04-20
 
