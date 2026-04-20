@@ -16,6 +16,26 @@ const props = withDefaults(defineProps<{
   showDate: true,
 });
 
+/**
+ * Link target for the extension name.
+ * - Competitors (isOwn=false) with a projectId → competitor overview page.
+ * - Own extensions with linkToProject=true → project overview page.
+ * - Otherwise → static text.
+ */
+const linkTarget = computed(() => {
+  const rc = props.rankChange;
+  if (!rc.isOwn && rc.projectId != null) {
+    return {
+      name: 'competitorExtension',
+      params: { id: String(rc.projectId), extId: rc.extensionId },
+    };
+  }
+  if (props.linkToProject && rc.projectId != null) {
+    return { name: 'project', params: { id: String(rc.projectId) } };
+  }
+  return null;
+});
+
 function formatPosition(rc: RankChange, position: number | null): string {
   if (rc.type === 'autocomplete') {
     return position === null ? '—' : `#${position}`;
@@ -56,8 +76,8 @@ function isOut(rc: RankChange): boolean {
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-1.5">
         <router-link
-          v-if="linkToProject && rankChange.projectId"
-          :to="{ name: 'project', params: { id: String(rankChange.projectId) } }"
+          v-if="linkTarget"
+          :to="linkTarget"
           class="text-sm font-medium text-gray-900 truncate hover:text-blue-600 hover:underline"
         >{{ rankChange.extensionName }}</router-link>
         <span v-else class="text-sm font-medium text-gray-900 truncate">{{ rankChange.extensionName }}</span>
