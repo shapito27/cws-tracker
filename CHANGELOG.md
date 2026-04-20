@@ -2,11 +2,16 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
-## [0.25.0] - 2026-04-20
+## [0.26.0] - 2026-04-20
 
 ### Added
 - Section-scoped `Scan` buttons next to the `Keyword Positions` and `AC Positions` tables on the project Overview tab. Clicking `Scan` next to `Keyword Positions` enqueues only `keyword_scan` jobs for the project's keywords; clicking `Scan` next to `AC Positions` enqueues only `autocomplete_scan` jobs. Useful for targeted rescans without paying the cost of a full listing + keyword + autocomplete scan. Buttons are disabled while any scan is running to preserve the single-queue model.
 - `TRIGGER_REFRESH` message accepts an optional `scanType: 'full' | 'keywords' | 'autocomplete'` field (default `'full'`, backward compatible).
+
+## [0.25.0] - 2026-04-20
+
+### Added
+- Logs page: daily request stats chart at the top of the page. A stacked-column + line mixed chart summarizes the last 7 days — per-day counts of info/warnings/errors alongside the average request duration on a secondary axis — so day-over-day trends and latency/error correlations are visible at a glance before drilling into individual log rows.
 
 ## [0.24.0] - 2026-04-19
 

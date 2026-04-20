@@ -2,6 +2,7 @@
 import { onMounted, ref, computed } from 'vue';
 import type { SavedScanLog } from '../composables/useScanLogs';
 import { useScanLogs } from '../composables/useScanLogs';
+import RequestStatsChart from '../components/charts/RequestStatsChart.vue';
 
 const {
   loading,
@@ -11,6 +12,7 @@ const {
   jobTypes,
   filteredLogs,
   stats,
+  weeklyStats,
   loadLogs,
 } = useScanLogs();
 
@@ -170,6 +172,11 @@ const groupedLogs = computed<LogGroup[]>(() => {
     <div class="mb-6">
       <h1 class="text-2xl font-bold text-gray-900">Scan Logs</h1>
       <p class="mt-1 text-sm text-gray-500">Request history for the last 7 days</p>
+    </div>
+
+    <!-- Daily stats chart -->
+    <div v-if="!loading" class="mb-4">
+      <RequestStatsChart :stats="weeklyStats" />
     </div>
 
     <!-- Filters + Refresh -->
