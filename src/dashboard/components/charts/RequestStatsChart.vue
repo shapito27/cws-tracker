@@ -35,10 +35,13 @@ const chartSeries = computed(() => [
   {
     name: 'Avg duration (ms)',
     type: 'line' as const,
-    data: props.stats.map((d) => ({
-      x: new Date(d.date + 'T00:00:00Z').getTime(),
-      y: d.avgDurationMs,
-    })),
+    data: props.stats.map((d) => {
+      const hasRequests = d.infoCount + d.warnCount + d.errorCount > 0;
+      return {
+        x: new Date(d.date + 'T00:00:00Z').getTime(),
+        y: hasRequests ? d.avgDurationMs : null,
+      };
+    }),
   },
 ]);
 
@@ -101,6 +104,22 @@ const chartOptions = computed(() => ({
     bar: {
       columnWidth: '55%',
       borderRadius: 2,
+      dataLabels: {
+        total: {
+          enabled: true,
+          offsetY: -4,
+          style: { fontSize: '10px', fontWeight: 600, color: '#374151' },
+          formatter: (_val: unknown, opts: { dataPointIndex: number; w: { globals: { series: number[][] } } }) => {
+            const idx = opts.dataPointIndex;
+            const warn = opts.w.globals.series[1]?.[idx] ?? 0;
+            const err = opts.w.globals.series[2]?.[idx] ?? 0;
+            const parts: string[] = [];
+            if (err > 0) parts.push(`${err} err`);
+            if (warn > 0) parts.push(`${warn} warn`);
+            return parts.length > 0 ? parts.join(' · ') : '';
+          },
+        },
+      },
     },
   },
   dataLabels: { enabled: false },
