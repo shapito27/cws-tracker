@@ -10,6 +10,14 @@ All notable changes to CWS Tracker will be documented in this file.
 ### Changed
 - Renamed composables for clarity now that they support any extension id, not only the user's own: `loadOwnExtensionRankHistory` → `loadExtensionRankHistory`, `loadOwnExtensionAutocompleteHistory` → `loadExtensionAutocompleteHistory`. `KeywordPositionTable` and `AcPositionTable` prop `ownExtensionId` renamed to `extensionId`.
 
+## [0.26.1] - 2026-04-20
+
+### Fixed
+- Logs page daily stats chart:
+  - Error and warning columns were visually swamped by the info column on busy days. A compact text label (e.g., `2 err · 5 warn`) now appears above each day's bar whenever errors or warnings are non-zero, so small counts are readable regardless of scale.
+  - The avg-duration line no longer dips to 0ms on zero-request days — it emits a gap instead.
+  - Legend items (Info, Warnings, Errors, Avg duration) now render on a single row instead of wrapping to two lines, via tighter item spacing and a `nowrap` rule on the legend container.
+
 ## [0.26.0] - 2026-04-20
 
 ### Added
