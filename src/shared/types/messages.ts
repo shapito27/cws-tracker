@@ -13,6 +13,15 @@ import type { EventRecord } from './index';
 // Service Worker → Dashboard / Popup
 // ---------------------------------------------------------------------------
 
+/**
+ * Lifecycle phase reported by SCAN_PROGRESS.
+ * - 'queued'     : jobs enqueued, waiting for the initial processQueue alarm.
+ * - 'running'    : a job is actively being fetched/parsed right now.
+ * - 'waiting'    : a job just finished; queue idle until the next alarm fires.
+ * - 'completing' : the final job has completed; SCAN_COMPLETE is imminent.
+ */
+export type ScanPhase = 'queued' | 'running' | 'waiting' | 'completing';
+
 /** Periodic progress update during a scan cycle. */
 export interface ScanProgressMessage {
   type: 'SCAN_PROGRESS';
@@ -24,6 +33,8 @@ export interface ScanProgressMessage {
   currentJob: string;
   /** ISO timestamp of when the next job will be processed (from chrome.alarms delay). */
   nextProcessingAt?: string;
+  /** Lifecycle phase. Optional for backward compat — consumers default to 'running'. */
+  phase?: ScanPhase;
 }
 
 /** Sent when all queued jobs have been processed. */
