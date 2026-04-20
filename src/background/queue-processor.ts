@@ -286,10 +286,15 @@ export async function processNextJob(
     return { hasMore: false, delayMs: 0 };
   }
 
+  // Read the scan cycle start so stats only count jobs from the current cycle
+  // (completed jobs from prior cycles are retained for 7d in the queue table).
+  const cycleStartedAtIso = await deps.settings.get('scanCycleStartedAt');
+  const cycleStartedAt = cycleStartedAtIso ? new Date(cycleStartedAtIso) : null;
+
   // Broadcast 'running' phase BEFORE executing so the UI reflects liveness
   // during the multi-second CWS fetch (not just after completion).
   try {
-    const preStats = await db.getQueueStats();
+    const preStats = await db.getQueueStats(cycleStartedAt);
     const runningMessage: ScanProgressMessage = {
       type: 'SCAN_PROGRESS',
       completed: preStats.completed,
@@ -308,7 +313,7 @@ export async function processNextJob(
     await db.updateJobStatus(job.id!, 'completed');
 
     // Send progress message
-    const stats = await db.getQueueStats();
+    const stats = await db.getQueueStats(cycleStartedAt);
     const delayMs = await calculateNormalDelay(deps.settings);
     const hasPending = (await db.getPendingCount()) > 0;
 
