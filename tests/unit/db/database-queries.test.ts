@@ -693,6 +693,63 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
       });
     });
 
+    it('getQueueStats with cycleStartedAt only counts completed/failed jobs from this cycle', async () => {
+      const priorCycle = new Date('2026-04-10T00:00:00Z');
+      const currentCycle = new Date('2026-04-20T09:00:00Z');
+      const withinCurrent = new Date('2026-04-20T09:30:00Z');
+
+      await db.enqueueJobs([
+        // Leftovers from a prior scan cycle (still within the 7d retention window)
+        makeQueueJob({ status: 'completed', completedAt: priorCycle }),
+        makeQueueJob({ status: 'completed', completedAt: priorCycle }),
+        makeQueueJob({ status: 'failed', completedAt: priorCycle }),
+        // From the current cycle
+        makeQueueJob({ status: 'completed', completedAt: withinCurrent }),
+        makeQueueJob({ status: 'failed', completedAt: withinCurrent }),
+        // In-progress jobs are always counted regardless of cycle
+        makeQueueJob({ status: 'pending' }),
+        makeQueueJob({ status: 'running' }),
+      ]);
+
+      const stats = await db.getQueueStats(currentCycle);
+      expect(stats).toEqual({
+        pending: 1,
+        running: 1,
+        completed: 1,
+        failed: 1,
+      });
+    });
+
+    it('getQueueStats with cycleStartedAt excludes completed jobs missing completedAt', async () => {
+      const currentCycle = new Date('2026-04-20T09:00:00Z');
+      await db.enqueueJobs([
+        // Malformed leftover: completed status but no timestamp
+        makeQueueJob({ status: 'completed', completedAt: null }),
+        // Proper current-cycle job
+        makeQueueJob({
+          status: 'completed',
+          completedAt: new Date('2026-04-20T09:30:00Z'),
+        }),
+      ]);
+      const stats = await db.getQueueStats(currentCycle);
+      expect(stats.completed).toBe(1);
+    });
+
+    it('getQueueStats with null cycleStartedAt falls back to global counts', async () => {
+      await db.enqueueJobs([
+        makeQueueJob({
+          status: 'completed',
+          completedAt: new Date('2026-04-10T00:00:00Z'),
+        }),
+        makeQueueJob({
+          status: 'completed',
+          completedAt: new Date('2026-04-20T00:00:00Z'),
+        }),
+      ]);
+      const stats = await db.getQueueStats(null);
+      expect(stats.completed).toBe(2);
+    });
+
     it('cleanupOldJobs deletes completed jobs older than threshold', async () => {
       await db.enqueueJobs([
         makeQueueJob({
