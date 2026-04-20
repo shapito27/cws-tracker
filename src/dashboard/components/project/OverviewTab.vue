@@ -12,8 +12,8 @@ import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
 import { useSettings } from '../../composables/useSettings';
-import { loadOwnExtensionRankHistory } from '../../composables/useRankings';
-import { loadOwnExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
+import { loadExtensionRankHistory } from '../../composables/useRankings';
+import { loadExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
 import { daysAgo, today } from '@/shared/utils/dates';
 import ListingEventItem from '../ListingEventItem.vue';
 import RankChangeItem from '../RankChangeItem.vue';
@@ -76,13 +76,13 @@ onMounted(async () => {
     keywords.value = await db.getKeywordsByProject(props.project.id);
     if (keywords.value.length > 0) {
       const [rankSeries, acSeries] = await Promise.all([
-        loadOwnExtensionRankHistory(
+        loadExtensionRankHistory(
           keywords.value,
           props.project.ownExtensionId,
           daysAgo(30),
           today()
         ),
-        loadOwnExtensionAutocompleteHistory(
+        loadExtensionAutocompleteHistory(
           keywords.value,
           props.project.ownExtensionId,
           daysAgo(30),
@@ -451,7 +451,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
     <div v-if="keywords.length > 0" class="mb-8">
       <KeywordPositionTable
         :keywords="keywords"
-        :own-extension-id="project.ownExtensionId"
+        :extension-id="project.ownExtensionId"
         :project-id="project.id"
       />
     </div>
@@ -460,7 +460,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
     <div v-if="keywords.length > 0" class="mb-8">
       <AcPositionTable
         :keywords="keywords"
-        :own-extension-id="project.ownExtensionId"
+        :extension-id="project.ownExtensionId"
         :project-id="project.id"
       />
     </div>
@@ -486,6 +486,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
               :extension-name="getExtensionName((item.data as EventRecord).extensionId)"
               :extension-icon-url="getExtensionIconUrl((item.data as EventRecord).extensionId)"
               :is-own="isOwnExtension((item.data as EventRecord).extensionId)"
+              :project-id="project.id ?? null"
               :formatted-time="formatEventTime(item.data as EventRecord)"
             />
           </template>

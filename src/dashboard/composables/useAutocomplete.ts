@@ -119,12 +119,12 @@ export async function loadAutocompleteHistory(
 }
 
 /**
- * Load autocomplete position history for ALL keywords for a single extension
- * (the user's own). Returns one series per keyword.
+ * Load autocomplete position history for ALL keywords for a single extension.
+ * Returns one series per keyword.
  */
-export async function loadOwnExtensionAutocompleteHistory(
+export async function loadExtensionAutocompleteHistory(
   keywords: Keyword[],
-  ownExtensionId: string,
+  extensionId: string,
   startDate: string,
   endDate: string
 ): Promise<AutocompleteChartSeries[]> {
@@ -132,7 +132,7 @@ export async function loadOwnExtensionAutocompleteHistory(
 
   const snapshotsArray = await Promise.all(
     withId.map((kw) =>
-      db.getAutocompleteSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+      db.getAutocompleteSnapshots(kw.id!, extensionId, startDate, endDate)
     )
   );
 
@@ -155,7 +155,7 @@ export async function loadOwnExtensionAutocompleteHistory(
 
     series.push({
       name: kw.text,
-      extensionId: ownExtensionId,
+      extensionId,
       // iconUrl intentionally omitted: keyword-per-line mode shows no icon in legend
       data: sorted.map((s) => ({ x: s.date, y: s.position })),
     });
@@ -240,12 +240,12 @@ export interface AcPositionRow {
 }
 
 /**
- * Load AC position table data for the user's own extension.
+ * Load AC position table data for a single extension.
  * Returns per-day AC position and delta for each keyword over the given range.
  */
 export async function loadKeywordAcPositionTable(
   keywords: Keyword[],
-  ownExtensionId: string,
+  extensionId: string,
   rangeDays: number
 ): Promise<AcPositionRow[]> {
   const withId = keywords.filter((kw) => kw.id !== undefined);
@@ -254,7 +254,7 @@ export async function loadKeywordAcPositionTable(
 
   const snapshotsArray = await Promise.all(
     withId.map((kw) =>
-      db.getAutocompleteSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+      db.getAutocompleteSnapshots(kw.id!, extensionId, startDate, endDate)
     )
   );
 
@@ -316,7 +316,7 @@ export function useAutocomplete() {
   return {
     loadAutocompletePositions,
     loadAutocompleteHistory,
-    loadOwnExtensionAutocompleteHistory,
+    loadExtensionAutocompleteHistory,
     loadKeywordSuggestions,
     loadAutocompleteCoverage,
     loadKeywordAcPositionTable,

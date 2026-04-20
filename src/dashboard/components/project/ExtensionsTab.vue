@@ -127,7 +127,15 @@ function getRiskColor(score: number): string {
                   Own
                 </span>
                 <div>
+                  <router-link
+                    v-if="ext.id !== project.ownExtensionId && project.id !== undefined"
+                    :to="{ name: 'competitorExtension', params: { id: String(project.id), extId: ext.id } }"
+                    class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                  >
+                    {{ ext.name || ext.id }}
+                  </router-link>
                   <a
+                    v-else
                     :href="`https://chromewebstore.google.com/detail/-/${ext.id}`"
                     target="_blank"
                     rel="noopener noreferrer"
