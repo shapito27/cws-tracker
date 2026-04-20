@@ -262,7 +262,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
       <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
         <p class="text-xs text-gray-500">Users</p>
-        <p class="text-lg font-semibold text-gray-900">{{ snapshot?.userCount ?? '--' }}</p>
+        <p class="text-lg font-semibold text-gray-900">{{ snapshot?.userCountNumeric != null && snapshot.userCountNumeric >= 1000 ? snapshot.userCount : '--' }}</p>
       </div>
       <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
         <p class="text-xs text-gray-500">Reviews</p>
