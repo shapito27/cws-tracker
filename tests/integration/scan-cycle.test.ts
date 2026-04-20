@@ -1190,7 +1190,7 @@ describe('1.10.8 Manual refresh while scan running', () => {
     expect(pendingBefore).toBe(3);
 
     // Trigger manual refresh
-    await triggerManualRefresh(undefined, createSchedulerDeps());
+    await triggerManualRefresh(undefined, 'full', createSchedulerDeps());
 
     // Old pending jobs should be cleared, new jobs enqueued
     const pendingAfter = await testDb.getPendingCount();
@@ -1240,7 +1240,7 @@ describe('1.10.8 Manual refresh while scan running', () => {
     await testDb.saveKeyword({ id: 2, text: 'keyword B', projectId: 2, createdAt: new Date() });
 
     // Refresh only project 1
-    await triggerManualRefresh(1, createSchedulerDeps());
+    await triggerManualRefresh(1, 'full', createSchedulerDeps());
 
     const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
     // Should only have jobs for project 1: 1 listing_scan + 1 keyword_scan + 1 autocomplete_scan

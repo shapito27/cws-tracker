@@ -69,11 +69,21 @@ export type ServiceWorkerMessage =
 // Dashboard / Popup → Service Worker
 // ---------------------------------------------------------------------------
 
-/** Request to start a scan (optionally for a specific project). */
+/** Scope of jobs to enqueue for a manual refresh. */
+export type ScanType = 'full' | 'keywords' | 'autocomplete';
+
+/** Request to start a scan (optionally for a specific project and scan type). */
 export interface TriggerRefreshMessage {
   type: 'TRIGGER_REFRESH';
   /** If provided, only scan this project. Otherwise scan all projects. */
   projectId?: number;
+  /**
+   * If provided, limit the enqueued jobs to the given type:
+   * - 'full' (default): listing + keyword + autocomplete jobs.
+   * - 'keywords': only keyword_scan jobs.
+   * - 'autocomplete': only autocomplete_scan jobs.
+   */
+  scanType?: ScanType;
 }
 
 /** Request to pause queue processing. */
