@@ -452,6 +452,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
       <KeywordPositionTable
         :keywords="keywords"
         :own-extension-id="project.ownExtensionId"
+        :project-id="project.id"
       />
     </div>
 
@@ -460,6 +461,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
       <AcPositionTable
         :keywords="keywords"
         :own-extension-id="project.ownExtensionId"
+        :project-id="project.id"
       />
     </div>
 

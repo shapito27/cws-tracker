@@ -13,8 +13,13 @@
 import { db } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import { today, daysAgo } from '@/shared/utils/dates';
-import { buildDailyScanJobs } from '@/background/queue-builder';
+import {
+  buildDailyScanJobs,
+  buildKeywordScanJobs,
+  buildAutocompleteScanJobs,
+} from '@/background/queue-builder';
 import { processNextJob, type ProcessorDeps } from '@/background/queue-processor';
+import type { ScanType, QueueJob } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -154,9 +159,11 @@ export async function handleProcessQueueAlarm(
  * Clears existing pending jobs, builds new ones, and starts processing.
  *
  * @param projectId  If provided, only scan this project. Otherwise scan all.
+ * @param scanType   Job scope: 'full' (default), 'keywords' only, or 'autocomplete' only.
  */
 export async function triggerManualRefresh(
   projectId?: number,
+  scanType: ScanType = 'full',
   deps: SchedulerDeps = { settings: defaultSettings }
 ): Promise<void> {
   // Clear all pending jobs from queue
@@ -181,7 +188,14 @@ export async function triggerManualRefresh(
   const projectIds = new Set(projects.map((p) => p.id!));
   const relevantKeywords = allKeywords.filter((k) => projectIds.has(k.projectId));
 
-  const jobs = buildDailyScanJobs(projects, extensions, relevantKeywords);
+  let jobs: QueueJob[];
+  if (scanType === 'keywords') {
+    jobs = buildKeywordScanJobs(relevantKeywords);
+  } else if (scanType === 'autocomplete') {
+    jobs = buildAutocompleteScanJobs(relevantKeywords);
+  } else {
+    jobs = buildDailyScanJobs(projects, extensions, relevantKeywords);
+  }
 
   if (jobs.length === 0) return;
 
