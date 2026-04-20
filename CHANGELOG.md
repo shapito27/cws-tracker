@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.25.0] - 2026-04-20
+
+### Added
+- Logs page: daily request stats chart at the top of the page. A stacked-column + line mixed chart summarizes the last 7 days — per-day counts of info/warnings/errors alongside the average request duration on a secondary axis — so day-over-day trends and latency/error correlations are visible at a glance before drilling into individual log rows.
+
 ## [0.24.0] - 2026-04-19
 
 ### Added
