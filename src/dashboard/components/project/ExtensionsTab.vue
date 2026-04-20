@@ -170,7 +170,7 @@ function getRiskColor(score: number): string {
               <template v-else>-</template>
             </td>
             <td class="px-4 py-3 text-right text-sm text-gray-700">
-              {{ snapshots.get(ext.id)?.userCountNumeric != null && snapshots.get(ext.id)!.userCountNumeric >= 1000 ? snapshots.get(ext.id)!.userCount : '-' }}
+              {{ snapshots.get(ext.id)?.userCountNumeric == null ? '-' : snapshots.get(ext.id)!.userCountNumeric >= 1000 ? snapshots.get(ext.id)!.userCount : snapshots.get(ext.id)!.userCountNumeric.toLocaleString() }}
             </td>
             <td class="px-4 py-3 text-right text-sm text-gray-700 font-mono">
               {{ snapshots.get(ext.id)?.version ?? '-' }}

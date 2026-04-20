@@ -276,7 +276,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
       <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
         <p class="text-xs text-gray-500">Users</p>
-        <p class="text-lg font-semibold text-gray-900">{{ ownSnapshot?.userCountNumeric != null && ownSnapshot.userCountNumeric >= 1000 ? ownSnapshot.userCount : '--' }}</p>
+        <p class="text-lg font-semibold text-gray-900">{{ ownSnapshot?.userCountNumeric == null ? '--' : ownSnapshot.userCountNumeric >= 1000 ? ownSnapshot.userCount : ownSnapshot.userCountNumeric.toLocaleString() }}</p>
       </div>
       <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
         <p class="text-xs text-gray-500">Reviews</p>
