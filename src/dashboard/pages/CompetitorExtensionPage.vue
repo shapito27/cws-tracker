@@ -21,6 +21,7 @@ import AutocompleteChart from '../components/charts/AutocompleteChart.vue';
 import UsersReviewsChart from '../components/charts/UsersReviewsChart.vue';
 import KeywordPositionTable from '../components/tables/KeywordPositionTable.vue';
 import AcPositionTable from '../components/tables/AcPositionTable.vue';
+import ExtensionListingCard from '../components/project/ExtensionListingCard.vue';
 
 type UnifiedEvent =
   | { kind: 'rank_change'; data: RankChange; sortTime: number }
@@ -44,10 +45,6 @@ const loadError = ref<string | null>(null);
 
 const projectId = computed(() => Number(route.params.id));
 const extensionId = computed(() => String(route.params.extId));
-
-const cwsUrl = computed(() =>
-  `https://chromewebstore.google.com/detail/-/${extensionId.value}`
-);
 
 async function loadAll(): Promise<void> {
   loading.value = true;
@@ -120,9 +117,12 @@ async function loadAll(): Promise<void> {
 
 async function loadCompetitorRankChanges(): Promise<void> {
   try {
+    // Pass an effectively-unbounded limit so this competitor's changes are
+    // not clipped by the global magnitude sort inside the loaders before
+    // we filter down to this one extension + project.
     const [rankResults, acResults] = await Promise.all([
-      loadRecentRankChanges(100),
-      loadRecentAutocompleteChanges(100),
+      loadRecentRankChanges(Number.MAX_SAFE_INTEGER),
+      loadRecentAutocompleteChanges(Number.MAX_SAFE_INTEGER),
     ]);
     const combined = [...rankResults, ...acResults].filter(
       (rc) => rc.extensionId === extensionId.value && rc.projectId === projectId.value
@@ -215,7 +215,8 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
     const rc = item.data as RankChange;
     return `rc-${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.date}`;
   }
-  return `ev-${(item.data as EventRecord).id}`;
+  const ev = item.data as EventRecord;
+  return `ev-${ev.id ?? `${ev.extensionId}-${ev.field}-${ev.date}`}`;
 }
 </script>
 
@@ -250,91 +251,12 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
       <h2 class="text-2xl font-bold text-gray-900">{{ getDisplayName() }}</h2>
     </div>
 
-    <!-- Extension header card -->
-    <div class="rounded-lg border border-gray-200 bg-white p-5 mb-6">
-      <div class="flex items-start gap-4">
-        <img
-          v-if="extension.iconUrl"
-          :src="extension.iconUrl"
-          :alt="getDisplayName()"
-          class="h-14 w-14 rounded-lg flex-shrink-0"
-        />
-        <div
-          v-else
-          class="flex h-14 w-14 items-center justify-center rounded-lg bg-gray-100 text-lg font-bold text-gray-600 flex-shrink-0"
-          role="img"
-          :aria-label="getDisplayName()"
-        >
-          {{ getDisplayName().charAt(0).toUpperCase() }}
-        </div>
-
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-3">
-            <h3 class="text-lg font-semibold text-gray-900 truncate">
-              {{ getDisplayName() }}
-            </h3>
-            <span class="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 shrink-0">
-              Competitor
-            </span>
-            <a
-              :href="cwsUrl"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-900 flex-shrink-0"
-              aria-label="Open in Chrome Web Store (opens in new tab)"
-            >
-              <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path fill-rule="evenodd" d="M4.25 5.5a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h8.5a.75.75 0 0 0 .75-.75v-4a.75.75 0 0 1 1.5 0v4A2.25 2.25 0 0 1 12.75 17h-8.5A2.25 2.25 0 0 1 2 14.75v-8.5A2.25 2.25 0 0 1 4.25 4h5a.75.75 0 0 1 0 1.5h-5Z" clip-rule="evenodd" />
-                <path fill-rule="evenodd" d="M6.194 12.753a.75.75 0 0 0 1.06.053L16.5 4.44v2.81a.75.75 0 0 0 1.5 0v-4.5a.75.75 0 0 0-.75-.75h-4.5a.75.75 0 0 0 0 1.5h2.553l-9.056 8.194a.75.75 0 0 0-.053 1.06Z" clip-rule="evenodd" />
-              </svg>
-              Chrome Web Store
-            </a>
-          </div>
-
-          <div class="mt-2 flex flex-wrap items-center gap-2">
-            <span v-if="snapshot?.rating != null" class="inline-flex items-center gap-1 text-sm text-gray-600">
-              <svg class="h-4 w-4 text-yellow-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401Z" clip-rule="evenodd" />
-              </svg>
-              {{ snapshot.rating.toFixed(1) }}
-              <span v-if="snapshot.ratingCount" class="text-gray-400">({{ snapshot.ratingCount.toLocaleString() }})</span>
-            </span>
-            <span v-if="snapshot?.rating != null && snapshot?.version" class="text-gray-300" aria-hidden="true">|</span>
-            <span v-if="snapshot?.version" class="text-sm text-gray-500">
-              v{{ snapshot.version }}
-            </span>
-            <span v-if="snapshot?.version && snapshot?.developerName" class="text-gray-300" aria-hidden="true">|</span>
-            <span v-if="snapshot?.developerName" class="text-sm text-gray-500">
-              by {{ snapshot.developerName }}
-            </span>
-            <span
-              v-if="snapshot?.badgeFlags?.featured"
-              class="inline-flex items-center gap-1 rounded-full bg-yellow-50 border border-yellow-200 px-2 py-0.5 text-xs font-medium text-yellow-700"
-            >
-              <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401Z" clip-rule="evenodd" />
-              </svg>
-              Featured
-            </span>
-            <span
-              v-if="snapshot?.developerVerified"
-              class="inline-flex items-center gap-1 rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-xs font-medium text-green-700"
-            >
-              <svg class="h-3 w-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                <path fill-rule="evenodd" d="M16.403 12.652a3 3 0 0 0 0-5.304 3 3 0 0 0-3.75-3.751 3 3 0 0 0-5.305 0 3 3 0 0 0-3.751 3.75 3 3 0 0 0 0 5.305 3 3 0 0 0 3.75 3.751 3 3 0 0 0 5.305 0 3 3 0 0 0 3.751-3.75Zm-2.546-4.46a.75.75 0 0 0-1.214-.882l-3.483 4.79-1.88-1.88a.75.75 0 1 0-1.06 1.061l2.5 2.5a.75.75 0 0 0 1.137-.089l4-5.5Z" clip-rule="evenodd" />
-              </svg>
-              Verified Publisher
-            </span>
-            <span
-              v-if="snapshot?.translationCount"
-              class="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2 py-0.5 text-xs font-medium text-blue-700"
-            >
-              {{ snapshot.translationCount }} languages
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
+    <ExtensionListingCard
+      :extension="extension"
+      :snapshot="snapshot"
+      :extension-id="extensionId"
+      badge="competitor"
+    />
 
     <!-- Status bar -->
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
