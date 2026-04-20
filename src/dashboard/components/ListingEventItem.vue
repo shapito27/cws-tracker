@@ -1,15 +1,26 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import type { EventRecord } from '@/shared/types';
 import { EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
 import ExtensionIcon from './ExtensionIcon.vue';
 
-defineProps<{
+const props = defineProps<{
   event: EventRecord;
   extensionName: string;
   extensionIconUrl: string | null;
   isOwn: boolean;
   formattedTime: string;
+  /** Project id - enables competitor name → competitor overview link. Optional for contexts without a project. */
+  projectId?: number | null;
 }>();
+
+const linkTarget = computed(() => {
+  if (props.isOwn || props.projectId == null) return null;
+  return {
+    name: 'competitorExtension',
+    params: { id: String(props.projectId), extId: props.event.extensionId },
+  };
+});
 </script>
 
 <template>
@@ -21,7 +32,12 @@ defineProps<{
     />
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-1.5">
-        <span class="text-sm font-medium text-gray-900 truncate">
+        <router-link
+          v-if="linkTarget"
+          :to="linkTarget"
+          class="text-sm font-medium text-gray-900 truncate hover:text-blue-600 hover:underline"
+        >{{ extensionName }}</router-link>
+        <span v-else class="text-sm font-medium text-gray-900 truncate">
           {{ extensionName }}
         </span>
         <span

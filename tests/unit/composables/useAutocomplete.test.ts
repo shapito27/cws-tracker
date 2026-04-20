@@ -7,7 +7,7 @@ import 'fake-indexeddb/auto';
 import { db } from '@/shared/db/database';
 import {
   loadAutocompleteHistory,
-  loadOwnExtensionAutocompleteHistory,
+  loadExtensionAutocompleteHistory,
   loadKeywordAcPositionTable,
 } from '@/dashboard/composables/useAutocomplete';
 import type { Extension, Keyword, AutocompleteSnapshot } from '@/shared/types';
@@ -72,13 +72,13 @@ describe('loadAutocompleteHistory - iconUrl', () => {
   });
 });
 
-describe('loadOwnExtensionAutocompleteHistory - iconUrl', () => {
+describe('loadExtensionAutocompleteHistory - iconUrl', () => {
   it('does not set iconUrl on keyword-mode series', async () => {
     await db.autocomplete_snapshots.bulkAdd([
       makeAcSnapshot(1, EXT_A_ID, '2026-01-01', 3),
     ]);
 
-    const series = await loadOwnExtensionAutocompleteHistory(
+    const series = await loadExtensionAutocompleteHistory(
       [kw1],
       EXT_A_ID,
       '2026-01-01',
