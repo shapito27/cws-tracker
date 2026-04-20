@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.27.3] - 2026-04-20
+
+### Fixed
+- Competitor extension overview page (`#/project/:id/extension/:extId`) now correctly displays the user count in the "Users" status tile instead of `--`. The previous template expression only rendered a value when `userCountNumeric >= 1000`, so every competitor was falling through to `--`. Template now matches the three-branch logic used by `OverviewTab.vue` and `ExtensionsTab.vue`: `null` → `--`, `>= 1000` → formatted bucketed value (e.g. `1,000,000+`), `< 1000` → raw number via `toLocaleString()`. Data pipeline was already parsing and persisting both `userCount` and `userCountNumeric` correctly — this was a display-only bug.
+
 ## [0.27.2] - 2026-04-20
 
 ### Fixed
