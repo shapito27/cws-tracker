@@ -104,6 +104,10 @@ export async function handleDailyScanAlarm(
     return;
   }
 
+  // Record the scan cycle start so progress counts only include jobs from
+  // this cycle (prior completed jobs are retained in the queue table for 7d).
+  await settings.set('scanCycleStartedAt', new Date().toISOString());
+
   // Enqueue jobs
   await db.enqueueJobs(jobs);
 
@@ -140,7 +144,9 @@ export async function handleProcessQueueAlarm(
     // All jobs done - update last scan date and send completion message
     await settings.set('lastDailyScanDate', today());
 
-    const stats = await db.getQueueStats();
+    const cycleStartedAtIso = await settings.get('scanCycleStartedAt');
+    const cycleStartedAt = cycleStartedAtIso ? new Date(cycleStartedAtIso) : null;
+    const stats = await db.getQueueStats(cycleStartedAt);
     try {
       chrome.runtime.sendMessage({
         type: 'SCAN_COMPLETE',
@@ -151,6 +157,9 @@ export async function handleProcessQueueAlarm(
     } catch {
       // Dashboard may not be open
     }
+
+    // Clear the scan cycle marker so any stray stats query returns global counts.
+    await settings.set('scanCycleStartedAt', null);
   }
 }
 
@@ -198,6 +207,10 @@ export async function triggerManualRefresh(
   }
 
   if (jobs.length === 0) return;
+
+  // Record the scan cycle start so progress counts only include jobs from
+  // this cycle (prior completed jobs are retained in the queue table for 7d).
+  await deps.settings.set('scanCycleStartedAt', new Date().toISOString());
 
   await db.enqueueJobs(jobs);
 

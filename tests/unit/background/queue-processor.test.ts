@@ -525,6 +525,58 @@ describe('Queue Processor', () => {
       expect(msg.nextProcessingAt).toBeUndefined();
     });
 
+    it('progress counts exclude completed jobs from prior scan cycles', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+
+      // Simulate leftovers from prior scan cycles still in the queue table
+      // (retention policy keeps completed jobs for 7 days).
+      const priorCycleCompletedAt = new Date('2026-04-10T00:00:00Z');
+      await testDb.queue.bulkAdd(
+        Array.from({ length: 10 }, () => ({
+          type: 'listing_scan' as const,
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+          status: 'completed' as const,
+          priority: 10,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: priorCycleCompletedAt,
+          startedAt: priorCycleCompletedAt,
+          completedAt: priorCycleCompletedAt,
+          error: null,
+        }))
+      );
+
+      // Mark the current scan cycle as starting now, then enqueue just one job.
+      const settings = new SettingsManager();
+      await settings.set('scanCycleStartedAt', new Date().toISOString());
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const sendMessage = vi.fn();
+      const deps = createDeps({ fetchPage, sendMessage, settings });
+
+      await processNextJob(deps);
+
+      // Both pre-execute ('running') and post-completion ('completing') broadcasts
+      // must count jobs from THIS cycle only — 10 stale completions should be ignored.
+      const progressMsgs = sendMessage.mock.calls
+        .filter((c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS')
+        .map((c) => c[0] as { phase?: string; completed: number; total: number });
+
+      const runningMsg = progressMsgs.find((m) => m.phase === 'running');
+      expect(runningMsg).toBeDefined();
+      expect(runningMsg!.completed).toBe(0);
+      expect(runningMsg!.total).toBe(1);
+
+      const completingMsg = progressMsgs.find((m) => m.phase === 'completing');
+      expect(completingMsg).toBeDefined();
+      expect(completingMsg!.completed).toBe(1);
+      expect(completingMsg!.total).toBe(1);
+    });
+
     it('broadcasts phase "running" before executing the job', async () => {
       const { processNextJob } = await import('@/background/queue-processor');
       await seedProject();

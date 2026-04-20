@@ -2,7 +2,7 @@
  * Tests for useRankings composable - chart data transformation.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '@/shared/db/database';
 import {
@@ -288,6 +288,17 @@ describe('loadAllKeywordLatestRanks', () => {
 // ---------------------------------------------------------------------------
 
 describe('loadRankDeltas', () => {
+  // loadRankDeltas queries the last 90 days from today(). The test fixtures
+  // below use 2026-01-01/02 dates, so pin the clock just after so those
+  // snapshots fall inside the window regardless of the machine's real clock.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-01-03T12:00:00Z'));
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   it('calculates positive delta when rank improves', async () => {
     await db.rank_snapshots.bulkAdd([
       makeSnapshot(1, EXT_A_ID, '2026-01-01', 10),
