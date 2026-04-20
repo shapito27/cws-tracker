@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import type { Keyword } from '@/shared/types';
 import type { AcPositionRow, AcDayCell } from '../../composables/useAutocomplete';
 import { loadKeywordAcPositionTable } from '../../composables/useAutocomplete';
+import { useServiceWorker } from '../../composables/useServiceWorker';
 import { daysAgo } from '@/shared/utils/dates';
 
 type DateRange = 7 | 14 | 30;
@@ -10,7 +11,15 @@ type DateRange = 7 | 14 | 30;
 const props = defineProps<{
   keywords: Keyword[];
   ownExtensionId: string;
+  projectId?: number;
 }>();
+
+const { scanStatus, requestRefresh } = useServiceWorker();
+
+async function scanAutocompleteOnly(): Promise<void> {
+  if (props.projectId === undefined) return;
+  await requestRefresh(props.projectId, 'autocomplete');
+}
 
 const rows = ref<AcPositionRow[]>([]);
 const loading = ref(false);
@@ -54,6 +63,14 @@ async function setRange(range: DateRange): Promise<void> {
 
 onMounted(load);
 watch(() => props.keywords, load);
+
+// Reload table data when a scan completes so fresh AC positions appear
+watch(
+  () => scanStatus.value.isRunning,
+  async (isRunning, wasRunning) => {
+    if (wasRunning && !isRunning) await load();
+  }
+);
 
 function getCell(row: AcPositionRow, date: string): AcDayCell | null {
   return row.days.get(date) ?? null;
@@ -101,9 +118,21 @@ function formatDateHeader(dateStr: string): string {
 
 <template>
   <div>
-    <!-- Header with range switcher -->
+    <!-- Header with range switcher and scan button -->
     <div class="flex items-center justify-between mb-3">
-      <h3 class="text-base font-semibold text-gray-900">AC Positions</h3>
+      <div class="flex items-center gap-3">
+        <h3 class="text-base font-semibold text-gray-900">AC Positions</h3>
+        <button
+          v-if="projectId !== undefined"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          :disabled="scanStatus.isRunning"
+          :title="scanStatus.isRunning ? 'A scan is already running' : 'Scan autocomplete positions for this project'"
+          @click="scanAutocompleteOnly"
+        >
+          {{ scanStatus.isRunning ? 'Scanning...' : 'Scan' }}
+        </button>
+      </div>
       <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
         <button
           v-for="opt in rangeOptions"
