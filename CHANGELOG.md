@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.25.1] - 2026-04-20
+
+### Fixed
+- Logs page daily stats chart: error and warning columns were visually swamped by the info column on busy days. Now a compact text label (e.g., `2 err · 5 warn`) appears above each day's bar whenever errors or warnings are non-zero, so small counts are readable regardless of scale. The avg-duration line now also skips (rather than dipping to 0ms on) days with zero requests.
+
 ## [0.25.0] - 2026-04-20
 
 ### Added
