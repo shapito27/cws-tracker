@@ -59,6 +59,10 @@ function getExtensionIconUrl(extensionId: string): string | null {
   return ext?.iconUrl ?? null;
 }
 
+function isCompetitor(extensionId: string): boolean {
+  return extensionId !== props.project.ownExtensionId;
+}
+
 function toggleExpand(eventId: number): void {
   const newSet = new Set(expandedEventIds.value);
   if (newSet.has(eventId)) {
@@ -201,7 +205,13 @@ function formatEventDateTime(event: EventRecord): string {
               </span>
               <span class="inline-flex items-center gap-1 text-xs text-gray-500">
                 <ExtensionIcon :icon-url="getExtensionIconUrl(event.extensionId)" :name="getExtensionName(event.extensionId)" size="xs" />
-                {{ getExtensionName(event.extensionId) }}
+                <router-link
+                  v-if="isCompetitor(event.extensionId) && project.id !== undefined"
+                  :to="{ name: 'competitorExtension', params: { id: String(project.id), extId: event.extensionId } }"
+                  class="hover:text-blue-600 hover:underline"
+                  @click.stop
+                >{{ getExtensionName(event.extensionId) }}</router-link>
+                <template v-else>{{ getExtensionName(event.extensionId) }}</template>
               </span>
             </div>
           </div>

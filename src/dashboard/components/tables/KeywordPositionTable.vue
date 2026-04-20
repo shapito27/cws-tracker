@@ -10,7 +10,7 @@ type DateRange = 7 | 14 | 30;
 
 const props = defineProps<{
   keywords: Keyword[];
-  ownExtensionId: string;
+  extensionId: string;
   projectId?: number;
 }>();
 
@@ -45,7 +45,7 @@ async function load(): Promise<void> {
   try {
     rows.value = await loadKeywordPositionTable(
       props.keywords,
-      props.ownExtensionId,
+      props.extensionId,
       dateRange.value
     );
   } finally {

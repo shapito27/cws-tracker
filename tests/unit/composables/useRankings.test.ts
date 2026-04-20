@@ -7,7 +7,7 @@ import 'fake-indexeddb/auto';
 import { db } from '@/shared/db/database';
 import {
   loadRankHistory,
-  loadOwnExtensionRankHistory,
+  loadExtensionRankHistory,
   loadAllKeywordLatestRanks,
   loadRankDeltas,
   buildHeatmapData,
@@ -474,10 +474,10 @@ describe('buildCoverageData', () => {
 });
 
 // ---------------------------------------------------------------------------
-// loadOwnExtensionRankHistory
+// loadExtensionRankHistory
 // ---------------------------------------------------------------------------
 
-describe('loadOwnExtensionRankHistory', () => {
+describe('loadExtensionRankHistory', () => {
   it('returns one series per keyword for the own extension', async () => {
     await db.rank_snapshots.bulkAdd([
       makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
@@ -485,7 +485,7 @@ describe('loadOwnExtensionRankHistory', () => {
       makeSnapshot(2, EXT_A_ID, '2026-01-01', 10),
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1, kw2],
       EXT_A_ID,
       '2026-01-01',
@@ -506,7 +506,7 @@ describe('loadOwnExtensionRankHistory', () => {
       makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1],
       EXT_A_ID,
       '2026-01-01',
@@ -522,7 +522,7 @@ describe('loadOwnExtensionRankHistory', () => {
       makeSnapshot(1, EXT_A_ID, '2026-01-01', 5),
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1, kw2],
       EXT_A_ID,
       '2026-01-01',
@@ -536,7 +536,7 @@ describe('loadOwnExtensionRankHistory', () => {
   it('skips keywords without id', async () => {
     const kwNoId: Keyword = { projectId: 1, text: 'no id', createdAt: new Date() };
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kwNoId],
       EXT_A_ID,
       '2026-01-01',
@@ -547,7 +547,7 @@ describe('loadOwnExtensionRankHistory', () => {
   });
 
   it('returns empty array when no keywords have data', async () => {
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1, kw2],
       EXT_A_ID,
       '2026-01-01',
@@ -563,7 +563,7 @@ describe('loadOwnExtensionRankHistory', () => {
       makeSnapshot(1, EXT_B_ID, '2026-01-01', 2),
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1],
       EXT_A_ID,
       '2026-01-01',
@@ -581,7 +581,7 @@ describe('loadOwnExtensionRankHistory', () => {
       makeSnapshot(1, EXT_A_ID, '2026-01-03', 8),
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1],
       EXT_A_ID,
       '2026-01-01',
@@ -597,7 +597,7 @@ describe('loadOwnExtensionRankHistory', () => {
       makeSnapshot(1, EXT_A_ID, '2026-01-01', null),
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1],
       EXT_A_ID,
       '2026-01-01',
@@ -614,7 +614,7 @@ describe('loadOwnExtensionRankHistory', () => {
       makeSnapshot(1, EXT_A_ID, '2026-01-02', 3),
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1],
       EXT_A_ID,
       '2026-01-01',
@@ -642,7 +642,7 @@ describe('loadOwnExtensionRankHistory', () => {
       },
     ]);
 
-    const series = await loadOwnExtensionRankHistory(
+    const series = await loadExtensionRankHistory(
       [kw1],
       EXT_A_ID,
       '2026-01-01',

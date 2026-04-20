@@ -2,6 +2,15 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.27.0] - 2026-04-20
+
+### Added
+- Competitor extension overview page at `#/project/:id/extension/:extId`. Competitor extension names are now clickable in Recent Events (Overview tab), the Events tab, the Competitors tab, and rank change lists — clicking a competitor opens a dedicated overview scoped to that competitor with its listing details, users/reviews chart, keyword rank history, autocomplete history, position tables, and recent events. Own-extension names remain static (their data is already on the main project page). Routing to the own extension id is guarded and redirects back to the project page.
+
+### Changed
+- Renamed composables for clarity now that they support any extension id, not only the user's own: `loadOwnExtensionRankHistory` → `loadExtensionRankHistory`, `loadOwnExtensionAutocompleteHistory` → `loadExtensionAutocompleteHistory`. `KeywordPositionTable` and `AcPositionTable` prop `ownExtensionId` renamed to `extensionId`.
+- Extracted a shared `ExtensionListingCard` component so the Overview tab and the new Competitor overview page render the listing header (icon, title, rating, version, badges, CWS link) from a single template.
+
 ## [0.26.2] - 2026-04-20
 
 ### Changed

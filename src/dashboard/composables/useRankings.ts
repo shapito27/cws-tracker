@@ -217,12 +217,12 @@ export function buildCoverageData(
 }
 
 /**
- * Load rank history for ALL keywords for a single extension (the user's own).
+ * Load rank history for ALL keywords for a single extension.
  * Returns one series per keyword, suitable for showing on the overview tab.
  */
-export async function loadOwnExtensionRankHistory(
+export async function loadExtensionRankHistory(
   keywords: Keyword[],
-  ownExtensionId: string,
+  extensionId: string,
   startDate: string,
   endDate: string
 ): Promise<RankChartSeries[]> {
@@ -230,7 +230,7 @@ export async function loadOwnExtensionRankHistory(
 
   const snapshotsArray = await Promise.all(
     withId.map((kw) =>
-      db.getRankSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+      db.getRankSnapshots(kw.id!, extensionId, startDate, endDate)
     )
   );
 
@@ -241,7 +241,7 @@ export async function loadOwnExtensionRankHistory(
 
     series.push({
       name: kw.text,
-      extensionId: ownExtensionId,
+      extensionId,
       // iconUrl intentionally omitted: keyword-per-line mode shows no icon in legend
       data,
     });
@@ -295,13 +295,13 @@ export interface KeywordPositionRow {
 }
 
 /**
- * Load keyword position table data for the user's own extension.
+ * Load keyword position table data for a single extension.
  * Returns per-day position and delta for each keyword over the given range.
  * Loads one extra day before the range to compute delta for the first visible day.
  */
 export async function loadKeywordPositionTable(
   keywords: Keyword[],
-  ownExtensionId: string,
+  extensionId: string,
   rangeDays: number
 ): Promise<KeywordPositionRow[]> {
   const withId = keywords.filter((kw) => kw.id !== undefined);
@@ -311,7 +311,7 @@ export async function loadKeywordPositionTable(
 
   const snapshotsArray = await Promise.all(
     withId.map((kw) =>
-      db.getRankSnapshots(kw.id!, ownExtensionId, startDate, endDate)
+      db.getRankSnapshots(kw.id!, extensionId, startDate, endDate)
     )
   );
 
@@ -372,7 +372,7 @@ export async function loadKeywordPositionTable(
 export function useRankings() {
   return {
     loadRankHistory,
-    loadOwnExtensionRankHistory,
+    loadExtensionRankHistory,
     loadAllKeywordLatestRanks,
     loadRankDeltas,
     buildHeatmapData,
