@@ -12,6 +12,7 @@ import type {
   ScanProgressMessage,
   ScanCompleteMessage,
   QueueStatusMessage,
+  ScanType,
 } from '@/shared/types';
 
 export interface ScanStatus {
@@ -123,10 +124,14 @@ export function useServiceWorker() {
     }
   }
 
-  async function requestRefresh(projectId?: number): Promise<void> {
+  async function requestRefresh(
+    projectId?: number,
+    scanType: ScanType = 'full'
+  ): Promise<void> {
     await sendToServiceWorker({
       type: 'TRIGGER_REFRESH',
       ...(projectId !== undefined ? { projectId } : {}),
+      ...(scanType !== 'full' ? { scanType } : {}),
     });
   }
 

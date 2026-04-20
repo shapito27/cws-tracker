@@ -2,6 +2,12 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.26.0] - 2026-04-20
+
+### Added
+- Section-scoped `Scan` buttons next to the `Keyword Positions` and `AC Positions` tables on the project Overview tab. Clicking `Scan` next to `Keyword Positions` enqueues only `keyword_scan` jobs for the project's keywords; clicking `Scan` next to `AC Positions` enqueues only `autocomplete_scan` jobs. Useful for targeted rescans without paying the cost of a full listing + keyword + autocomplete scan. Buttons are disabled while any scan is running to preserve the single-queue model.
+- `TRIGGER_REFRESH` message accepts an optional `scanType: 'full' | 'keywords' | 'autocomplete'` field (default `'full'`, backward compatible).
+
 ## [0.25.0] - 2026-04-20
 
 ### Added

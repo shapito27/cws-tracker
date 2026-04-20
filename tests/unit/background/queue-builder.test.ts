@@ -5,6 +5,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildDailyScanJobs,
+  buildKeywordScanJobs,
+  buildAutocompleteScanJobs,
   PRIORITY_OWN_LISTING,
   PRIORITY_COMPETITOR_LISTING,
   PRIORITY_KEYWORD_SCAN,
@@ -282,5 +284,62 @@ describe('buildDailyScanJobs', () => {
     for (const job of listingJobs) {
       expect(job.priority).toBe(PRIORITY_OWN_LISTING);
     }
+  });
+});
+
+describe('buildKeywordScanJobs', () => {
+  it('produces one keyword_scan job per keyword and no other types', () => {
+    const keywords = [
+      makeKeyword(1, 'ad blocker', 1),
+      makeKeyword(2, 'privacy extension', 1),
+      makeKeyword(3, 'password manager', 2),
+    ];
+
+    const jobs = buildKeywordScanJobs(keywords);
+
+    expect(jobs).toHaveLength(3);
+    expect(jobs.every((j) => j.type === 'keyword_scan')).toBe(true);
+    expect(jobs.every((j) => j.priority === PRIORITY_KEYWORD_SCAN)).toBe(true);
+    expect(jobs.every((j) => j.status === 'pending')).toBe(true);
+  });
+
+  it('payload carries keywordId and keyword text', () => {
+    const keywords = [makeKeyword(42, 'ad blocker', 1)];
+
+    const jobs = buildKeywordScanJobs(keywords);
+
+    expect(jobs[0].payload).toEqual({ keywordId: 42, keyword: 'ad blocker' });
+  });
+
+  it('empty input → empty output', () => {
+    expect(buildKeywordScanJobs([])).toEqual([]);
+  });
+});
+
+describe('buildAutocompleteScanJobs', () => {
+  it('produces one autocomplete_scan job per keyword and no other types', () => {
+    const keywords = [
+      makeKeyword(1, 'ad blocker', 1),
+      makeKeyword(2, 'privacy extension', 1),
+    ];
+
+    const jobs = buildAutocompleteScanJobs(keywords);
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs.every((j) => j.type === 'autocomplete_scan')).toBe(true);
+    expect(jobs.every((j) => j.priority === PRIORITY_AUTOCOMPLETE_SCAN)).toBe(true);
+    expect(jobs.every((j) => j.status === 'pending')).toBe(true);
+  });
+
+  it('payload carries keywordId and keyword text', () => {
+    const keywords = [makeKeyword(7, 'privacy', 1)];
+
+    const jobs = buildAutocompleteScanJobs(keywords);
+
+    expect(jobs[0].payload).toEqual({ keywordId: 7, keyword: 'privacy' });
+  });
+
+  it('empty input → empty output', () => {
+    expect(buildAutocompleteScanJobs([])).toEqual([]);
   });
 });
