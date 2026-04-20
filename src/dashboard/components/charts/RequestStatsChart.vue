@@ -35,10 +35,13 @@ const chartSeries = computed(() => [
   {
     name: 'Avg duration (ms)',
     type: 'line' as const,
-    data: props.stats.map((d) => ({
-      x: new Date(d.date + 'T00:00:00Z').getTime(),
-      y: d.avgDurationMs,
-    })),
+    data: props.stats.map((d) => {
+      const hasRequests = d.infoCount + d.warnCount + d.errorCount > 0;
+      return {
+        x: new Date(d.date + 'T00:00:00Z').getTime(),
+        y: hasRequests ? d.avgDurationMs : null,
+      };
+    }),
   },
 ]);
 
@@ -101,6 +104,22 @@ const chartOptions = computed(() => ({
     bar: {
       columnWidth: '55%',
       borderRadius: 2,
+      dataLabels: {
+        total: {
+          enabled: true,
+          offsetY: -4,
+          style: { fontSize: '10px', fontWeight: 600, color: '#374151' },
+          formatter: (_val: unknown, opts: { dataPointIndex: number; w: { globals: { series: number[][] } } }) => {
+            const idx = opts.dataPointIndex;
+            const warn = opts.w.globals.series[1]?.[idx] ?? 0;
+            const err = opts.w.globals.series[2]?.[idx] ?? 0;
+            const parts: string[] = [];
+            if (err > 0) parts.push(`${err} err`);
+            if (warn > 0) parts.push(`${warn} warn`);
+            return parts.length > 0 ? parts.join(' · ') : '';
+          },
+        },
+      },
     },
   },
   dataLabels: { enabled: false },
@@ -118,7 +137,8 @@ const chartOptions = computed(() => ({
   legend: {
     position: 'top' as const,
     horizontalAlign: 'left' as const,
-    fontSize: '12px',
+    fontSize: '11px',
+    itemMargin: { horizontal: 10, vertical: 0 },
     markers: { size: 6 },
   },
   grid: {
@@ -133,7 +153,7 @@ const chartOptions = computed(() => ({
 </script>
 
 <template>
-  <div class="rounded-lg border border-gray-200 bg-white p-4">
+  <div class="request-stats-chart rounded-lg border border-gray-200 bg-white p-4">
     <VueApexCharts
       type="line"
       :height="280"
@@ -142,3 +162,10 @@ const chartOptions = computed(() => ({
     />
   </div>
 </template>
+
+<style scoped>
+.request-stats-chart :deep(.apexcharts-legend) {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+</style>
