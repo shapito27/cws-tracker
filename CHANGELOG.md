@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.26.2] - 2026-04-20
+
+### Changed
+- Project page now hides the "Users" display when the underlying count is below 1,000 — i.e. values like `317+` no longer render on the Overview tab's status bar, the Extensions tab's Users column, or the Listing Compare Users row (shown as `--` / `-` instead). CWS only returns exact counts for sub-1K extensions (bucketed as `1,000+`, `10,000+`, … above that), so small-number values are noisy and not comparable. The trend chart continues to plot all values, and historical snapshots remain intact.
+
 ## [0.26.1] - 2026-04-20
 
 ### Fixed

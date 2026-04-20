@@ -508,7 +508,7 @@ function getMaxMetric(metric: (snap: ListingSnapshot) => number): number {
                   />
                 </div>
                 <span class="w-14 text-xs text-gray-700 text-right">
-                  {{ snapshots.get(id)?.userCount ?? '-' }}
+                  {{ snapshots.get(id)?.userCountNumeric != null && snapshots.get(id)!.userCountNumeric >= 1000 ? snapshots.get(id)!.userCount : '-' }}
                 </span>
               </div>
             </div>
