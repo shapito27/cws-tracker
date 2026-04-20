@@ -8,8 +8,10 @@
 import { ref, computed } from 'vue';
 import type { ScanLog, ScanLogLevel } from '@/shared/types';
 import { db } from '@/shared/db/database';
+import { daysAgo } from '@/shared/utils/dates';
 
 const MAX_LOGS = 500;
+const STATS_WINDOW_DAYS = 7;
 
 /** A ScanLog that has been persisted and has a guaranteed id. */
 export interface SavedScanLog extends ScanLog {
@@ -18,6 +20,15 @@ export interface SavedScanLog extends ScanLog {
 
 export interface LogStats {
   total: number;
+  infoCount: number;
+  warnCount: number;
+  errorCount: number;
+  avgDurationMs: number;
+}
+
+/** Aggregated per-day request stats for the 7-day chart on the Logs page. */
+export interface DailyRequestStat {
+  date: string;
   infoCount: number;
   warnCount: number;
   errorCount: number;
@@ -46,6 +57,41 @@ export function useScanLogs() {
       if (filterJobType.value !== 'all' && log.jobType !== filterJobType.value) return false;
       return true;
     });
+  });
+
+  /**
+   * Per-day request stats over the last 7 calendar days (chronological,
+   * oldest → today). Missing days are zero-filled so the chart x-axis is
+   * always full. Intentionally derived from all loaded `logs` (not
+   * `filteredLogs`) so the level/jobType filters on the list don't
+   * distort the overall health view.
+   */
+  const weeklyStats = computed<DailyRequestStat[]>(() => {
+    const buckets = new Map<string, { info: number; warn: number; error: number; totalDuration: number; count: number }>();
+    for (let i = STATS_WINDOW_DAYS - 1; i >= 0; i--) {
+      buckets.set(daysAgo(i), { info: 0, warn: 0, error: 0, totalDuration: 0, count: 0 });
+    }
+    for (const log of logs.value) {
+      const date = log.timestamp.slice(0, 10);
+      const bucket = buckets.get(date);
+      if (!bucket) continue;
+      if (log.level === 'info') bucket.info++;
+      else if (log.level === 'warn') bucket.warn++;
+      else if (log.level === 'error') bucket.error++;
+      bucket.totalDuration += log.durationMs;
+      bucket.count++;
+    }
+    const out: DailyRequestStat[] = [];
+    for (const [date, b] of buckets) {
+      out.push({
+        date,
+        infoCount: b.info,
+        warnCount: b.warn,
+        errorCount: b.error,
+        avgDurationMs: b.count === 0 ? 0 : Math.round(b.totalDuration / b.count),
+      });
+    }
+    return out;
   });
 
   const stats = computed<LogStats>(() => {
@@ -98,6 +144,7 @@ export function useScanLogs() {
     jobTypes,
     filteredLogs,
     stats,
+    weeklyStats,
     loadLogs,
   };
 }
