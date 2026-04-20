@@ -2,7 +2,7 @@
  * Tests for useAutocomplete composable - iconUrl propagation on chart series.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, beforeAll, afterAll, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '@/shared/db/database';
 import {
@@ -91,6 +91,18 @@ describe('loadExtensionAutocompleteHistory - iconUrl', () => {
 });
 
 describe('loadKeywordAcPositionTable', () => {
+  // loadKeywordAcPositionTable queries `daysAgo(rangeDays)` through today().
+  // These tests call it with rangeDays=7 and use 2026-03-29/30 snapshots, so
+  // pin the clock just after so the fixtures fall inside the 7-day window
+  // regardless of the machine's real clock.
+  beforeAll(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-03-31T12:00:00Z'));
+  });
+  afterAll(() => {
+    vi.useRealTimers();
+  });
+
   const kw2: Keyword = { id: 2, projectId: 1, text: 'vpn extension', createdAt: new Date() };
 
   function makeAcSnapshotAt(
