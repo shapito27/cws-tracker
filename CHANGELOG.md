@@ -2,6 +2,19 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.27.1] - 2026-04-20
+
+### Fixed
+- Scan progress UI in the dashboard sidebar and popup is no longer confusing during small scans (previously showed a static "Scanning... 0/1 jobs" even for single-job scans that were either still queued or actively fetching):
+  - A `SCAN_PROGRESS` broadcast is now emitted the moment a job *starts* (not only after it completes), so single-job scans no longer appear frozen at "0/1 jobs".
+  - The UI now distinguishes four lifecycle phases — "Queued", "Scanning", "Waiting for next job", and "Finishing up" — each with its own label and animation (pulsing dot during active CWS fetch, spinner while waiting for the next alarm).
+  - The `currentJob` description (e.g. `Listing: uBlock Origin (id)`) is now shown in the dashboard sidebar, matching the popup.
+  - During the inter-job delay, a live countdown ("Next in Ns") is shown when the next processing time is known.
+  - Single-job scans now show "Single job" instead of the confusing "0/1 jobs", and the progress bar advances to 50% while the job is in flight (0% → 50% → 100%) so users always see visible movement.
+
+### Changed
+- `ScanProgressMessage` gains an optional `phase: 'queued' | 'running' | 'waiting' | 'completing'` field. Older messages without `phase` default to `'running'` in all consumers, so any in-flight service worker during an upgrade continues to work.
+
 ## [0.27.0] - 2026-04-20
 
 ### Added

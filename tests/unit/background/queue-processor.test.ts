@@ -484,8 +484,12 @@ describe('Queue Processor', () => {
 
       await processNextJob(deps);
 
+      // Find the post-completion broadcast (phase 'waiting' since another job is pending).
       const progressCall = sendMessage.mock.calls.find(
-        (c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS'
+        (c) => {
+          const msg = c[0] as { type: string; phase?: string };
+          return msg.type === 'SCAN_PROGRESS' && msg.phase === 'waiting';
+        }
       );
       expect(progressCall).toBeDefined();
       const msg = progressCall![0] as { nextProcessingAt?: string };
@@ -509,12 +513,85 @@ describe('Queue Processor', () => {
 
       await processNextJob(deps);
 
+      // Find the post-completion broadcast (phase 'completing' since queue is now empty).
       const progressCall = sendMessage.mock.calls.find(
-        (c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS'
+        (c) => {
+          const msg = c[0] as { type: string; phase?: string };
+          return msg.type === 'SCAN_PROGRESS' && msg.phase === 'completing';
+        }
       );
       expect(progressCall).toBeDefined();
       const msg = progressCall![0] as { nextProcessingAt?: string };
       expect(msg.nextProcessingAt).toBeUndefined();
+    });
+
+    it('broadcasts phase "running" before executing the job', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const sendMessage = vi.fn();
+      const deps = createDeps({ fetchPage, sendMessage });
+
+      await processNextJob(deps);
+
+      // The first SCAN_PROGRESS broadcast should have phase 'running'.
+      const firstProgress = sendMessage.mock.calls.find(
+        (c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS'
+      );
+      expect(firstProgress).toBeDefined();
+      const msg = firstProgress![0] as { phase?: string; currentJob?: string };
+      expect(msg.phase).toBe('running');
+      // Pre-execute broadcast never carries nextProcessingAt.
+      expect((msg as { nextProcessingAt?: string }).nextProcessingAt).toBeUndefined();
+      // currentJob should describe the listing job.
+      expect(msg.currentJob).toBeDefined();
+      expect(typeof msg.currentJob).toBe('string');
+    });
+
+    it('post-completion broadcast uses phase "waiting" when more jobs pending', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob(), makeKeywordJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const sendMessage = vi.fn();
+      const deps = createDeps({ fetchPage, sendMessage });
+
+      await processNextJob(deps);
+
+      const phases = sendMessage.mock.calls
+        .filter((c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS')
+        .map((c) => (c[0] as { phase?: string }).phase);
+      expect(phases).toContain('running');
+      expect(phases).toContain('waiting');
+      expect(phases).not.toContain('completing');
+    });
+
+    it('post-completion broadcast uses phase "completing" for the final job', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response(MOCK_LISTING_HTML, { status: 200 })
+      );
+      const sendMessage = vi.fn();
+      const deps = createDeps({ fetchPage, sendMessage });
+
+      await processNextJob(deps);
+
+      const phases = sendMessage.mock.calls
+        .filter((c) => (c[0] as { type: string }).type === 'SCAN_PROGRESS')
+        .map((c) => (c[0] as { phase?: string }).phase);
+      expect(phases).toContain('running');
+      expect(phases).toContain('completing');
+      expect(phases).not.toContain('waiting');
     });
 
     it('listing_scan updates extension metadata after success', async () => {
