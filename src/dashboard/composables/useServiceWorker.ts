@@ -13,6 +13,7 @@ import type {
   ScanCompleteMessage,
   QueueStatusMessage,
   ScanType,
+  ScanPhase,
 } from '@/shared/types';
 
 export interface ScanStatus {
@@ -21,6 +22,7 @@ export interface ScanStatus {
   total: number;
   currentJob: string;
   nextProcessingAt: string | null;
+  phase: ScanPhase;
   lastScanDate: string | null;
   lastJobsCompleted: number;
   lastJobsFailed: number;
@@ -37,6 +39,7 @@ export function useServiceWorker() {
     total: 0,
     currentJob: '',
     nextProcessingAt: null,
+    phase: 'running',
     lastScanDate: null,
     lastJobsCompleted: 0,
     lastJobsFailed: 0,
@@ -57,6 +60,7 @@ export function useServiceWorker() {
           total: msg.total,
           currentJob: msg.currentJob,
           nextProcessingAt: msg.nextProcessingAt ?? null,
+          phase: msg.phase ?? 'running',
           lastError: null,
         };
         break;
@@ -69,6 +73,7 @@ export function useServiceWorker() {
           total: 0,
           currentJob: '',
           nextProcessingAt: null,
+          phase: 'running',
           lastScanDate: msg.date,
           lastJobsCompleted: msg.jobsCompleted,
           lastJobsFailed: msg.jobsFailed,

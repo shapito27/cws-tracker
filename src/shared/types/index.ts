@@ -22,6 +22,7 @@ export type {
   ServiceWorkerMessage,
   DashboardMessage,
   ScanType,
+  ScanPhase,
 } from './messages';
 
 export type { Settings, SubscriptionStatus, AuditPromptVariant } from './settings';

@@ -10,7 +10,7 @@
  */
 
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import type { ServiceWorkerMessage, RankSnapshot, AutocompleteSnapshot } from '../../shared/types';
+import type { ServiceWorkerMessage, RankSnapshot, AutocompleteSnapshot, ScanPhase } from '../../shared/types';
 import { db } from '../../shared/db/database';
 import { SettingsManager } from '../../shared/utils/settings';
 import { today, daysBetween } from '../../shared/utils/dates';
@@ -57,7 +57,13 @@ export interface ChangesDateGroup {
 
 export interface PopupState {
   scanStatus: ScanStatus;
-  scanProgress: { completed: number; total: number; currentJob: string };
+  scanProgress: {
+    completed: number;
+    total: number;
+    currentJob: string;
+    phase: ScanPhase;
+    nextProcessingAt: string | null;
+  };
   lastScanDate: string | null;
   rankChanges: RankChange[];
   subscriptionStatus: SubscriptionStatus;
@@ -80,7 +86,9 @@ export function isServiceWorkerMessage(msg: unknown): msg is ServiceWorkerMessag
       return (
         typeof m.completed === 'number' &&
         typeof m.total === 'number' &&
-        typeof m.currentJob === 'string'
+        typeof m.currentJob === 'string' &&
+        (m.phase === undefined || typeof m.phase === 'string') &&
+        (m.nextProcessingAt === undefined || typeof m.nextProcessingAt === 'string')
       );
     case 'SCAN_COMPLETE':
       return (
@@ -668,7 +676,13 @@ export function requestResume(): void {
 
 export function usePopupState() {
   const scanStatus = ref<ScanStatus>('idle');
-  const scanProgress = ref({ completed: 0, total: 0, currentJob: '' });
+  const scanProgress = ref<{
+    completed: number;
+    total: number;
+    currentJob: string;
+    phase: ScanPhase;
+    nextProcessingAt: string | null;
+  }>({ completed: 0, total: 0, currentJob: '', phase: 'running', nextProcessingAt: null });
   const lastScanDate = ref<string | null>(null);
   const rankChanges = ref<RankChange[]>([]);
   const subscriptionStatus = ref<SubscriptionStatus>('free');
@@ -682,8 +696,13 @@ export function usePopupState() {
 
   const progressPercent = computed(() => {
     if (scanProgress.value.total === 0) return 0;
-    return Math.round(
-      (scanProgress.value.completed / scanProgress.value.total) * 100
+    const inFlight = scanProgress.value.phase === 'running' ? 0.5 : 0;
+    return Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(((scanProgress.value.completed + inFlight) / scanProgress.value.total) * 100)
+      )
     );
   });
 
@@ -703,12 +722,20 @@ export function usePopupState() {
           completed: message.completed,
           total: message.total,
           currentJob: message.currentJob,
+          phase: message.phase ?? 'running',
+          nextProcessingAt: message.nextProcessingAt ?? null,
         };
         break;
       case 'SCAN_COMPLETE':
         scanStatus.value = 'idle';
         lastScanDate.value = message.date;
-        scanProgress.value = { completed: 0, total: 0, currentJob: '' };
+        scanProgress.value = {
+          completed: 0,
+          total: 0,
+          currentJob: '',
+          phase: 'running',
+          nextProcessingAt: null,
+        };
         // Reload rank changes after scan completes (fire-and-forget)
         loadRecentRankChanges()
           .then((changes) => { rankChanges.value = changes; })
