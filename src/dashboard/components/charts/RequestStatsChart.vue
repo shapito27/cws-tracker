@@ -137,7 +137,8 @@ const chartOptions = computed(() => ({
   legend: {
     position: 'top' as const,
     horizontalAlign: 'left' as const,
-    fontSize: '12px',
+    fontSize: '11px',
+    itemMargin: { horizontal: 10, vertical: 0 },
     markers: { size: 6 },
   },
   grid: {
@@ -152,7 +153,7 @@ const chartOptions = computed(() => ({
 </script>
 
 <template>
-  <div class="rounded-lg border border-gray-200 bg-white p-4">
+  <div class="request-stats-chart rounded-lg border border-gray-200 bg-white p-4">
     <VueApexCharts
       type="line"
       :height="280"
@@ -161,3 +162,10 @@ const chartOptions = computed(() => ({
     />
   </div>
 </template>
+
+<style scoped>
+.request-stats-chart :deep(.apexcharts-legend) {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+</style>

@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.25.2] - 2026-04-20
+
+### Fixed
+- Logs page daily stats chart: legend items (Info, Warnings, Errors, Avg duration) now render on a single row instead of wrapping to two lines, via tighter item spacing and a `nowrap` rule on the legend container.
+
 ## [0.25.1] - 2026-04-20
 
 ### Fixed
