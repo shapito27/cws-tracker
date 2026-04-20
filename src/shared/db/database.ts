@@ -347,7 +347,17 @@ export class CWSDatabase extends Dexie {
     return this.queue.where('status').equals('pending').count();
   }
 
-  async getQueueStats(): Promise<Record<QueueJobStatus, number>> {
+  /**
+   * @param cycleStartedAt  If provided, `completed` and `failed` counts only
+   *                        include jobs whose `completedAt >= cycleStartedAt`.
+   *                        `pending` and `running` are always global (they must
+   *                        belong to the current cycle since prior cycles'
+   *                        pending jobs are cleared by the scheduler and prior
+   *                        cycles' running jobs are reset on SW startup).
+   */
+  async getQueueStats(
+    cycleStartedAt?: Date | null
+  ): Promise<Record<QueueJobStatus, number>> {
     const all = await this.queue.toArray();
     const stats: Record<QueueJobStatus, number> = {
       pending: 0,
@@ -356,6 +366,13 @@ export class CWSDatabase extends Dexie {
       failed: 0,
     };
     for (const job of all) {
+      if (
+        cycleStartedAt &&
+        (job.status === 'completed' || job.status === 'failed') &&
+        (!job.completedAt || job.completedAt < cycleStartedAt)
+      ) {
+        continue;
+      }
       stats[job.status]++;
     }
     return stats;

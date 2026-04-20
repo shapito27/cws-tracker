@@ -31,6 +31,13 @@ export interface Settings {
   dailyScanEnabled: boolean;
   /** YYYY-MM-DD date of the last completed daily scan. `null` if never scanned. */
   lastDailyScanDate: string | null;
+  /**
+   * ISO timestamp for when the current scan cycle started. Used to filter
+   * `queue.completed`/`queue.failed` counts so the progress UI does not mix
+   * jobs from prior cycles still retained in the queue table. `null` when
+   * no scan cycle is active.
+   */
+  scanCycleStartedAt: string | null;
 
   // -- Proxy -----------------------------------------------------------------
 

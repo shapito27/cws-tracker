@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.27.2] - 2026-04-20
+
+### Fixed
+- Scan progress counts no longer include jobs from prior scan cycles. Completed jobs are retained in the queue table for 7 days, so a fresh 2-keyword scan could previously display misleading totals like "360/361 jobs" while the sidebar said "Waiting for next job". Each scan cycle now records its start time (new `scanCycleStartedAt` runtime setting), and `db.getQueueStats()` accepts an optional `cycleStartedAt` filter so `completed`/`failed` counts include only jobs that finished within the current cycle. `pending`/`running` counts stay global since those are always current-cycle by construction. Both the pre-execute and post-completion `SCAN_PROGRESS` broadcasts now use the filtered stats, and the final `SCAN_COMPLETE` message reports cycle-scoped totals before clearing the marker.
+
 ## [0.27.1] - 2026-04-20
 
 ### Fixed

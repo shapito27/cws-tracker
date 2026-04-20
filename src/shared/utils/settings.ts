@@ -27,6 +27,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   dailyScanTime: '03:00',
   dailyScanEnabled: false,
   lastDailyScanDate: null,
+  scanCycleStartedAt: null,
   proxyUrl: '',
   proxyApiKey: null,
   dataRetentionDays: 365,
