@@ -286,6 +286,23 @@ export async function processNextJob(
     return { hasMore: false, delayMs: 0 };
   }
 
+  // Broadcast 'running' phase BEFORE executing so the UI reflects liveness
+  // during the multi-second CWS fetch (not just after completion).
+  try {
+    const preStats = await db.getQueueStats();
+    const runningMessage: ScanProgressMessage = {
+      type: 'SCAN_PROGRESS',
+      completed: preStats.completed,
+      // dequeueNext() has already set this job to 'running', so it's counted here.
+      total: preStats.completed + preStats.pending + preStats.running,
+      currentJob: await getJobDescription(job),
+      phase: 'running',
+    };
+    deps.sendMessage(runningMessage);
+  } catch {
+    // Broadcast failures must never block the scan pipeline.
+  }
+
   try {
     await executeJob(job, deps);
     await db.updateJobStatus(job.id!, 'completed');
@@ -303,6 +320,7 @@ export async function processNextJob(
       nextProcessingAt: hasPending
         ? new Date(Date.now() + Math.max(delayMs, MIN_ALARM_DELAY_MS)).toISOString()
         : undefined,
+      phase: hasPending ? 'waiting' : 'completing',
     };
     deps.sendMessage(progressMessage);
 

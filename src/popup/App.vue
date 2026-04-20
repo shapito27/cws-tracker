@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { usePopupState } from './composables/usePopupState';
+import { phaseLabel } from '@/shared/utils/scan-phase';
 import iconUrl from '@/assets/icon-48.png';
 import ExtensionIcon from '@/dashboard/components/ExtensionIcon.vue';
 
@@ -21,6 +22,43 @@ const {
 
 const ownChanges = computed(() => rankChanges.value.filter((rc) => rc.isOwn));
 const competitorChanges = computed(() => rankChanges.value.filter((rc) => !rc.isOwn));
+
+const scanPhaseLabel = computed(() => phaseLabel(scanProgress.value.phase));
+
+// Live-tick for the "Next in Ns" countdown during phase 'waiting'.
+const now = ref(Date.now());
+let countdownHandle: ReturnType<typeof setInterval> | null = null;
+
+function stopCountdown(): void {
+  if (countdownHandle !== null) {
+    clearInterval(countdownHandle);
+    countdownHandle = null;
+  }
+}
+
+watch(
+  () => scanProgress.value.phase === 'waiting' && scanProgress.value.nextProcessingAt !== null,
+  (active) => {
+    if (active && countdownHandle === null) {
+      now.value = Date.now();
+      countdownHandle = setInterval(() => {
+        now.value = Date.now();
+      }, 1000);
+    } else if (!active) {
+      stopCountdown();
+    }
+  },
+  { immediate: true }
+);
+
+onUnmounted(stopCountdown);
+
+const countdownSeconds = computed<number | null>(() => {
+  const nextAt = scanProgress.value.nextProcessingAt;
+  if (nextAt === null) return null;
+  const delta = Math.floor((new Date(nextAt).getTime() - now.value) / 1000);
+  return Math.max(0, delta);
+});
 
 function formatPosition(position: number | null): string {
   return position === null ? '30+' : String(position);
@@ -72,12 +110,29 @@ function togglePause(): void {
 
       <!-- Running state with progress -->
       <div v-if="scanStatus === 'running'">
-        <p class="text-sm font-medium text-blue-700">
-          Scanning...
-        </p>
+        <div class="flex items-center gap-1.5">
+          <span
+            v-if="scanProgress.phase === 'running'"
+            class="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-600"
+            aria-hidden="true"
+          />
+          <svg
+            v-else
+            class="h-3 w-3 animate-spin text-blue-600"
+            viewBox="0 0 24 24"
+            fill="none"
+            aria-hidden="true"
+          >
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+          <p class="text-sm font-medium text-blue-700">{{ scanPhaseLabel }}</p>
+        </div>
         <div class="mt-1.5">
           <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
-            <span>{{ scanProgress.currentJob }}</span>
+            <span class="truncate" :title="scanProgress.currentJob">
+              {{ scanProgress.currentJob || '—' }}
+            </span>
             <span>{{ progressPercent }}%</span>
           </div>
           <div class="h-1.5 w-full rounded-full bg-gray-200">
@@ -87,7 +142,18 @@ function togglePause(): void {
             />
           </div>
           <p class="text-xs text-gray-400 mt-1">
-            {{ scanProgress.completed }} / {{ scanProgress.total }} jobs
+            <template v-if="scanProgress.total > 1">
+              {{ scanProgress.completed }} / {{ scanProgress.total }} jobs
+            </template>
+            <template v-else-if="scanProgress.total === 1">
+              Single job
+            </template>
+            <span
+              v-if="scanProgress.phase === 'waiting' && countdownSeconds !== null"
+              class="ml-2"
+            >
+              · Next in {{ countdownSeconds }}s
+            </span>
           </p>
         </div>
       </div>

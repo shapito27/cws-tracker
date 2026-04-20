@@ -162,6 +162,66 @@ describe('useServiceWorker', () => {
         expect(scanStatus.value.isRunning).toBe(true);
         expect(scanStatus.value.lastError).toBeNull();
       });
+
+      it('stores phase field when provided', () => {
+        const { handleMessage, scanStatus } = useServiceWorker();
+
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 0,
+          total: 3,
+          currentJob: 'Waiting to start...',
+          phase: 'queued',
+        });
+
+        expect(scanStatus.value.phase).toBe('queued');
+      });
+
+      it('defaults phase to "running" when field is absent', () => {
+        const { handleMessage, scanStatus } = useServiceWorker();
+
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 1,
+          total: 3,
+          currentJob: 'Scanning ext',
+        });
+
+        expect(scanStatus.value.phase).toBe('running');
+      });
+
+      it('transitions phase through queued → running → waiting', () => {
+        const { handleMessage, scanStatus } = useServiceWorker();
+
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 0,
+          total: 2,
+          currentJob: 'Waiting to start...',
+          phase: 'queued',
+        });
+        expect(scanStatus.value.phase).toBe('queued');
+
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 0,
+          total: 2,
+          currentJob: 'Scanning ext A',
+          phase: 'running',
+        });
+        expect(scanStatus.value.phase).toBe('running');
+
+        handleMessage({
+          type: 'SCAN_PROGRESS',
+          completed: 1,
+          total: 2,
+          currentJob: 'Scanning ext A',
+          phase: 'waiting',
+          nextProcessingAt: '2026-04-20T10:00:00.000Z',
+        });
+        expect(scanStatus.value.phase).toBe('waiting');
+        expect(scanStatus.value.isRunning).toBe(true);
+      });
     });
 
     describe('SCAN_COMPLETE', () => {
@@ -194,6 +254,7 @@ describe('useServiceWorker', () => {
         expect(scanStatus.value.completed).toBe(0);
         expect(scanStatus.value.total).toBe(0);
         expect(scanStatus.value.currentJob).toBe('');
+        expect(scanStatus.value.phase).toBe('running');
         expect(scanStatus.value.lastScanDate).toBe('2025-01-15');
         expect(scanStatus.value.lastJobsCompleted).toBe(5);
         expect(scanStatus.value.lastJobsFailed).toBe(1);

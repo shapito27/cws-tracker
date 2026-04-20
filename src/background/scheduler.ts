@@ -208,8 +208,9 @@ export async function triggerManualRefresh(
       type: 'SCAN_PROGRESS',
       completed: 0,
       total: jobs.length,
-      currentJob: 'Queued, waiting to start...',
+      currentJob: 'Waiting to start...',
       nextProcessingAt,
+      phase: 'queued',
     });
   } catch {
     // Dashboard may not be open
