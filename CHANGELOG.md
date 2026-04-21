@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.28.2] - 2026-04-21
+
+### Fixed
+- Logs page no longer throws `Uncaught (in promise) Error: Element not found` from ApexCharts on first load. The daily stats chart was wrapped in `v-if="!loading"`, so when the initial `loadLogs()` promise resolved and `loading` flipped to `false`, Vue mounted the chart container and ApexCharts initialized in parallel, occasionally racing to find its mount node. The `v-if` gate is dropped — `weeklyStats` is always a full 7-bucket array (empty or populated) and `RequestStatsChart` already handles the empty case via its built-in `noData: "No requests in the last 7 days"` text. A separate "Loading logs…" block above the log list still shows during the initial fetch.
+
 ## [0.28.1] - 2026-04-21
 
 ### Changed

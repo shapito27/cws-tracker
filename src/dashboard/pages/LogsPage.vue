@@ -175,7 +175,7 @@ const groupedLogs = computed<LogGroup[]>(() => {
     </div>
 
     <!-- Daily stats chart -->
-    <div v-if="!loading" class="mb-4">
+    <div class="mb-4">
       <RequestStatsChart :stats="weeklyStats" />
     </div>
 
