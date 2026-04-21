@@ -1,58 +1,15 @@
 <script setup lang="ts">
 import { RouterView, RouterLink, useRoute } from 'vue-router';
-import { computed, onUnmounted, ref, watch } from 'vue';
-import { useServiceWorker } from './composables/useServiceWorker';
-import { phaseLabel, progressPercent } from '@/shared/utils/scan-phase';
+import { computed } from 'vue';
+import ScanProgressStrip from './components/ScanProgressStrip.vue';
 import iconUrl from '@/assets/icon-48.png';
 
 const route = useRoute();
-const { scanStatus } = useServiceWorker();
 
 const isHome = computed(() => route.name === 'home');
 const isRankChanges = computed(() => route.name === 'rankChanges');
 const isLogs = computed(() => route.name === 'logs');
 const isSettings = computed(() => route.name === 'settings');
-
-const scanPhaseLabel = computed(() => phaseLabel(scanStatus.value.phase));
-
-const progressWidth = computed(
-  () => `${progressPercent(scanStatus.value.completed, scanStatus.value.total, scanStatus.value.phase)}%`
-);
-
-// Live-tick for the "Next in Ns" countdown when phase is 'waiting'.
-const now = ref(Date.now());
-let countdownHandle: ReturnType<typeof setInterval> | null = null;
-
-function stopCountdown(): void {
-  if (countdownHandle !== null) {
-    clearInterval(countdownHandle);
-    countdownHandle = null;
-  }
-}
-
-watch(
-  () => scanStatus.value.phase === 'waiting' && scanStatus.value.nextProcessingAt !== null,
-  (active) => {
-    if (active && countdownHandle === null) {
-      now.value = Date.now();
-      countdownHandle = setInterval(() => {
-        now.value = Date.now();
-      }, 1000);
-    } else if (!active) {
-      stopCountdown();
-    }
-  },
-  { immediate: true }
-);
-
-onUnmounted(stopCountdown);
-
-const countdownSeconds = computed<number | null>(() => {
-  const nextAt = scanStatus.value.nextProcessingAt;
-  if (nextAt === null) return null;
-  const delta = Math.floor((new Date(nextAt).getTime() - now.value) / 1000);
-  return Math.max(0, delta);
-});
 </script>
 
 <template>
@@ -116,62 +73,11 @@ const countdownSeconds = computed<number | null>(() => {
         </RouterLink>
       </nav>
 
-      <!-- Scan status footer -->
-      <div v-if="scanStatus.isRunning" class="space-y-2 border-t border-gray-200 p-3">
-        <div class="flex items-center gap-1.5">
-          <span
-            v-if="scanStatus.phase === 'running'"
-            class="inline-block h-2 w-2 animate-pulse rounded-full bg-blue-600"
-            aria-hidden="true"
-          />
-          <svg
-            v-else
-            class="h-3 w-3 animate-spin text-blue-600"
-            viewBox="0 0 24 24"
-            fill="none"
-            aria-hidden="true"
-          >
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <span class="text-xs font-medium text-blue-700">{{ scanPhaseLabel }}</span>
-        </div>
-
-        <div
-          v-if="scanStatus.currentJob"
-          class="truncate text-xs text-gray-700"
-          :title="scanStatus.currentJob"
-        >
-          {{ scanStatus.currentJob }}
-        </div>
-
-        <div class="h-1.5 w-full rounded-full bg-gray-200">
-          <div
-            class="h-1.5 rounded-full bg-blue-600 transition-all"
-            :style="{ width: progressWidth }"
-          />
-        </div>
-
-        <div class="flex items-center justify-between text-xs text-gray-500">
-          <span v-if="scanStatus.total > 1">
-            {{ scanStatus.completed }}/{{ scanStatus.total }} jobs
-          </span>
-          <span v-else-if="scanStatus.total === 1">Single job</span>
-          <span v-else />
-          <span v-if="scanStatus.phase === 'waiting' && countdownSeconds !== null">
-            Next in {{ countdownSeconds }}s
-          </span>
-        </div>
-      </div>
-      <div v-else-if="scanStatus.lastScanDate" class="border-t border-gray-200 p-3">
-        <div class="text-xs text-gray-500">
-          Last scan: {{ scanStatus.lastScanDate }}
-        </div>
-      </div>
     </aside>
 
     <!-- Main content -->
     <main class="flex-1 overflow-auto">
+      <ScanProgressStrip />
       <div class="mx-auto max-w-6xl px-6 py-6">
         <RouterView />
       </div>
