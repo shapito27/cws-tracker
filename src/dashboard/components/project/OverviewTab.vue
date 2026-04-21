@@ -221,12 +221,6 @@ function getNextScan(): string {
   return `${nextDate.toLocaleDateString()} ~${timeStr}`;
 }
 
-function formatTime(isoString: string): string {
-  const date = new Date(isoString);
-  if (isNaN(date.getTime())) return '--:--:--';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
-
 function getExtensionName(extensionId: string): string {
   const ext = extensions.value.find((e) => e.id === extensionId);
   return ext?.name || extensionId.slice(0, 12) + '...';
@@ -308,13 +302,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
       >
         {{ scanStatus.isRunning ? 'Scanning...' : 'Scan Now' }}
       </button>
-      <span v-if="scanStatus.isRunning && scanStatus.total > 0" class="text-sm text-gray-500">
-        {{ scanStatus.completed }}/{{ scanStatus.total }}
-      </span>
     </div>
-    <p v-if="scanStatus.isRunning && scanStatus.nextProcessingAt" class="mb-4 text-xs text-gray-500">
-      Next job at {{ formatTime(scanStatus.nextProcessingAt) }}
-    </p>
     <p v-if="scanStatus.lastError" class="mb-4 text-sm text-red-600">
       Scan error: {{ scanStatus.lastError }}
     </p>
