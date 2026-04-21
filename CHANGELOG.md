@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.28.1] - 2026-04-21
+
+### Changed
+- Removed the "Scan in progress" banner from the Projects (home) page. It was the third duplicate surface for scan status (alongside the sidebar footer and the per-project counter, both removed in 0.28.0) and is now fully covered by the global `ScanProgressStrip`. The unused `formatTime` helper on `HomePage.vue` is also removed. The "Refresh All" button behaviour is unchanged.
+
 ## [0.28.0] - 2026-04-21
 
 ### Changed

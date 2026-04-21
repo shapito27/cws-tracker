@@ -163,11 +163,6 @@ function openCreateModal(): void {
   showCreateModal.value = true;
 }
 
-function formatTime(isoString: string): string {
-  const date = new Date(isoString);
-  if (isNaN(date.getTime())) return '--:--:--';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-}
 </script>
 
 <template>
@@ -189,30 +184,6 @@ function formatTime(isoString: string): string {
         >
           Create Project
         </button>
-      </div>
-    </div>
-
-    <!-- Scan status banner -->
-    <div
-      v-if="scanStatus.isRunning"
-      class="mb-4 rounded-lg bg-blue-50 border border-blue-200 px-4 py-3"
-    >
-      <div class="flex items-center gap-3">
-        <svg class="h-5 w-5 animate-spin text-blue-600" viewBox="0 0 24 24" fill="none">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        <div>
-          <p class="text-sm font-medium text-blue-800">
-            Scan in progress: {{ scanStatus.currentJob }}
-          </p>
-          <p class="text-xs text-blue-600">
-            {{ scanStatus.completed }}/{{ scanStatus.total }} jobs completed
-            <span v-if="scanStatus.nextProcessingAt">
-              &middot; Next job at {{ formatTime(scanStatus.nextProcessingAt) }}
-            </span>
-          </p>
-        </div>
       </div>
     </div>
 
