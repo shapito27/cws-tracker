@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.28.0] - 2026-04-21
+
+### Changed
+- Scan progress indicator relocated to a global sticky strip at the top of the dashboard's main content area. Previously, scan status was shown in three places — a footer block at the bottom of the sidebar, a bare `X/Y` counter on every project's Overview tab, and a "Next job at HH:MM:SS" line. The counter and "Next job" line on the Overview tab and the entire sidebar scan footer (including the idle "Last scan: …" line) are now removed. The new `ScanProgressStrip` component shows the phase label, current job description, progress bar, `completed/total` counter (hidden when total ≤ 1), and a live "next in Ns" countdown during the `waiting` phase. The strip is `sticky top-0` so it stays visible while scrolling long project pages, and is not rendered at all when no scan is running — zero visual footprint in the idle state. The per-project "Scan Now" button on the Overview tab and the "Refresh All" button on Home are unchanged. The 1Hz countdown ticker moved from `App.vue` into the new component.
+
 ## [0.27.3] - 2026-04-20
 
 ### Fixed
