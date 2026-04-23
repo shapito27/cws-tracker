@@ -1,4 +1,4 @@
-import { upsertProxyHealth } from '../db/queries.js';
+import { upsertProxyHealth, getProxyHealth } from '../db/queries.js';
 
 export interface ProxyConfig {
   id: string;
@@ -118,6 +118,32 @@ export class ProxyRotator {
       disabled_until: h.disabledUntil ? new Date(h.disabledUntil).toISOString() : null,
       last_success_at: h.consecutiveFailures === 0 ? new Date().toISOString() : undefined,
       last_failure_at: h.consecutiveFailures > 0 ? new Date().toISOString() : undefined,
-    }).catch(() => {});
+    }).catch((err) => {
+      console.warn(`[proxy-rotator] Failed to persist health for ${proxyId}:`,
+        err instanceof Error ? err.message : err);
+    });
+  }
+
+  /**
+   * Load persisted health state from DB. Should be called once during
+   * service initialization so that a restart doesn't re-enable proxies
+   * that were disabled pre-restart.
+   */
+  async loadHealthFromDB(): Promise<void> {
+    for (const c of this.configs) {
+      try {
+        const record = await getProxyHealth(c.id);
+        if (!record) continue;
+        this.health.set(c.id, {
+          totalRequests: record.total_requests ?? 0,
+          totalFailures: record.total_failures ?? 0,
+          consecutiveFailures: record.consecutive_failures ?? 0,
+          disabledUntil: record.disabled_until ? new Date(record.disabled_until).getTime() : null,
+        });
+      } catch (err) {
+        console.warn(`[proxy-rotator] Failed to load health for ${c.id}:`,
+          err instanceof Error ? err.message : err);
+      }
+    }
   }
 }

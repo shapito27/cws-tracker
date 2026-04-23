@@ -51,6 +51,12 @@ export class ParallelCrawler {
   private opts: CrawlOptions;
 
   constructor(fetcher: Fetcher, rotator: ProxyRotator, opts: CrawlOptions) {
+    if (opts.concurrency <= 0) {
+      throw new Error('concurrency must be > 0');
+    }
+    if (opts.delayMs < 0 || opts.jitterMs < 0) {
+      throw new Error('delayMs and jitterMs must be >= 0');
+    }
     this.fetcher = fetcher;
     this.rotator = rotator;
     this.opts = opts;

@@ -12,6 +12,7 @@ import { ProxyRotator } from './services/proxy-rotator.js';
 import { ParallelCrawler } from './services/parallel-crawler.js';
 import { CrawlOrchestrator } from './services/crawl-orchestrator.js';
 import * as cwsFetcher from './services/cws-fetcher.js';
+import { requireAdmin } from './middleware/admin.js';
 
 const app = express();
 
@@ -55,7 +56,7 @@ cron.schedule('0 3 * * *', async () => {
   }
 });
 
-app.post('/admin/trigger-scan', async (_req, res) => {
+app.post('/admin/trigger-scan', requireAdmin, async (_req, res) => {
   try {
     const report = await orchestrator.runDailyScan();
     res.json(report);

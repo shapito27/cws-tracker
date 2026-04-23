@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS scan_results (
   scan_type TEXT NOT NULL,
   query_key TEXT NOT NULL,
   date DATE NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT scan_results_user_query_date_unique UNIQUE (user_id, query_key, date)
 );
 
 CREATE TABLE IF NOT EXISTS proxy_health (

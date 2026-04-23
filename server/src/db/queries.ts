@@ -127,7 +127,8 @@ export async function insertScanResults(
     return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`;
   });
   await pool.query(
-    `INSERT INTO scan_results (user_id, scan_type, query_key, date) VALUES ${placeholders.join(', ')}`,
+    `INSERT INTO scan_results (user_id, scan_type, query_key, date) VALUES ${placeholders.join(', ')}
+     ON CONFLICT (user_id, query_key, date) DO NOTHING`,
     values,
   );
 }
@@ -169,11 +170,25 @@ export async function getProxyHealth(proxyId: string) {
   return rows[0] ?? null;
 }
 
+const ALLOWED_PROXY_HEALTH_FIELDS = new Set([
+  'total_requests',
+  'total_failures',
+  'consecutive_failures',
+  'disabled_until',
+  'last_success_at',
+  'last_failure_at',
+]);
+
 export async function upsertProxyHealth(
   proxyId: string, updates: Record<string, unknown>,
 ): Promise<void> {
-  const fields = Object.keys(updates);
-  const values = Object.values(updates);
+  const safeEntries = Object.entries(updates).filter(
+    ([key, value]) => ALLOWED_PROXY_HEALTH_FIELDS.has(key) && value !== undefined,
+  );
+  if (safeEntries.length === 0) return;
+
+  const fields = safeEntries.map(([k]) => k);
+  const values = safeEntries.map(([, v]) => v);
   const setClause = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
   await pool.query(
     `INSERT INTO proxy_health (proxy_id, ${fields.join(', ')}) VALUES ($1, ${values.map((_, i) => `$${i + 2}`).join(', ')})

@@ -3,21 +3,31 @@ import { getProScanConfigs, insertScanResults, insertCrawlRun } from '../db/quer
 
 export class CrawlOrchestrator {
   private crawler: ParallelCrawler;
-  private running = false;
+  private runningPromise: Promise<CrawlReport> | null = null;
 
   constructor(crawler: ParallelCrawler) {
     this.crawler = crawler;
   }
 
   async runDailyScan(): Promise<CrawlReport> {
-    if (this.running) {
+    // Atomic check-and-set via promise: concurrent callers during a run
+    // all receive the empty report (no duplicated work).
+    if (this.runningPromise) {
       return {
         successful: 0, failed: 0, skipped: 0, cached: 0,
         durationMs: 0, proxyStats: {}, failures: [],
       };
     }
 
-    this.running = true;
+    this.runningPromise = this.executeFullScan();
+    try {
+      return await this.runningPromise;
+    } finally {
+      this.runningPromise = null;
+    }
+  }
+
+  private async executeFullScan(): Promise<CrawlReport> {
     const startTime = Date.now();
 
     try {
@@ -93,8 +103,9 @@ export class CrawlOrchestrator {
       });
 
       return report;
-    } finally {
-      this.running = false;
+    } catch (err) {
+      console.error('[crawl-orchestrator] Fatal error during scan:', err);
+      throw err;
     }
   }
 }

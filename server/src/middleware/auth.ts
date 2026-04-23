@@ -25,7 +25,10 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
   }
 
   req.user = { id: user.id, plan: user.plan };
-  updateLastSeen(user.id).catch(() => {});
+  updateLastSeen(user.id).catch((err) => {
+    console.warn(`[auth] Failed to update last_seen for ${user.id}:`,
+      err instanceof Error ? err.message : err);
+  });
   next();
 }
 

@@ -28,8 +28,11 @@ export interface FetchOptions {
 
 let cachedSessionParams: { params: SessionParams; expiresAt: number } | null = null;
 
+/** Margin to avoid returning cached params on the cusp of expiry. */
+const SESSION_EXPIRY_MARGIN_MS = 10_000;
+
 export function getCachedSession(): SessionParams | null {
-  if (cachedSessionParams && Date.now() < cachedSessionParams.expiresAt) {
+  if (cachedSessionParams && Date.now() + SESSION_EXPIRY_MARGIN_MS < cachedSessionParams.expiresAt) {
     return cachedSessionParams.params;
   }
   return null;
@@ -96,7 +99,7 @@ export function extractSessionParams(html: string): SessionParams | null {
 export function buildBatchExecuteUrl(params: SessionParams, rpcMethod: string, query: string, hl: string): string {
   const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
   url.searchParams.set('rpcids', rpcMethod);
-  url.searchParams.set('source-path', `/search/${query}`);
+  url.searchParams.set('source-path', `/search/${encodeURIComponent(query)}`);
   if (params.sid) url.searchParams.set('f.sid', params.sid);
   url.searchParams.set('bl', params.bl);
   url.searchParams.set('hl', hl);

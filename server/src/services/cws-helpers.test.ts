@@ -28,7 +28,7 @@ describe('buildBatchExecuteUrl', () => {
     expect(url.searchParams.get('rpcids')).toBe(SEARCH_RPC_METHOD);
     expect(url.searchParams.get('bl')).toBe('build-label-1');
     expect(url.searchParams.get('hl')).toBe('en');
-    expect(url.searchParams.get('source-path')).toBe('/search/ad blocker');
+    expect(url.searchParams.get('source-path')).toBe('/search/ad%20blocker');
   });
 
   it('includes f.sid when sid is non-empty', () => {
@@ -53,6 +53,18 @@ describe('buildBatchExecuteUrl', () => {
   it('works with different locales', () => {
     const url = new URL(buildBatchExecuteUrl(params, SEARCH_RPC_METHOD, 'q', 'ja'));
     expect(url.searchParams.get('hl')).toBe('ja');
+  });
+
+  it('URL-encodes special chars in source-path', () => {
+    const url = new URL(buildBatchExecuteUrl(params, SEARCH_RPC_METHOD, 'foo bar', 'en'));
+    expect(url.searchParams.get('source-path')).toBe('/search/foo%20bar');
+  });
+
+  it('URL-encodes path traversal attempts', () => {
+    const url = new URL(buildBatchExecuteUrl(params, SEARCH_RPC_METHOD, '../../../admin', 'en'));
+    const sourcePath = url.searchParams.get('source-path')!;
+    expect(sourcePath).not.toContain('../');
+    expect(sourcePath).toContain('%2F');
   });
 });
 
