@@ -1,41 +1,46 @@
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
-const CWS_BASE = 'https://chromewebstore.google.com';
-const CWS_DETAIL_PATH = '/detail';
-const CWS_SEARCH_PATH = '/search';
-const BATCHEXECUTE_PATH = '/_/ChromeWebStoreConsumerFeUi/data/batchexecute';
-const SEARCH_RPC_METHOD = 'zTyKYc';
-const AUTOCOMPLETE_RPC_METHOD = 'QcU9bc';
-const SEARCH_PAGE_SIZE = 10;
-const CWS_FETCH_TIMEOUT_MS = 15_000;
+export const CWS_BASE = 'https://chromewebstore.google.com';
+export const CWS_DETAIL_PATH = '/detail';
+export const CWS_SEARCH_PATH = '/search';
+export const BATCHEXECUTE_PATH = '/_/ChromeWebStoreConsumerFeUi/data/batchexecute';
+export const SEARCH_RPC_METHOD = 'zTyKYc';
+export const AUTOCOMPLETE_RPC_METHOD = 'QcU9bc';
+export const SEARCH_PAGE_SIZE = 10;
+export const CWS_FETCH_TIMEOUT_MS = 15_000;
+export const SESSION_CACHE_TTL_MS = 3600_000;
 
-const USER_AGENT =
+export const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
 export const EXTENSION_ID_REGEX = /^[a-z]{32}$/;
 export const MAX_SEARCH_QUERY_LENGTH = 200;
 
-interface SessionParams {
+export interface SessionParams {
   bl: string;
   sid: string;
   at: string;
 }
 
-interface FetchOptions {
+export interface FetchOptions {
   proxyAgent?: HttpsProxyAgent<string>;
 }
 
 let cachedSessionParams: { params: SessionParams; expiresAt: number } | null = null;
 
-function getCachedSession(): SessionParams | null {
+export function getCachedSession(): SessionParams | null {
   if (cachedSessionParams && Date.now() < cachedSessionParams.expiresAt) {
     return cachedSessionParams.params;
   }
   return null;
 }
 
-function cacheSession(params: SessionParams): void {
-  cachedSessionParams = { params, expiresAt: Date.now() + 3600_000 };
+export function cacheSession(params: SessionParams): void {
+  cachedSessionParams = { params, expiresAt: Date.now() + SESSION_CACHE_TTL_MS };
+}
+
+export function clearSessionCache(): void {
+  cachedSessionParams = null;
 }
 
 async function fetchRaw(
@@ -46,13 +51,8 @@ async function fetchRaw(
   const timeoutId = setTimeout(() => controller.abort(), CWS_FETCH_TIMEOUT_MS);
 
   try {
-    const { agent, ...fetchInit } = init;
+    const { agent: _agent, ...fetchInit } = init;
     const opts: RequestInit = { ...fetchInit, signal: controller.signal };
-    // Node 20 fetch supports dispatcher for proxies via undici,
-    // but https-proxy-agent works with http.request. For fetch(), we pass agent
-    // via a custom dispatcher. For simplicity, use globalThis.fetch with headers.
-    // If proxy is needed, we use node's http module instead.
-    // For now, direct fetch works for VPS own IP.
     const response = await fetch(url, opts);
     const body = await response.text();
     return { status: response.status, body };
@@ -79,7 +79,7 @@ async function fetchCWS(
   });
 }
 
-function extractSessionParams(html: string): SessionParams | null {
+export function extractSessionParams(html: string): SessionParams | null {
   const blMatch = html.match(/"cfb2h":"([^"]+)"/);
   if (!blMatch) return null;
 
@@ -93,7 +93,7 @@ function extractSessionParams(html: string): SessionParams | null {
   return { bl: blMatch[1]!, sid, at };
 }
 
-function buildBatchExecuteUrl(params: SessionParams, rpcMethod: string, query: string, hl: string): string {
+export function buildBatchExecuteUrl(params: SessionParams, rpcMethod: string, query: string, hl: string): string {
   const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
   url.searchParams.set('rpcids', rpcMethod);
   url.searchParams.set('source-path', `/search/${query}`);
@@ -107,7 +107,7 @@ function buildBatchExecuteUrl(params: SessionParams, rpcMethod: string, query: s
   return url.toString();
 }
 
-function buildSearchRpcBody(query: string, token: string, at: string): string {
+export function buildSearchRpcBody(query: string, token: string, at: string): string {
   const innerPayload = [[null, [null, null, null, [query, [SEARCH_PAGE_SIZE, token], null, ['EXTENSION']]]]];
   const outerPayload = [[[SEARCH_RPC_METHOD, JSON.stringify(innerPayload), null, 'generic']]];
   let body = `f.req=${encodeURIComponent(JSON.stringify(outerPayload))}&`;
@@ -115,7 +115,7 @@ function buildSearchRpcBody(query: string, token: string, at: string): string {
   return body;
 }
 
-function parseBatchExecuteResponse(text: string, rpcMethod: string): string {
+export function parseBatchExecuteResponse(text: string, rpcMethod: string): string {
   const cleaned = text.replace(/^\)?\]?\}?'?\n/, '');
   const lines = cleaned.split('\n');
 
@@ -149,8 +149,27 @@ function parseBatchExecuteResponse(text: string, rpcMethod: string): string {
   throw new Error(`${rpcMethod} response not found in batchexecute result`);
 }
 
-function wrapInSyntheticHtml(dataJsonString: string): string {
+export function wrapInSyntheticHtml(dataJsonString: string): string {
   return `<script>AF_initDataCallback({key: 'ds:1', hash: '1', data:${dataJsonString}});</script>`;
+}
+
+export function buildAutocompleteBatchUrl(bl: string | null, query: string, hl: string): string {
+  const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
+  url.searchParams.set('rpcids', AUTOCOMPLETE_RPC_METHOD);
+  url.searchParams.set('source-path', `/search/${encodeURIComponent(query)}`);
+  if (bl) url.searchParams.set('bl', bl);
+  url.searchParams.set('hl', hl);
+  url.searchParams.set('soc-app', '1');
+  url.searchParams.set('soc-platform', '1');
+  url.searchParams.set('soc-device', '1');
+  url.searchParams.set('rt', 'c');
+  return url.toString();
+}
+
+export function buildAutocompleteRpcBody(query: string): string {
+  const innerJson = JSON.stringify([query]);
+  const outerPayload = [[[AUTOCOMPLETE_RPC_METHOD, innerJson, null, 'generic']]];
+  return `f.req=${encodeURIComponent(JSON.stringify(outerPayload))}&`;
 }
 
 async function ensureSessionParams(hl: string, opts?: FetchOptions): Promise<SessionParams> {
@@ -225,7 +244,7 @@ export async function fetchSearch(
 }
 
 export async function fetchAutocomplete(
-  query: string, hl: string, opts?: FetchOptions,
+  query: string, hl: string, _opts?: FetchOptions,
 ): Promise<{ query: string; hl: string; data: string; fetchedAt: string }> {
   let bl: string | null = null;
   const cached = getCachedSession();
@@ -253,23 +272,4 @@ export async function fetchAutocomplete(
 
   const dataJsonString = parseBatchExecuteResponse(result.body, AUTOCOMPLETE_RPC_METHOD);
   return { query, hl, data: dataJsonString, fetchedAt: new Date().toISOString() };
-}
-
-function buildAutocompleteBatchUrl(bl: string | null, query: string, hl: string): string {
-  const url = new URL(BATCHEXECUTE_PATH, CWS_BASE);
-  url.searchParams.set('rpcids', AUTOCOMPLETE_RPC_METHOD);
-  url.searchParams.set('source-path', `/search/${encodeURIComponent(query)}`);
-  if (bl) url.searchParams.set('bl', bl);
-  url.searchParams.set('hl', hl);
-  url.searchParams.set('soc-app', '1');
-  url.searchParams.set('soc-platform', '1');
-  url.searchParams.set('soc-device', '1');
-  url.searchParams.set('rt', 'c');
-  return url.toString();
-}
-
-function buildAutocompleteRpcBody(query: string): string {
-  const innerJson = JSON.stringify([query]);
-  const outerPayload = [[[AUTOCOMPLETE_RPC_METHOD, innerJson, null, 'generic']]];
-  return `f.req=${encodeURIComponent(JSON.stringify(outerPayload))}&`;
 }
