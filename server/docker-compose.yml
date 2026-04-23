@@ -1,0 +1,27 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cws
+      POSTGRES_PASSWORD: cws
+      POSTGRES_DB: cws_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./src/db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgres://cws:cws@db:5432/cws_tracker
+      PROXY_POOL: '[{"id":"direct","url":null,"type":"direct","weight":10,"maxConsecutiveFailures":10}]'
+      PRO_LICENSE_KEY: test-pro-key-123
+    depends_on:
+      - db
+
+volumes:
+  pgdata:
