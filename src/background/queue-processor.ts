@@ -22,6 +22,7 @@ import { db } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
 import { today } from '@/shared/utils/dates';
+import { SERVER_URL } from '@/shared/types/settings';
 import { detectChanges } from '@/background/event-detector';
 import { getListingParser, getSearchParser, getAutocompleteParser, ParserError } from '@/background/parsers/index';
 import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension } from '@/background/parsers/types';
@@ -109,12 +110,15 @@ async function fetchCWSPage(
   settings: Settings,
   fetchPage: (url: string) => Promise<Response>
 ): Promise<CWSFetchResult> {
-  if (settings.proxyUrl) {
-    const proxyUrl = new URL(`/${type}`, settings.proxyUrl);
+  const serverUrl = settings.proxyUrl || (settings.serverApiKey ? SERVER_URL : '');
+  if (serverUrl) {
+    const basePath = settings.proxyUrl ? `/${type}` : `/proxy/${type}`;
+    const proxyUrl = new URL(basePath, serverUrl);
     if (params.id) proxyUrl.searchParams.set('id', params.id);
     if (params.q) proxyUrl.searchParams.set('q', params.q);
     if (params.token) proxyUrl.searchParams.set('token', params.token);
-    if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
+    const apiKey = settings.serverApiKey ?? settings.proxyApiKey;
+    if (apiKey) proxyUrl.searchParams.set('key', apiKey);
 
     const response = await fetchPage(proxyUrl.toString());
     if (!response.ok) {
@@ -157,12 +161,15 @@ function buildRequestUrl(
   params: { id?: string; q?: string; token?: string },
   settings: Settings
 ): string {
-  if (settings.proxyUrl) {
-    const proxyUrl = new URL(`/${type}`, settings.proxyUrl);
+  const logServerUrl = settings.proxyUrl || (settings.serverApiKey ? SERVER_URL : '');
+  if (logServerUrl) {
+    const basePath = settings.proxyUrl ? `/${type}` : `/proxy/${type}`;
+    const proxyUrl = new URL(basePath, logServerUrl);
     if (params.id) proxyUrl.searchParams.set('id', params.id);
     if (params.q) proxyUrl.searchParams.set('q', params.q);
     if (params.token) proxyUrl.searchParams.set('token', params.token);
-    if (settings.proxyApiKey) proxyUrl.searchParams.set('key', '[REDACTED]');
+    const apiKey = settings.serverApiKey ?? settings.proxyApiKey;
+    if (apiKey) proxyUrl.searchParams.set('key', '[REDACTED]');
     return proxyUrl.toString();
   }
   const baseUrl = type === 'detail' ? CWS_DETAIL_URL : CWS_SEARCH_URL;
@@ -795,17 +802,19 @@ async function fetchAutocompleteWithLogging(
   fetchPage: (url: string) => Promise<Response>,
   job: QueueJob
 ): Promise<string> {
-  if (!settings.proxyUrl) {
+  const acServerUrl = settings.proxyUrl || (settings.serverApiKey ? SERVER_URL : '');
+  if (!acServerUrl) {
     throw new Error('Autocomplete scan requires a proxy URL to be configured');
   }
 
-  const proxyUrl = new URL('/autocomplete', settings.proxyUrl);
+  const acBasePath = settings.proxyUrl ? '/autocomplete' : '/proxy/autocomplete';
+  const proxyUrl = new URL(acBasePath, acServerUrl);
   proxyUrl.searchParams.set('q', keyword);
-  if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
+  const acApiKey = settings.serverApiKey ?? settings.proxyApiKey;
+  if (acApiKey) proxyUrl.searchParams.set('key', acApiKey);
 
-  // Build a redacted URL for logging (reconstruct rather than string-replace)
   const logUrl = new URL(proxyUrl.toString());
-  if (settings.proxyApiKey) logUrl.searchParams.set('key', '[REDACTED]');
+  if (acApiKey) logUrl.searchParams.set('key', '[REDACTED]');
   const requestUrl = logUrl.toString();
   const jobDetail = await getJobDescription(job);
   const start = Date.now();

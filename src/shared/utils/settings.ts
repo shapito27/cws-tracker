@@ -22,6 +22,8 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   openaiApiKey: null,
   lemonSqueezyLicense: null,
   subscriptionStatus: 'free',
+  deviceId: null,
+  serverApiKey: null,
   queueDelayMs: 60_000,
   queueJitterMs: 10_000,
   dailyScanTime: '03:00',

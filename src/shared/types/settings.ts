@@ -9,6 +9,9 @@ export type SubscriptionStatus = 'free' | 'pro' | 'expired';
 /** Audit prompt variant for A/B testing. */
 export type AuditPromptVariant = 'default' | 'cot' | 'rubric';
 
+/** Hardcoded server URL — not user-configurable. */
+export const SERVER_URL = 'https://api.cwstracker.com';
+
 export interface Settings {
   // -- API keys & licensing --------------------------------------------------
 
@@ -18,6 +21,13 @@ export interface Settings {
   lemonSqueezyLicense: string | null;
   /** Current subscription status. */
   subscriptionStatus: SubscriptionStatus;
+
+  // -- Device identity & server auth -----------------------------------------
+
+  /** Auto-generated UUID for this device. Created on first install. */
+  deviceId: string | null;
+  /** API key received from server registration. */
+  serverApiKey: string | null;
 
   // -- Queue & scanning ------------------------------------------------------
 
