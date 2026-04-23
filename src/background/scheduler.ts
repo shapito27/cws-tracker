@@ -70,6 +70,11 @@ export async function handleDailyScanAlarm(
   const enabled = await settings.get('dailyScanEnabled');
   if (!enabled) return;
 
+  // Tier gate: daily auto-scan is a Pro feature. Free users get manual scans only.
+  // Server-side scanning also runs for Pro users via the VPS cron.
+  const subscriptionStatus = await settings.get('subscriptionStatus');
+  if (subscriptionStatus !== 'pro') return;
+
   // Check if already scanned today
   const lastScan = await settings.get('lastDailyScanDate');
   if (lastScan === today()) return;

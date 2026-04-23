@@ -8,6 +8,8 @@
 import { ref } from 'vue';
 import type { Project, Extension } from '@/shared/types';
 import { db } from '@/shared/db/database';
+import { canCreateProject, canAddExtension, TIER_LIMITS } from '@/shared/utils/tier-gates';
+import { getCurrentPlan } from '@/shared/utils/plan';
 
 /** Regex to extract a 32-char extension ID from a CWS URL or raw ID. */
 const CWS_URL_PATTERN =
@@ -54,6 +56,15 @@ export function useProjects() {
     if (!extensionId) {
       throw new Error(
         'Invalid extension URL or ID. Provide a 32-character extension ID or a Chrome Web Store URL.'
+      );
+    }
+
+    // Tier gate: free users can only create 1 project.
+    const plan = await getCurrentPlan();
+    const projectCount = await db.projects.count();
+    if (!canCreateProject(projectCount, plan)) {
+      throw new Error(
+        `Free tier allows only ${TIER_LIMITS.free.maxProjects} project. Upgrade to Pro for unlimited projects.`
       );
     }
 
@@ -157,6 +168,16 @@ export function useProjects() {
     // Prevent adding own extension as competitor
     if (project.ownExtensionId === extensionId) {
       throw new Error('Cannot add own extension as a competitor');
+    }
+
+    // Tier gate: free users can have at most 3 extensions per project
+    // (1 own + 2 competitors). The count below includes both own and competitors.
+    const plan = await getCurrentPlan();
+    const totalExtensions = 1 + project.competitorIds.length;
+    if (!canAddExtension(totalExtensions, plan)) {
+      throw new Error(
+        `Free tier allows only ${TIER_LIMITS.free.maxExtensionsPerProject} extensions per project. Upgrade to Pro for unlimited.`
+      );
     }
 
     const now = new Date();

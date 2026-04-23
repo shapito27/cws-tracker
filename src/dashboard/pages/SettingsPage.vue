@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { useSettings } from '../composables/useSettings';
 import { useDataTransfer } from '../composables/useDataTransfer';
+import { useLicense } from '../composables/useLicense';
 import {
   AUDIT_PLACEHOLDERS,
   getVariantSystemPrompt,
@@ -22,6 +23,32 @@ const {
   saveMultipleSettings,
   testOpenAIConnection,
 } = useSettings();
+
+// License composable
+const {
+  plan: licensePlan,
+  loading: licenseLoading,
+  error: licenseError,
+  loadLicense,
+  activateLicense,
+  deactivateLicense,
+} = useLicense();
+const localLicenseKey = ref('');
+const licenseSuccess = ref<string | null>(null);
+
+async function activateLicenseClick(): Promise<void> {
+  licenseSuccess.value = null;
+  const ok = await activateLicense(localLicenseKey.value);
+  if (ok) {
+    licenseSuccess.value = 'License activated. You are now on the Pro plan.';
+    localLicenseKey.value = '';
+  }
+}
+
+async function deactivateLicenseClick(): Promise<void> {
+  await deactivateLicense();
+  licenseSuccess.value = 'License deactivated.';
+}
 
 // Local form state for inputs that need debouncing / explicit save
 const localOpenAIKey = ref('');
@@ -98,7 +125,7 @@ const AVAILABLE_LOCALES: Array<{ code: string; name: string }> = [
 ];
 
 onMounted(async () => {
-  await loadSettings();
+  await Promise.all([loadSettings(), loadLicense()]);
   syncLocalState();
 });
 
@@ -682,40 +709,65 @@ onUnmounted(() => {
         </div>
       </section>
 
-      <!-- Section: Proxy -->
+      <!-- Section: Subscription & License -->
       <section class="rounded-lg border border-gray-200 bg-white">
-        <div class="border-b border-gray-200 px-6 py-4">
-          <h3 class="text-base font-semibold text-gray-900">Proxy Settings</h3>
-          <p class="text-sm text-gray-500 mt-0.5">Optional proxy server for CWS requests.</p>
+        <div class="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-semibold text-gray-900">Subscription</h3>
+            <p class="text-sm text-gray-500 mt-0.5">Your current plan and license key.</p>
+          </div>
+          <span
+            class="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide"
+            :class="licensePlan === 'pro'
+              ? 'bg-green-100 text-green-800'
+              : 'bg-gray-100 text-gray-700'"
+          >
+            {{ licensePlan === 'pro' ? 'Pro' : 'Free' }}
+          </span>
         </div>
         <div class="px-6 py-4 space-y-4">
-          <div>
-            <label for="proxyUrl" class="block text-sm font-medium text-gray-700">Proxy URL</label>
+          <div v-if="licensePlan === 'free'">
+            <label for="licenseKey" class="block text-sm font-medium text-gray-700">
+              License Key
+            </label>
             <input
-              id="proxyUrl"
-              v-model="localProxyUrl"
-              type="url"
-              placeholder="https://your-proxy.workers.dev"
-              class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label for="proxyApiKey" class="block text-sm font-medium text-gray-700">Proxy API Key</label>
-            <input
-              id="proxyApiKey"
-              v-model="localProxyApiKey"
+              id="licenseKey"
+              v-model="localLicenseKey"
               type="password"
-              placeholder="Optional"
+              placeholder="Enter your LemonSqueezy license key"
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
+            <p class="mt-1 text-xs text-gray-500">
+              Free tier: 1 project, 3 extensions, 5 keywords per project.
+              <a href="#" class="text-blue-600 hover:underline">Upgrade to Pro</a>
+              for unlimited + daily server-side scanning.
+            </p>
           </div>
-          <div class="pt-2">
+          <div v-else class="rounded-md bg-green-50 p-3 text-sm text-green-800">
+            Pro tier is active. Enjoy unlimited projects, extensions, keywords,
+            and daily server-side scanning.
+          </div>
+          <div v-if="licenseError" class="rounded-md bg-red-50 p-3 text-sm text-red-700">
+            {{ licenseError }}
+          </div>
+          <div v-if="licenseSuccess" class="rounded-md bg-green-50 p-3 text-sm text-green-800">
+            {{ licenseSuccess }}
+          </div>
+          <div class="pt-2 flex gap-2">
             <button
+              v-if="licensePlan === 'free'"
               class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              :disabled="saving"
-              @click="saveProxySettings"
+              :disabled="licenseLoading || !localLicenseKey.trim()"
+              @click="activateLicenseClick"
             >
-              Save Proxy Settings
+              {{ licenseLoading ? 'Activating...' : 'Activate License' }}
+            </button>
+            <button
+              v-else
+              class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              @click="deactivateLicenseClick"
+            >
+              Deactivate License
             </button>
           </div>
         </div>

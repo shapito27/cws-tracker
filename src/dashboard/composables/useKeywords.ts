@@ -5,6 +5,8 @@
 import { ref } from 'vue';
 import type { Keyword } from '@/shared/types';
 import { db } from '@/shared/db/database';
+import { canAddKeyword, TIER_LIMITS } from '@/shared/utils/tier-gates';
+import { getCurrentPlan } from '@/shared/utils/plan';
 
 export function useKeywords() {
   const keywords = ref<Keyword[]>([]);
@@ -42,6 +44,14 @@ export function useKeywords() {
     if (duplicate) {
       throw new Error(
         `Keyword "${trimmed}" already exists in this project`
+      );
+    }
+
+    // Tier gate: free users can have at most 5 keywords per project.
+    const plan = await getCurrentPlan();
+    if (!canAddKeyword(existing.length, plan)) {
+      throw new Error(
+        `Free tier allows only ${TIER_LIMITS.free.maxKeywordsPerProject} keywords per project. Upgrade to Pro for unlimited.`
       );
     }
 

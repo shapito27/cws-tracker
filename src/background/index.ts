@@ -21,6 +21,7 @@ import {
   ALARM_PROCESS_QUEUE,
 } from '@/background/scheduler';
 import { runPaginationDiagnostic } from '@/background/pagination-diagnostic';
+import { ensureDeviceRegistered } from '@/background/registration';
 import { db } from '@/shared/db/database';
 import type { DashboardMessage } from '@/shared/types';
 
@@ -29,6 +30,11 @@ import type { DashboardMessage } from '@/shared/types';
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onInstalled.addListener((details) => {
+  // Register this device with the server (idempotent, graceful on failure).
+  ensureDeviceRegistered().catch((err) => {
+    console.warn('[CWS Tracker] registration failed:', err);
+  });
+
   if (details.reason === 'install') {
     setupAlarms();
     // Trigger an initial scan attempt after install
@@ -40,6 +46,16 @@ chrome.runtime.onInstalled.addListener((details) => {
     setupAlarms();
   }
 });
+
+// Also retry registration on startup — covers cases where the first registration
+// failed (network unavailable) and we need to recover.
+if (chrome.runtime.onStartup) {
+  chrome.runtime.onStartup.addListener(() => {
+    ensureDeviceRegistered().catch((err) => {
+      console.warn('[CWS Tracker] registration failed:', err);
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // chrome.alarms.onAlarm — dispatch to scheduler handlers

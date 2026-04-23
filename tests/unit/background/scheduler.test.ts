@@ -196,6 +196,20 @@ describe('Scheduler', () => {
       expect(queueCount).toBe(0);
     });
 
+    it('skips free tier users (Pro-only feature)', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('subscriptionStatus', 'free');
+
+      const deps = createSchedulerDeps();
+      await handleDailyScanAlarm(deps);
+
+      const queueCount = await testDb.queue.count();
+      expect(queueCount).toBe(0);
+    });
+
     it('skips if lastDailyScanDate is today', async () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');
 
@@ -214,6 +228,7 @@ describe('Scheduler', () => {
 
       await seedProject();
       await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('subscriptionStatus', 'pro');
       // lastDailyScanDate not set or is yesterday → proceed
 
       const deps = createSchedulerDeps();
@@ -235,6 +250,7 @@ describe('Scheduler', () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');
 
       await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('subscriptionStatus', 'pro');
 
       const deps = createSchedulerDeps();
       await handleDailyScanAlarm(deps);
@@ -458,6 +474,7 @@ describe('Scheduler', () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');
 
       await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('subscriptionStatus', 'pro');
 
       const deps = createSchedulerDeps();
       await handleDailyScanAlarm(deps);

@@ -4,8 +4,10 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'fake-indexeddb/auto';
+import { resetChromeMock, chromeMock } from '../../mocks/chrome';
 import { CWSDatabase } from '@/shared/db/database';
 import { parseExtensionId, useProjects } from '@/dashboard/composables/useProjects';
+import { SettingsManager } from '@/shared/utils/settings';
 
 let db: CWSDatabase;
 
@@ -22,6 +24,12 @@ beforeEach(async () => {
 import { db as singletonDb } from '@/shared/db/database';
 
 beforeEach(async () => {
+  // Reset chrome storage and default to Pro plan — these tests predate
+  // tier gating and aren't testing tier logic.
+  resetChromeMock();
+  (globalThis as unknown as { chrome: typeof chromeMock }).chrome = chromeMock;
+  await new SettingsManager().set('subscriptionStatus', 'pro');
+
   // Clear all tables in the singleton DB
   await singletonDb.projects.clear();
   await singletonDb.extensions.clear();
