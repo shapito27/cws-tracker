@@ -24,6 +24,7 @@ describe('event-colors', () => {
         'screenshot_change',
         'badge_change',
         'rank_change',
+        'size_change',
       ];
       for (const type of allTypes) {
         expect(EVENT_TYPE_COLORS[type]).toBeDefined();
@@ -49,10 +50,11 @@ describe('event-colors', () => {
       expect(EVENT_TYPE_COLORS.description_change).toBe('#D97706');
     });
 
-    it('should use gray for screenshot, translation, and badge changes', () => {
+    it('should use gray for screenshot, translation, badge, and size changes', () => {
       expect(EVENT_TYPE_COLORS.screenshot_change).toBe('#6B7280');
       expect(EVENT_TYPE_COLORS.translation_change).toBe('#6B7280');
       expect(EVENT_TYPE_COLORS.badge_change).toBe('#6B7280');
+      expect(EVENT_TYPE_COLORS.size_change).toBe('#6B7280');
     });
 
     it('should use violet for rank_change', () => {
@@ -73,6 +75,7 @@ describe('event-colors', () => {
       expect(EVENT_TYPE_LABELS.permission_change).toBe('Permission Change');
       expect(EVENT_TYPE_LABELS.version_change).toBe('Version Change');
       expect(EVENT_TYPE_LABELS.title_change).toBe('Title Change');
+      expect(EVENT_TYPE_LABELS.size_change).toBe('Size Change');
     });
   });
 
@@ -113,10 +116,11 @@ describe('event-colors', () => {
       expect(getEventTypeBadgeClass('description_change')).toBe('bg-amber-100 text-amber-800');
     });
 
-    it('should return gray badge classes for screenshot, translation, and badge changes', () => {
+    it('should return gray badge classes for screenshot, translation, badge, and size changes', () => {
       expect(getEventTypeBadgeClass('screenshot_change')).toBe('bg-gray-100 text-gray-800');
       expect(getEventTypeBadgeClass('translation_change')).toBe('bg-gray-100 text-gray-800');
       expect(getEventTypeBadgeClass('badge_change')).toBe('bg-gray-100 text-gray-800');
+      expect(getEventTypeBadgeClass('size_change')).toBe('bg-gray-100 text-gray-800');
     });
 
     it('should return violet badge classes for rank_change', () => {
