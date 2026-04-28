@@ -50,6 +50,7 @@ function makeListingSnapshot(
     availableLocales: ['en', 'es', 'fr', 'de', 'ja'],
     category: 'productivity',
     developerName: 'Test Developer',
+    developerEmail: null,
     developerVerified: true,
     listingQualityScore: null,
     scannedAt: new Date('2026-01-15T10:00:00Z'),

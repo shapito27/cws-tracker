@@ -87,6 +87,7 @@ function makeListingSnapshot(
     availableLocales: ['en'],
     category: 'productivity',
     developerName: 'Test Dev',
+    developerEmail: null,
     developerVerified: false,
     listingQualityScore: null,
     scannedAt: new Date('2026-01-15T10:00:00Z'),

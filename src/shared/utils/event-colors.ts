@@ -6,7 +6,7 @@
  * - Blue: version_change
  * - Green: rating_milestone, user_milestone
  * - Orange: title_change, description_change
- * - Gray: screenshot_change, translation_change, badge_change
+ * - Gray: screenshot_change, translation_change, badge_change, size_change
  */
 
 import type { EventType } from '../types';
@@ -23,6 +23,7 @@ export const EVENT_TYPE_COLORS: Record<EventType, string> = {
   translation_change: '#6B7280',  // gray-500
   badge_change: '#6B7280',        // gray-500
   rank_change: '#7C3AED',        // violet-600
+  size_change: '#6B7280',         // gray-500
 };
 
 /** Human-readable label for each event type. */
@@ -37,6 +38,7 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   screenshot_change: 'Screenshot Change',
   badge_change: 'Badge Change',
   rank_change: 'Rank Change',
+  size_change: 'Size Change',
 };
 
 /** All event types in display order. */
@@ -51,6 +53,7 @@ export const ALL_EVENT_TYPES: EventType[] = [
   'screenshot_change',
   'translation_change',
   'badge_change',
+  'size_change',
 ];
 
 /** Tailwind badge class mapping consistent with EVENT_TYPE_COLORS hex values. */

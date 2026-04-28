@@ -146,6 +146,7 @@ describe('useExtensions', () => {
         availableLocales: ['en', 'ja', 'de', 'fr', 'es'],
         category: 'productivity',
         developerName: 'Raymond Hill',
+        developerEmail: null,
         developerVerified: false,
         listingQualityScore: null,
         scannedAt: now,

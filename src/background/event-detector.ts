@@ -162,6 +162,19 @@ export function detectChanges(
     ));
   }
 
+  // Size change
+  if (previous.size !== current.size) {
+    events.push(createEvent(
+      current.extensionId,
+      date,
+      'size_change',
+      'size',
+      previous.size,
+      current.size,
+      `Size changed from '${previous.size}' to '${current.size}'`
+    ));
+  }
+
   // Badge change
   if (JSON.stringify(previous.badgeFlags) !== JSON.stringify(current.badgeFlags)) {
     events.push(createEvent(

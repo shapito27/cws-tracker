@@ -35,6 +35,7 @@ function makeSnapshot(overrides: Partial<ListingSnapshot> = {}): ListingSnapshot
     availableLocales: ['en', 'es', 'fr', 'de', 'ja'],
     category: 'productivity/tools',
     developerName: 'Test Developer',
+    developerEmail: null,
     developerVerified: false,
     listingQualityScore: null,
     scannedAt: new Date('2026-02-05T10:00:00Z'),
@@ -232,6 +233,35 @@ describe('detectChanges', () => {
     expect(screenshotEvent).toBeDefined();
     expect(screenshotEvent!.note).toContain('3');
     expect(screenshotEvent!.note).toContain('5');
+  });
+
+  it('size change generates size_change event', () => {
+    const previous = makeSnapshot({ size: '1.5MiB' });
+    const current = makeSnapshot({ size: '2.1MiB' });
+    const events = detectChanges(previous, current);
+
+    const sizeEvent = events.find((e) => e.type === 'size_change');
+    expect(sizeEvent).toBeDefined();
+    expect(sizeEvent!.field).toBe('size');
+    expect(sizeEvent!.oldValue).toBe('1.5MiB');
+    expect(sizeEvent!.newValue).toBe('2.1MiB');
+    expect(sizeEvent!.note).toContain('1.5MiB');
+    expect(sizeEvent!.note).toContain('2.1MiB');
+  });
+
+  it('identical size → no size_change event', () => {
+    const previous = makeSnapshot({ size: '1.5MiB' });
+    const current = makeSnapshot({ size: '1.5MiB' });
+    const events = detectChanges(previous, current);
+
+    expect(events.find((e) => e.type === 'size_change')).toBeUndefined();
+  });
+
+  it('first scan with size set → no size_change event', () => {
+    const current = makeSnapshot({ size: '1.5MiB' });
+    const events = detectChanges(null, current);
+
+    expect(events.find((e) => e.type === 'size_change')).toBeUndefined();
   });
 
   it('massive user jump crosses multiple milestones', () => {
