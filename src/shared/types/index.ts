@@ -42,7 +42,8 @@ export type EventType =
   | 'translation_change'
   | 'screenshot_change'
   | 'badge_change'
-  | 'rank_change';
+  | 'rank_change'
+  | 'size_change';
 
 /** Queue job variants. */
 export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan';
@@ -140,6 +141,7 @@ export interface Keyword {
  * | hasPromoVideo      | hasPromoVideo         | direct (defaults to false)              |
  * | developerVerified  | developerVerified     | direct (defaults to false)              |
  * | category           | category              | direct                                  |
+ * | developerEmail     | developerEmail        | direct (null when not published)        |
  * | —                  | permissionRiskScore   | calculated by permission-risk utility   |
  * | —                  | listingQualityScore   | Phase 2 calculation; defaults to `null` |
  */
@@ -186,6 +188,12 @@ export interface ListingSnapshot {
   category: string;
   /** Publisher name. Mapped from ListingData.offeredBy. */
   developerName: string;
+  /**
+   * Developer contact email from CWS. `null` when not published by the developer.
+   * Optional because pre-0.29.0 snapshots in IndexedDB lack this field entirely
+   * (reads back as `undefined`); new snapshots always set it to `string | null`.
+   */
+  developerEmail?: string | null;
   /** Not currently extractable from CWS data; defaults to false. */
   developerVerified: boolean;
   /** Composite quality score (0-100). `null` until Phase 2 calculation. */

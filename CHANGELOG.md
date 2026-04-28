@@ -2,7 +2,14 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
-## [0.28.2] - 2026-04-21
+## [0.29.0] - 2026-04-28
+
+### Added
+- Project page extension cards now display three additional listing facts next to the version: **last updated date**, **package size**, and **developer email** (rendered as a `mailto:` link). All three are guarded behind `v-if`, so older snapshots that pre-date the field render cleanly with no empty separators.
+- New `size_change` event type fires when an extension's package size changes between scans (e.g. `1.5MiB` → `2.1MiB`). Rendered with the existing gray neutral-metadata styling, included in chart annotations on the Rankings tab, and filterable in the Events tab.
+- `developerEmail` is now persisted on `ListingSnapshot`. The parser already extracted this field from CWS detail pages, but it was previously dropped during the parser-to-snapshot mapping. No schema bump required (no new index).
+
+
 
 ### Fixed
 - Logs page no longer throws `Uncaught (in promise) Error: Element not found` from ApexCharts on first load. The daily stats chart was wrapped in `v-if="!loading"`, so when the initial `loadLogs()` promise resolved and `loading` flipped to `false`, Vue mounted the chart container and ApexCharts initialized in parallel, occasionally racing to find its mount node. The `v-if` gate is dropped — `weeklyStats` is always a full 7-bucket array (empty or populated) and `RequestStatsChart` already handles the empty case via its built-in `noData: "No requests in the last 7 days"` text. A separate "Loading logs…" block above the log list still shows during the initial fetch.

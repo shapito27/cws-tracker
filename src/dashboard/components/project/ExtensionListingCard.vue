@@ -15,6 +15,41 @@ const cwsUrl = computed(() => `https://chromewebstore.google.com/detail/-/${prop
 const displayName = computed(() =>
   props.snapshot?.title || props.extension?.name || props.extensionId
 );
+
+const formattedLastUpdated = computed(() => {
+  const raw = props.snapshot?.lastUpdated;
+  if (!raw) return '';
+  // Stored as YYYY-MM-DD; force local-tz parse to avoid UTC-shift off-by-one.
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+});
+
+// Plain-text email gate: must look like user@host.tld with no scheme prefix
+// (defends against a hostile mailto: payload like "x@y?subject=...&body=...").
+const safeEmail = computed<string | null>(() => {
+  const raw = props.snapshot?.developerEmail;
+  if (!raw) return null;
+  return /^[^\s@?#&/:]+@[^\s@?#&/:]+\.[^\s@?#&/:]+$/.test(raw) ? raw : null;
+});
+
+type MetaKind = 'rating' | 'version' | 'devName' | 'updated' | 'size' | 'email';
+
+// Single source of truth for inline metadata items + their order. The template
+// renders one separator (`|`) between every consecutive pair, so missing items
+// can never produce orphaned or doubled separators.
+const metaItems = computed<MetaKind[]>(() => {
+  const s = props.snapshot;
+  if (!s) return [];
+  const items: MetaKind[] = [];
+  if (s.rating != null) items.push('rating');
+  if (s.version) items.push('version');
+  if (s.developerName) items.push('devName');
+  if (s.lastUpdated) items.push('updated');
+  if (s.size) items.push('size');
+  if (safeEmail.value) items.push('email');
+  return items;
+});
 </script>
 
 <template>
@@ -60,25 +95,41 @@ const displayName = computed(() =>
         </div>
 
         <div class="mt-2 flex flex-wrap items-center gap-2">
-          <span v-if="snapshot?.rating != null" class="inline-flex items-center gap-1 text-sm text-gray-600">
-            <svg class="h-4 w-4 text-yellow-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-              <path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401Z" clip-rule="evenodd" />
-            </svg>
-            {{ snapshot.rating.toFixed(1) }}
-            <span v-if="snapshot.ratingCount" class="text-gray-400">({{ snapshot.ratingCount.toLocaleString() }})</span>
-          </span>
+          <template v-for="(kind, idx) in metaItems" :key="kind">
+            <span v-if="idx > 0" class="text-gray-300" aria-hidden="true">|</span>
 
-          <span v-if="snapshot?.rating != null && snapshot?.version" class="text-gray-300" aria-hidden="true">|</span>
+            <span v-if="kind === 'rating' && snapshot" class="inline-flex items-center gap-1 text-sm text-gray-600">
+              <svg class="h-4 w-4 text-yellow-400" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10.868 2.884c-.321-.772-1.415-.772-1.736 0l-1.83 4.401-4.753.381c-.833.067-1.171 1.107-.536 1.651l3.62 3.102-1.106 4.637c-.194.813.691 1.456 1.405 1.02L10 15.591l4.069 2.485c.713.436 1.598-.207 1.404-1.02l-1.106-4.637 3.62-3.102c.635-.544.297-1.584-.536-1.65l-4.752-.382-1.831-4.401Z" clip-rule="evenodd" />
+              </svg>
+              {{ (snapshot.rating ?? 0).toFixed(1) }}
+              <span v-if="snapshot.ratingCount" class="text-gray-400">({{ snapshot.ratingCount.toLocaleString() }})</span>
+            </span>
 
-          <span v-if="snapshot?.version" class="text-sm text-gray-500">
-            v{{ snapshot.version }}
-          </span>
+            <span v-else-if="kind === 'version'" class="text-sm text-gray-500">
+              v{{ snapshot?.version }}
+            </span>
 
-          <span v-if="snapshot?.version && snapshot?.developerName" class="text-gray-300" aria-hidden="true">|</span>
+            <span v-else-if="kind === 'devName'" class="text-sm text-gray-500">
+              by {{ snapshot?.developerName }}
+            </span>
 
-          <span v-if="snapshot?.developerName" class="text-sm text-gray-500">
-            by {{ snapshot.developerName }}
-          </span>
+            <span v-else-if="kind === 'updated'" class="text-sm text-gray-500">
+              Updated {{ formattedLastUpdated }}
+            </span>
+
+            <span v-else-if="kind === 'size'" class="text-sm text-gray-500">
+              {{ snapshot?.size }}
+            </span>
+
+            <a
+              v-else-if="kind === 'email' && safeEmail"
+              :href="`mailto:${safeEmail}`"
+              class="text-sm text-gray-500 hover:text-gray-700 hover:underline"
+            >
+              {{ safeEmail }}
+            </a>
+          </template>
 
           <span
             v-if="snapshot?.badgeFlags?.featured"

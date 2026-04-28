@@ -60,7 +60,7 @@ vi.mock('@/background/parsers/index', () => {
           privacyPolicyUrl: null,
           supportUrl: null,
           manifestJson: null,
-          developerEmail: null,
+          developerEmail: 'dev@example.com',
           developerId: null,
           browserMinVersion: null,
         };
@@ -282,6 +282,9 @@ describe('Queue Processor', () => {
       expect(snapshots).toHaveLength(1);
       expect(snapshots[0].title).toBe('Test Extension');
       expect(snapshots[0].permissionRiskScore).toBeGreaterThanOrEqual(0);
+      expect(snapshots[0].developerEmail).toBe('dev@example.com');
+      expect(snapshots[0].lastUpdated).toBe('2026-01-15');
+      expect(snapshots[0].size).toBe('1.5MiB');
 
       // Verify job is completed
       const jobs = await testDb.queue.toArray();
