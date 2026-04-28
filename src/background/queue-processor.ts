@@ -1052,6 +1052,7 @@ function mapListingDataToSnapshot(
     availableLocales: data.availableLocales,
     category: data.category,
     developerName: data.developerName,
+    developerEmail: data.developerEmail,
     developerVerified: data.developerVerified,
     listingQualityScore: null,
     scannedAt: new Date(),

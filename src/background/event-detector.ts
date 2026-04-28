@@ -162,6 +162,22 @@ export function detectChanges(
     ));
   }
 
+  // Size change. Both sides must be non-empty; an empty `size` means the parser
+  // could not extract one (e.g. CWS returned a non-string for that slot), so a
+  // transition between empty and populated is data-availability churn, not a
+  // real bundle-size change.
+  if (previous.size && current.size && previous.size !== current.size) {
+    events.push(createEvent(
+      current.extensionId,
+      date,
+      'size_change',
+      'size',
+      previous.size,
+      current.size,
+      `Size changed from '${previous.size}' to '${current.size}'`
+    ));
+  }
+
   // Badge change
   if (JSON.stringify(previous.badgeFlags) !== JSON.stringify(current.badgeFlags)) {
     events.push(createEvent(

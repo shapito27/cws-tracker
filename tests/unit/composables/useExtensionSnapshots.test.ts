@@ -42,6 +42,7 @@ function makeSnapshot(
     availableLocales: ['en'],
     category: 'productivity',
     developerName: 'Dev',
+    developerEmail: null,
     developerVerified: false,
     listingQualityScore: null,
     scannedAt: new Date(),
