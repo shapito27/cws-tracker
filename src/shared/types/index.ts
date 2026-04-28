@@ -188,8 +188,12 @@ export interface ListingSnapshot {
   category: string;
   /** Publisher name. Mapped from ListingData.offeredBy. */
   developerName: string;
-  /** Developer contact email from CWS. `null` when not published. */
-  developerEmail: string | null;
+  /**
+   * Developer contact email from CWS. `null` when not published by the developer.
+   * Optional because pre-0.29.0 snapshots in IndexedDB lack this field entirely
+   * (reads back as `undefined`); new snapshots always set it to `string | null`.
+   */
+  developerEmail?: string | null;
   /** Not currently extractable from CWS data; defaults to false. */
   developerVerified: boolean;
   /** Composite quality score (0-100). `null` until Phase 2 calculation. */

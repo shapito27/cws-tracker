@@ -162,8 +162,11 @@ export function detectChanges(
     ));
   }
 
-  // Size change
-  if (previous.size !== current.size) {
+  // Size change. Both sides must be non-empty; an empty `size` means the parser
+  // could not extract one (e.g. CWS returned a non-string for that slot), so a
+  // transition between empty and populated is data-availability churn, not a
+  // real bundle-size change.
+  if (previous.size && current.size && previous.size !== current.size) {
     events.push(createEvent(
       current.extensionId,
       date,

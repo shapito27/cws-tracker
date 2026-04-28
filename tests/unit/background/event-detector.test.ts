@@ -264,6 +264,24 @@ describe('detectChanges', () => {
     expect(events.find((e) => e.type === 'size_change')).toBeUndefined();
   });
 
+  it('empty previous size → no spurious size_change (data-availability churn)', () => {
+    // Parser falls back to '' when CWS does not return a string for the size
+    // slot. The next scan with a real size must not produce a phantom event.
+    const previous = makeSnapshot({ size: '' });
+    const current = makeSnapshot({ size: '1.5MiB' });
+    const events = detectChanges(previous, current);
+
+    expect(events.find((e) => e.type === 'size_change')).toBeUndefined();
+  });
+
+  it('size disappears in current scan → no spurious size_change', () => {
+    const previous = makeSnapshot({ size: '1.5MiB' });
+    const current = makeSnapshot({ size: '' });
+    const events = detectChanges(previous, current);
+
+    expect(events.find((e) => e.type === 'size_change')).toBeUndefined();
+  });
+
   it('massive user jump crosses multiple milestones', () => {
     const previous = makeSnapshot({ userCountNumeric: 500 });
     const current = makeSnapshot({ userCountNumeric: 100_000 });
