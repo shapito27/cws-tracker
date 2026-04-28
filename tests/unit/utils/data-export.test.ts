@@ -91,6 +91,7 @@ function makeListingSnapshot(overrides: Partial<ListingSnapshot> = {}): ListingS
     availableLocales: ['en', 'es', 'fr', 'de', 'ja'],
     category: 'Productivity',
     developerName: 'Test Dev',
+    developerEmail: null,
     developerVerified: false,
     listingQualityScore: 75,
     scannedAt: new Date('2026-01-15T10:00:00Z'),

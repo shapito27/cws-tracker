@@ -64,6 +64,7 @@ function makeListing(overrides: Partial<ListingSnapshot> = {}): ListingSnapshot 
     availableLocales: ['en', 'es', 'fr', 'de', 'ja'],
     category: 'Productivity',
     developerName: 'Dev Inc',
+    developerEmail: null,
     developerVerified: false,
     listingQualityScore: 72,
     scannedAt: new Date(),

@@ -15,6 +15,15 @@ const cwsUrl = computed(() => `https://chromewebstore.google.com/detail/-/${prop
 const displayName = computed(() =>
   props.snapshot?.title || props.extension?.name || props.extensionId
 );
+
+const formattedLastUpdated = computed(() => {
+  const raw = props.snapshot?.lastUpdated;
+  if (!raw) return '';
+  // Stored as YYYY-MM-DD; force local-tz parse to avoid UTC-shift off-by-one.
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+});
 </script>
 
 <template>
@@ -79,6 +88,28 @@ const displayName = computed(() =>
           <span v-if="snapshot?.developerName" class="text-sm text-gray-500">
             by {{ snapshot.developerName }}
           </span>
+
+          <span v-if="snapshot?.developerName && snapshot?.lastUpdated" class="text-gray-300" aria-hidden="true">|</span>
+
+          <span v-if="snapshot?.lastUpdated" class="text-sm text-gray-500">
+            Updated {{ formattedLastUpdated }}
+          </span>
+
+          <span v-if="snapshot?.lastUpdated && snapshot?.size" class="text-gray-300" aria-hidden="true">|</span>
+
+          <span v-if="snapshot?.size" class="text-sm text-gray-500">
+            {{ snapshot.size }}
+          </span>
+
+          <span v-if="snapshot?.size && snapshot?.developerEmail" class="text-gray-300" aria-hidden="true">|</span>
+
+          <a
+            v-if="snapshot?.developerEmail"
+            :href="`mailto:${snapshot.developerEmail}`"
+            class="text-sm text-gray-500 hover:text-gray-700 hover:underline"
+          >
+            {{ snapshot.developerEmail }}
+          </a>
 
           <span
             v-if="snapshot?.badgeFlags?.featured"
