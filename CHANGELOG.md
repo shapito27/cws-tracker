@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.29.1] - 2026-04-30
+
+### Fixed
+- Rank Changes page (`#/changes`), the popup's recent-changes list, the project Overview tab's rank widgets, and the SW-side `rank_change` event detector no longer emit a spurious "New" pill when an extension rebounds across a gap day. Previously, if a scan ran on day D, did not run (or ran partially) on D+1, then ran again on D+2, every keyword whose tracked extensions weren't found on D+1 wrote `position: null` snapshots — and the next day's comparison treated those nulls as "extension was below top 30 yesterday," surfacing a misleading `change=31` (rank) or `change=AC_APPEARED_SENTINEL` (autocomplete) for every pair, even when the extension had been at #1 two days prior. The four call sites (`loadRecentRankChanges`, `loadRecentAutocompleteChanges`, `loadAllChanges`, `detectRankChanges`) now share a new `findEffectivePrevious` helper in `src/shared/utils/rank-history.ts` that, when the immediately-prior snapshot is `position: null`, walks back through the same pair's history for the most recent non-null snapshot within a 14-day window and uses it as the basis for change calculation. First-time appearances (no non-null history at all) and genuine re-entries after long absences (>14 days) still emit the correct "New" sentinel; "Out" detection (curr=null, prev=non-null) is unchanged. Historical `rank_change` events already in the events table from prior scans are not rewritten — they age out naturally.
+
 ## [0.29.0] - 2026-04-28
 
 ### Added

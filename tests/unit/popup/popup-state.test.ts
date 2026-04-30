@@ -404,6 +404,102 @@ describe('loadRecentRankChanges()', () => {
     expect(changes[0].keywordId).toBe(1);
     expect(changes[0].change).toBe(7);
   });
+
+  // -------------------------------------------------------------------------
+  // Gap-day regression: a partial-scan day with position:null between two
+  // real ranked days must NOT produce a "New" event on the recovery day.
+  // -------------------------------------------------------------------------
+  describe('gap-day handling (null-prev lookback)', () => {
+    it('suppresses spurious "New" when pair was ranked within lookback window', async () => {
+      // Apr 27 #1, Apr 28 null (gap day), Apr 29 #1 — should report no change.
+      await db.extensions.add(makeExtension({ id: 'ext-aaa' }));
+      await db.keywords.add(makeKeyword({ id: 1 }));
+      await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+
+      await db.rank_snapshots.bulkAdd([
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-27', position: 1 }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-28', position: null }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-29', position: 1 }),
+      ]);
+
+      const changes = await loadRecentRankChanges();
+      expect(changes).toHaveLength(0);
+    });
+
+    it('reports the real delta when the recovery day differs from the pre-gap position', async () => {
+      // Apr 27 #1, Apr 28 null, Apr 29 #5 — should report a 4-position drop
+      // relative to Apr 27, NOT a "New" entry from null.
+      await db.extensions.add(makeExtension({ id: 'ext-aaa' }));
+      await db.keywords.add(makeKeyword({ id: 1 }));
+      await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+
+      await db.rank_snapshots.bulkAdd([
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-27', position: 1 }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-28', position: null }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-29', position: 5 }),
+      ]);
+
+      const changes = await loadRecentRankChanges();
+      expect(changes).toHaveLength(1);
+      expect(changes[0].previousPosition).toBe(1);
+      expect(changes[0].currentPosition).toBe(5);
+      expect(changes[0].change).toBe(-4);
+    });
+
+    it('still emits "New" when there is no non-null history within the window', async () => {
+      // First-ever ranking — pair has only the null prev day, no earlier
+      // non-null history. Should emit the "New" sentinel (change=31).
+      await db.extensions.add(makeExtension({ id: 'ext-aaa' }));
+      await db.keywords.add(makeKeyword({ id: 1 }));
+      await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+
+      await db.rank_snapshots.bulkAdd([
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-28', position: null }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-29', position: 5 }),
+      ]);
+
+      const changes = await loadRecentRankChanges();
+      expect(changes).toHaveLength(1);
+      expect(changes[0].change).toBe(31);
+    });
+
+    it('still emits "New" when the prior non-null is older than the lookback window', async () => {
+      // Apr 1 #1 (>14 days ago), Apr 28 null, Apr 29 #1 — counts as a
+      // legitimate re-entry into top 30 since the long absence wipes the
+      // recent-history signal.
+      await db.extensions.add(makeExtension({ id: 'ext-aaa' }));
+      await db.keywords.add(makeKeyword({ id: 1 }));
+      await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+
+      await db.rank_snapshots.bulkAdd([
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-01', position: 1 }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-28', position: null }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-29', position: 1 }),
+      ]);
+
+      const changes = await loadRecentRankChanges();
+      expect(changes).toHaveLength(1);
+      expect(changes[0].change).toBe(31);
+    });
+
+    it('still reports a real "Out" event when curr drops to null', async () => {
+      // The fix only suppresses spurious "New"; "Out" detection unchanged.
+      // Apr 27 #1, Apr 28 #1 (immediate prev non-null), Apr 29 null → "Out".
+      await db.extensions.add(makeExtension({ id: 'ext-aaa' }));
+      await db.keywords.add(makeKeyword({ id: 1 }));
+      await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+
+      await db.rank_snapshots.bulkAdd([
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-27', position: 1 }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-28', position: 1 }),
+        makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-04-29', position: null }),
+      ]);
+
+      const changes = await loadRecentRankChanges();
+      expect(changes).toHaveLength(1);
+      expect(changes[0].change).toBe(-31);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
