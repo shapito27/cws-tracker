@@ -14,6 +14,7 @@ import type { ServiceWorkerMessage, RankSnapshot, AutocompleteSnapshot, ScanPhas
 import { db } from '../../shared/db/database';
 import { SettingsManager } from '../../shared/utils/settings';
 import { today, daysBetween } from '../../shared/utils/dates';
+import { findEffectivePrevious } from '../../shared/utils/rank-history';
 import type { SubscriptionStatus } from '../../shared/types/settings';
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,36 @@ export function isServiceWorkerMessage(msg: unknown): msg is ServiceWorkerMessag
 // ---------------------------------------------------------------------------
 
 /**
+ * Group snapshots by `keywordId:extensionId` and sort each list ascending by
+ * date. Within each date, keeps the snapshot with the latest scannedAt
+ * (matches deduplicateSnapshots semantics).
+ */
+function buildPairHistory<
+  T extends { keywordId: number; extensionId: string; date: string; scannedAt: Date }
+>(snapshots: T[]): Map<string, T[]> {
+  const byPairAndDate = new Map<string, Map<string, T>>();
+  for (const s of snapshots) {
+    const pairKey = `${s.keywordId}:${s.extensionId}`;
+    let dateMap = byPairAndDate.get(pairKey);
+    if (!dateMap) {
+      dateMap = new Map();
+      byPairAndDate.set(pairKey, dateMap);
+    }
+    const existing = dateMap.get(s.date);
+    if (!existing || s.scannedAt > existing.scannedAt) {
+      dateMap.set(s.date, s);
+    }
+  }
+  const out = new Map<string, T[]>();
+  for (const [pairKey, dateMap] of byPairAndDate) {
+    const list = [...dateMap.values()];
+    list.sort((a, b) => a.date.localeCompare(b.date));
+    out.set(pairKey, list);
+  }
+  return out;
+}
+
+/**
  * Deduplicate snapshots per [keywordId, extensionId] within a date group,
  * keeping the snapshot with the latest scannedAt. Consistent with the
  * dashboard's deduplicateByDate logic.
@@ -188,11 +219,24 @@ export async function loadRecentRankChanges(limit: number = 5, ownOnly = false):
     projectSnapshots.filter((s) => s.date === previousDate)
   );
 
+  // Per-pair history (ascending by date) of all snapshots strictly before
+  // currentDate, used to look back past null-prev snapshots produced by gap
+  // days (partial scans that wrote position:null for tracked extensions).
+  const pairHistory = buildPairHistory(
+    projectSnapshots.filter((s) => s.date < currentDate)
+  );
+
   const changes: RankChange[] = [];
 
   for (const snap of current) {
-    const prev = previous.find(
+    const immediatePrev = previous.find(
       (p) => p.keywordId === snap.keywordId && p.extensionId === snap.extensionId
+    );
+    const histKey = `${snap.keywordId}:${snap.extensionId}`;
+    const prev = findEffectivePrevious(
+      pairHistory.get(histKey) ?? [],
+      immediatePrev,
+      currentDate
     );
 
     let change: number | null = null;
@@ -330,6 +374,12 @@ export async function loadRecentAutocompleteChanges(limit: number = 5, ownOnly =
     projectSnapshots.filter((s) => s.date === previousDate)
   );
 
+  // Per-pair history (ascending) of all snapshots strictly before currentDate,
+  // used to skip null-prev gaps when emitting "appeared" events.
+  const pairHistory = buildPairHistory(
+    projectSnapshots.filter((s) => s.date < currentDate)
+  );
+
   // Build a set of all (keywordId, extensionId) pairs seen in either date
   const allPairs = new Set<string>();
   for (const s of [...current, ...previous]) {
@@ -343,9 +393,14 @@ export async function loadRecentAutocompleteChanges(limit: number = 5, ownOnly =
 
   for (const pair of allPairs) {
     const curr = currentMap.get(pair);
-    const prev = previousMap.get(pair);
+    const immediatePrev = previousMap.get(pair);
+    const effectivePrev = findEffectivePrevious(
+      pairHistory.get(pair) ?? [],
+      immediatePrev,
+      currentDate
+    );
     const currPos = curr?.position ?? null;
-    const prevPos = prev?.position ?? null;
+    const prevPos = effectivePrev?.position ?? null;
 
     let change: number | null = null;
     if (currPos !== null && prevPos === null) {
@@ -360,7 +415,7 @@ export async function loadRecentAutocompleteChanges(limit: number = 5, ownOnly =
     }
 
     if (change !== null) {
-      const snap = curr ?? prev!;
+      const snap = curr ?? effectivePrev ?? immediatePrev!;
       const ownerProject = projects.find(
         (p) => p.ownExtensionId === snap.extensionId || p.competitorIds.includes(snap.extensionId)
       );
@@ -455,6 +510,11 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
 
   const allChanges: RankChange[] = [];
 
+  // Per-pair history for both scan types (used for null-prev lookback so a
+  // partial-scan day doesn't trigger a false "New" the next day).
+  const rankPairHistory = buildPairHistory(projectRankSnaps);
+  const acPairHistory = buildPairHistory(projectACSnaps);
+
   // --- Rank changes across all consecutive rank date pairs ---
   for (let i = 0; i < rankDates.length - 1; i++) {
     const currentDate = rankDates[i];
@@ -468,8 +528,14 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
     );
 
     for (const snap of currentRank) {
-      const prev = previousRank.find(
+      const immediatePrev = previousRank.find(
         (p) => p.keywordId === snap.keywordId && p.extensionId === snap.extensionId
+      );
+      const histKey = `${snap.keywordId}:${snap.extensionId}`;
+      const prev = findEffectivePrevious(
+        rankPairHistory.get(histKey) ?? [],
+        immediatePrev,
+        currentDate
       );
 
       let change: number | null = null;
@@ -528,9 +594,14 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
 
     for (const pair of pairsAC) {
       const curr = currentACMap.get(pair);
-      const prev = previousACMap.get(pair);
+      const immediatePrev = previousACMap.get(pair);
+      const effectivePrev = findEffectivePrevious(
+        acPairHistory.get(pair) ?? [],
+        immediatePrev,
+        currentDate
+      );
       const currPos = curr?.position ?? null;
-      const prevPos = prev?.position ?? null;
+      const prevPos = effectivePrev?.position ?? null;
 
       let change: number | null = null;
       if (currPos !== null && prevPos === null) {
@@ -545,7 +616,7 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
       }
 
       if (change !== null) {
-        const snap = curr ?? prev!;
+        const snap = curr ?? effectivePrev ?? immediatePrev!;
         const ownerProject = projects.find(
           (p) => p.ownExtensionId === snap.extensionId || p.competitorIds.includes(snap.extensionId)
         );
