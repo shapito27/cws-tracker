@@ -22,6 +22,7 @@ import { db } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
 import { today } from '@/shared/utils/dates';
+import { findEffectivePrevious, RANK_NULL_LOOKBACK_DAYS } from '@/shared/utils/rank-history';
 import { detectChanges } from '@/background/event-detector';
 import { getListingParser, getSearchParser, getAutocompleteParser, ParserError } from '@/background/parsers/index';
 import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension } from '@/background/parsers/types';
@@ -662,8 +663,8 @@ async function detectRankChanges(
   }
 
   for (const snap of snapshots) {
-    // Find the previous snapshot for this keyword+extension (before today)
-    const previous = await db.rank_snapshots
+    // Find the immediately-prior snapshot (any age) for this pair.
+    const immediatePrev = await db.rank_snapshots
       .where('[keywordId+extensionId+date]')
       .between(
         [snap.keywordId, snap.extensionId, ''],
@@ -672,6 +673,36 @@ async function detectRankChanges(
         false // exclude current date
       )
       .last();
+
+    // If the immediate prev is `position: null` (extension was scanned but
+    // not found yesterday — typical for partial-scan gap days), look further
+    // back through the past lookback window for a non-null position. This
+    // suppresses spurious "entered top 30" events when the same ext was
+    // ranked just two days ago.
+    let previous = immediatePrev;
+    if (immediatePrev && immediatePrev.position === null) {
+      const lowerBoundDate = (() => {
+        const d = new Date(snap.date + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() - RANK_NULL_LOOKBACK_DAYS);
+        return d.toISOString().slice(0, 10);
+      })();
+      const lookbackWindow = await db.rank_snapshots
+        .where('[keywordId+extensionId+date]')
+        .between(
+          [snap.keywordId, snap.extensionId, lowerBoundDate],
+          [snap.keywordId, snap.extensionId, snap.date],
+          true,
+          false
+        )
+        .toArray();
+      lookbackWindow.sort((a, b) => a.date.localeCompare(b.date));
+      previous = findEffectivePrevious(
+        lookbackWindow,
+        immediatePrev,
+        snap.date,
+        RANK_NULL_LOOKBACK_DAYS
+      );
+    }
 
     if (!previous) continue; // No prior data to compare
 
