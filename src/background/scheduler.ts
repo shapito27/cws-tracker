@@ -236,6 +236,47 @@ export async function triggerManualRefresh(
 }
 
 /**
+ * Re-scan a single keyword's search rank (lightweight, non-destructive).
+ *
+ * Unlike {@link triggerManualRefresh}, this does NOT clear the pending queue or
+ * reset the scan-cycle marker — it appends one `keyword_scan` job and kicks the
+ * processor. Used by the "Re-scan" action next to an unstable-rank hint to
+ * quickly re-check a volatile rank.
+ */
+export async function triggerKeywordRescan(keywordId: number): Promise<void> {
+  const keyword = await db.keywords.get(keywordId);
+  if (!keyword) return;
+
+  const jobs = buildKeywordScanJobs([keyword]);
+  if (jobs.length === 0) return;
+
+  await db.enqueueJobs(jobs);
+
+  // Notify the dashboard immediately so the button reflects the queued re-scan
+  // (mirrors triggerManualRefresh — without this the UI shows nothing until the
+  // 1-minute alarm fires, which looks like the button did nothing).
+  const pending = await db.getPendingCount();
+  const nextProcessingAt = new Date(Date.now() + MIN_ALARM_DELAY_MINUTES * 60_000).toISOString();
+  try {
+    chrome.runtime.sendMessage({
+      type: 'SCAN_PROGRESS',
+      completed: 0,
+      total: Math.max(pending, 1),
+      currentJob: `Re-scanning "${keyword.text}"…`,
+      nextProcessingAt,
+      phase: 'queued',
+    });
+  } catch {
+    // Dashboard may not be open — ignore.
+  }
+
+  // Kick processing (MV3 alarm floor is 1 minute).
+  chrome.alarms.create(ALARM_PROCESS_QUEUE, {
+    delayInMinutes: MIN_ALARM_DELAY_MINUTES,
+  });
+}
+
+/**
  * Pause automatic scanning by disabling the dailyScanEnabled setting.
  * In-progress jobs will still complete, but no new scan cycle will start.
  */

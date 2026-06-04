@@ -178,7 +178,7 @@ describe('loadRecentRankChanges()', () => {
     expect(changes).toHaveLength(0);
   });
 
-  it('handles position: null as "30+" (not in top 30)', async () => {
+  it('handles position: null as "30+" but flags the first null as unstable', async () => {
     await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Test Ext' }));
     await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
     await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
@@ -192,6 +192,26 @@ describe('loadRecentRankChanges()', () => {
     expect(changes).toHaveLength(1);
     expect(changes[0].currentPosition).toBeNull();
     expect(changes[0].change).toBe(-31); // dropped out of top 30
+    // First null after a ranked day → unconfirmed (likely volatility).
+    expect(changes[0].unstable).toBe(true);
+  });
+
+  it('marks a confirmed (second consecutive) null as NOT unstable', async () => {
+    await db.extensions.add(makeExtension({ id: 'ext-aaa', name: 'Test Ext' }));
+    await db.keywords.add(makeKeyword({ id: 1, text: 'test' }));
+    await db.projects.add(makeProject({ ownExtensionId: 'ext-aaa' }));
+
+    await db.rank_snapshots.bulkAdd([
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-03', position: 8 }),
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-04', position: null }),
+      makeRankSnapshot({ keywordId: 1, extensionId: 'ext-aaa', date: '2026-02-05', position: null }),
+    ]);
+
+    const changes = await loadRecentRankChanges();
+    expect(changes).toHaveLength(1);
+    expect(changes[0].currentPosition).toBeNull();
+    expect(changes[0].change).toBe(-31);
+    expect(changes[0].unstable).toBeFalsy();
   });
 
   it('handles entering top 30 (null -> ranked)', async () => {

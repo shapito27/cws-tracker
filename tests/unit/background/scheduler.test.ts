@@ -488,6 +488,68 @@ describe('Scheduler', () => {
     });
   });
 
+  describe('triggerKeywordRescan', () => {
+    it('enqueues exactly one keyword_scan job for the keyword and kicks the processor', async () => {
+      const { triggerKeywordRescan } = await import('@/background/scheduler');
+      await seedProject();
+
+      await triggerKeywordRescan(1);
+
+      const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pendingJobs).toHaveLength(1);
+      expect(pendingJobs[0].type).toBe('keyword_scan');
+      expect((pendingJobs[0].payload as { keywordId: number }).keywordId).toBe(1);
+
+      const processQueueAlarm = getCalls('alarms.create').find((c) => c.args[0] === 'processQueue');
+      expect(processQueueAlarm).toBeDefined();
+
+      // Immediate feedback so the button doesn't look dead during the alarm delay.
+      const progressMsg = getCalls('runtime.sendMessage').find(
+        (c) => (c.args[0] as { type: string }).type === 'SCAN_PROGRESS'
+      );
+      expect(progressMsg).toBeDefined();
+      expect((progressMsg!.args[0] as { phase: string }).phase).toBe('queued');
+    });
+
+    it('does NOT clear existing pending jobs (non-destructive)', async () => {
+      const { triggerKeywordRescan } = await import('@/background/scheduler');
+      await seedProject();
+
+      await testDb.enqueueJobs([
+        {
+          type: 'listing_scan',
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+          status: 'pending',
+          priority: 10,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: new Date(),
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+      ]);
+
+      await triggerKeywordRescan(1);
+
+      const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
+      // Pre-existing listing job is preserved + the new keyword_scan job.
+      expect(pendingJobs).toHaveLength(2);
+      expect(pendingJobs.some((j) => j.type === 'listing_scan')).toBe(true);
+      expect(pendingJobs.some((j) => j.type === 'keyword_scan')).toBe(true);
+    });
+
+    it('no-ops for an unknown keyword', async () => {
+      const { triggerKeywordRescan } = await import('@/background/scheduler');
+      await seedProject();
+
+      await triggerKeywordRescan(999);
+
+      const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pendingJobs).toHaveLength(0);
+    });
+  });
+
   describe('pauseScanning / resumeScanning', () => {
     it('pauseScanning sets dailyScanEnabled to false', async () => {
       const { pauseScanning } = await import('@/background/scheduler');

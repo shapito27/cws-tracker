@@ -32,6 +32,44 @@ export function dayDiff(a: string, b: string): number {
 }
 
 /**
+ * Confirmation state for a current `position: null` (off-list) rank reading.
+ * CWS search rankings fluctuate for borderline extensions, so a single null
+ * draw is unreliable. We require two consecutive null scans before treating a
+ * drop as real.
+ */
+export type DropState = 'none' | 'provisional' | 'confirmed';
+
+/**
+ * Classify a current `null` (off-list) position against prior history.
+ *
+ * - `'none'`        : not a drop — either the current position is ranked, or
+ *                     there is no recent non-null rank to have dropped from.
+ * - `'provisional'` : first null right after a ranked snapshot (likely
+ *                     volatility) — suppress the hard "dropped out" event/badge
+ *                     and show an "unstable" hint instead.
+ * - `'confirmed'`   : the immediately-prior snapshot was ALSO null while a
+ *                     non-null position exists within the lookback window — a
+ *                     real, sustained drop.
+ *
+ * Callers pass the immediate-previous position and the effective-previous
+ * position (the most recent non-null within lookback, e.g. via
+ * `findEffectivePrevious`). An `undefined` immediate-previous (a gap day with
+ * no prior-date snapshot) is treated as `'provisional'` — the safe choice.
+ */
+export function classifyDrop(
+  currentPosition: number | null,
+  immediatePrevPosition: number | null | undefined,
+  effectivePrevPosition: number | null | undefined
+): DropState {
+  if (currentPosition !== null) return 'none';
+  if (effectivePrevPosition === null || effectivePrevPosition === undefined) return 'none';
+  // Current is null and the extension was ranked recently:
+  // a null immediately-prior means this is the 2nd+ consecutive null (confirmed);
+  // anything else (a ranked prior, or a gap with no prior) is the first null.
+  return immediatePrevPosition === null ? 'confirmed' : 'provisional';
+}
+
+/**
  * If `immediatePrev` has a non-null position, returns it unchanged. If it
  * is `position: null`, scans `pairHistory` (ascending by date, all entries
  * for a single keyword/extension pair) for the most recent snapshot before

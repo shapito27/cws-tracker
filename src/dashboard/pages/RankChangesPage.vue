@@ -1,11 +1,33 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { loadAllChanges, type ChangesDateGroup } from '@/popup/composables/usePopupState';
+import { useServiceWorker } from '../composables/useServiceWorker';
 import RankChangeItem from '../components/RankChangeItem.vue';
+
+const { scanStatus, requestKeywordRescan } = useServiceWorker();
 
 const allGroups = ref<ChangesDateGroup[]>([]);
 const loading = ref(true);
 const filterType = ref<'all' | 'rank' | 'autocomplete'>('all');
+
+async function loadGroups(): Promise<void> {
+  loading.value = true;
+  try {
+    allGroups.value = await loadAllChanges();
+  } catch {
+    allGroups.value = [];
+  } finally {
+    loading.value = false;
+  }
+}
+
+// Reload after a scan (e.g. a Re-scan) completes so fresh ranks appear.
+watch(
+  () => scanStatus.value.isRunning,
+  (isRunning, wasRunning) => {
+    if (wasRunning && !isRunning) loadGroups();
+  }
+);
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00');
@@ -34,16 +56,7 @@ const counts = computed(() => {
   return { rank, ac, total: rank + ac };
 });
 
-onMounted(async () => {
-  loading.value = true;
-  try {
-    allGroups.value = await loadAllChanges();
-  } catch {
-    allGroups.value = [];
-  } finally {
-    loading.value = false;
-  }
-});
+onMounted(loadGroups);
 </script>
 
 <template>
@@ -128,6 +141,9 @@ onMounted(async () => {
             :rank-change="rc"
             :link-to-project="true"
             :show-date="false"
+            :allow-rescan="true"
+            :scan-running="scanStatus.isRunning"
+            @rescan="requestKeywordRescan"
           />
         </div>
       </div>

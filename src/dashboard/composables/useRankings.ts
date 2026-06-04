@@ -284,6 +284,12 @@ export interface KeywordDayCell {
   position: number | null;
   /** Change vs previous day. Positive = improved (moved up). null if no previous data. */
   delta: number | null;
+  /**
+   * True when this is an off-list (null) reading immediately after a ranked
+   * day — likely CWS volatility rather than a real drop. UI shows an "unstable"
+   * hint + Re-scan. Uses the immediate-prior snapshot (no extended lookback).
+   */
+  unstable?: boolean;
 }
 
 /** One row in the keyword position table. */
@@ -356,7 +362,10 @@ export async function loadKeywordPositionTable(
         delta = prevSnap.position - snap.position; // positive = improved
       }
 
-      days.set(date, { position: snap.position, delta });
+      // First off-list reading right after a ranked day → likely volatility.
+      const unstable = snap.position === null && (prevSnap?.position ?? null) !== null;
+
+      days.set(date, { position: snap.position, delta, unstable });
     }
 
     rows.push({

@@ -152,6 +152,11 @@ export function useServiceWorker() {
     await sendToServiceWorker({ type: 'CANCEL_SCAN' });
   }
 
+  /** Re-scan a single keyword's search rank without clearing the queue. */
+  async function requestKeywordRescan(keywordId: number): Promise<void> {
+    await sendToServiceWorker({ type: 'RESCAN_KEYWORD', keywordId });
+  }
+
   return {
     scanProgress,
     lastScanStatus,
@@ -161,6 +166,7 @@ export function useServiceWorker() {
     requestPause,
     requestResume,
     requestCancel,
+    requestKeywordRescan,
     // Exposed for testing
     handleMessage,
     startListening,

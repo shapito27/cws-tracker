@@ -22,7 +22,7 @@ import { db } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
 import { today } from '@/shared/utils/dates';
-import { findEffectivePrevious, RANK_NULL_LOOKBACK_DAYS } from '@/shared/utils/rank-history';
+import { findEffectivePrevious, classifyDrop, RANK_NULL_LOOKBACK_DAYS } from '@/shared/utils/rank-history';
 import { detectChanges } from '@/background/event-detector';
 import { getListingParser, getSearchParser, getAutocompleteParser, ParserError } from '@/background/parsers/index';
 import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension } from '@/background/parsers/types';
@@ -708,6 +708,16 @@ async function detectRankChanges(
 
     // Skip if position unchanged
     if (previous.position === snap.position) continue;
+
+    // Debounce volatile single-scan drops: CWS rankings fluctuate, so a
+    // borderline extension can fall off the captured top-30 for a single scan.
+    // Suppress the "dropped out of top 30" event until a 2nd consecutive null
+    // confirms the drop (mirrors the entering-side lookback). The provisional
+    // null is still recorded as a snapshot and surfaces as an "unstable" hint
+    // in the UI loaders.
+    if (classifyDrop(snap.position, immediatePrev?.position, previous.position) === 'provisional') {
+      continue;
+    }
 
     const formatPos = (p: number | null): string => p === null ? '30+' : `#${p}`;
     const isOwn = snap.extensionId === ownExtensionId;
