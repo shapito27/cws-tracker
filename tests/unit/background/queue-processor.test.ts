@@ -122,6 +122,7 @@ vi.mock('@/shared/db/database', async (importOriginal) => {
 // Import after mocks are set up
 import type { ProcessorDeps } from '@/background/queue-processor';
 import type { QueueJob } from '@/shared/types';
+import { today, daysAgo } from '@/shared/utils/dates';
 
 // ---------------------------------------------------------------------------
 // Test database (fresh instance per test)
@@ -325,6 +326,76 @@ describe('Queue Processor', () => {
         (s) => s.extensionId === 'cccccccccccccccccccccccccccccccccc'
       );
       expect(snapC!.position).toBeNull();
+    });
+
+    it('rank drop debounce: first null does NOT emit a "dropped out" event', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // Competitor 2 (ccc) is absent from the mock search results → null today.
+      // Seed yesterday as a ranked snapshot so today's null is the FIRST null.
+      await testDb.saveRankSnapshots([
+        {
+          keywordId: 1,
+          extensionId: 'cccccccccccccccccccccccccccccccccc',
+          date: daysAgo(1),
+          position: 5,
+          totalResults: 120,
+          scannedAt: new Date(),
+        },
+      ]);
+      await testDb.enqueueJobs([makeKeywordJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(new Response('mock-search', { status: 200 }));
+      await processNextJob(createDeps({ fetchPage }));
+
+      // Today's snapshot recorded as null (data preserved)…
+      const snapC = (await testDb.rank_snapshots.toArray()).find(
+        (s) => s.extensionId === 'cccccccccccccccccccccccccccccccccc' && s.date === today()
+      );
+      expect(snapC!.position).toBeNull();
+
+      // …but NO "dropped out" event yet (unconfirmed / likely volatility).
+      const events = await testDb.events
+        .where('extensionId')
+        .equals('cccccccccccccccccccccccccccccccccc')
+        .toArray();
+      expect(events.filter((e) => e.type === 'rank_change')).toHaveLength(0);
+    });
+
+    it('rank drop debounce: second consecutive null DOES emit a "dropped out" event', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // Ranked two days ago, null yesterday → today's null is the 2nd consecutive.
+      await testDb.saveRankSnapshots([
+        {
+          keywordId: 1,
+          extensionId: 'cccccccccccccccccccccccccccccccccc',
+          date: daysAgo(2),
+          position: 5,
+          totalResults: 120,
+          scannedAt: new Date(),
+        },
+        {
+          keywordId: 1,
+          extensionId: 'cccccccccccccccccccccccccccccccccc',
+          date: daysAgo(1),
+          position: null,
+          totalResults: 120,
+          scannedAt: new Date(),
+        },
+      ]);
+      await testDb.enqueueJobs([makeKeywordJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(new Response('mock-search', { status: 200 }));
+      await processNextJob(createDeps({ fetchPage }));
+
+      const events = await testDb.events
+        .where('extensionId')
+        .equals('cccccccccccccccccccccccccccccccccc')
+        .toArray();
+      const dropEvents = events.filter((e) => e.type === 'rank_change');
+      expect(dropEvents).toHaveLength(1);
+      expect(dropEvents[0].note).toContain('dropped out of top 30');
     });
 
     it('HTTP 429: job retried, retryCount incremented', async () => {

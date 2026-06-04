@@ -8,7 +8,7 @@ import {
 import { useServiceWorker } from '../composables/useServiceWorker';
 import RankChangeItem from './RankChangeItem.vue';
 
-const { scanStatus } = useServiceWorker();
+const { scanStatus, requestKeywordRescan } = useServiceWorker();
 
 const rankChanges = ref<RankChange[]>([]);
 const loading = ref(true);
@@ -63,6 +63,9 @@ watch(
         :rank-change="rc"
         :link-to-project="true"
         :show-date="true"
+        :allow-rescan="true"
+        :scan-running="scanStatus.isRunning"
+        @rescan="requestKeywordRescan"
       />
     </div>
   </div>

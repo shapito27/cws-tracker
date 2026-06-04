@@ -14,7 +14,7 @@ import type { ServiceWorkerMessage, RankSnapshot, AutocompleteSnapshot, ScanPhas
 import { db } from '../../shared/db/database';
 import { SettingsManager } from '../../shared/utils/settings';
 import { today, daysBetween } from '../../shared/utils/dates';
-import { findEffectivePrevious } from '../../shared/utils/rank-history';
+import { findEffectivePrevious, classifyDrop } from '../../shared/utils/rank-history';
 import type { SubscriptionStatus } from '../../shared/types/settings';
 
 // ---------------------------------------------------------------------------
@@ -40,6 +40,13 @@ export interface RankChange {
   currentPosition: number | null;
   /** Positive = improved (moved up in rank), negative = dropped. null = no prior data. */
   change: number | null;
+  /**
+   * True when a `currentPosition: null` drop is unconfirmed (first off-list
+   * scan after a ranked one) — likely CWS ranking volatility rather than a real
+   * drop. UI shows an amber "Unstable" hint + Re-scan instead of a red "Out".
+   * Only set for `type: 'rank'`.
+   */
+  unstable?: boolean;
   /** Whether this extension is the user's own (vs a competitor). */
   isOwn: boolean;
   /** The project ID this rank change belongs to. */
@@ -240,6 +247,7 @@ export async function loadRecentRankChanges(limit: number = 5, ownOnly = false):
     );
 
     let change: number | null = null;
+    let unstable = false;
     if (prev) {
       if (prev.position !== null && snap.position !== null) {
         // Positive = improved (moved up in rank: was 10, now 5 = +5)
@@ -248,8 +256,9 @@ export async function loadRecentRankChanges(limit: number = 5, ownOnly = false):
         // Entered top 30 (was 30+, now ranked)
         change = 31;
       } else if (prev.position !== null && snap.position === null) {
-        // Dropped out of top 30
+        // Dropped out of top 30 — flag as unstable when unconfirmed (first null).
         change = -31;
+        unstable = classifyDrop(snap.position, immediatePrev?.position, prev.position) === 'provisional';
       }
       // Both null: no change (still not ranked), skip
     }
@@ -269,6 +278,7 @@ export async function loadRecentRankChanges(limit: number = 5, ownOnly = false):
         previousPosition: prev?.position ?? null,
         currentPosition: snap.position,
         change,
+        unstable,
         isOwn: ownExtIds.has(snap.extensionId),
         projectId: ownerProject?.id ?? null,
         date: currentDate,
@@ -539,6 +549,7 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
       );
 
       let change: number | null = null;
+      let unstable = false;
       if (prev) {
         if (prev.position !== null && snap.position !== null) {
           change = prev.position - snap.position;
@@ -546,6 +557,7 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
           change = 31;
         } else if (prev.position !== null && snap.position === null) {
           change = -31;
+          unstable = classifyDrop(snap.position, immediatePrev?.position, prev.position) === 'provisional';
         }
       }
 
@@ -563,6 +575,7 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
           previousPosition: prev?.position ?? null,
           currentPosition: snap.position,
           change,
+          unstable,
           isOwn: ownExtIds.has(snap.extensionId),
           projectId: ownerProject?.id ?? null,
           date: currentDate,

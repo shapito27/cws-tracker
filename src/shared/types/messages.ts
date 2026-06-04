@@ -121,10 +121,22 @@ export interface TestPaginationMessage {
   maxPages?: number;
 }
 
+/**
+ * Request a lightweight re-scan of a single keyword's search rank.
+ * Enqueues one keyword_scan job WITHOUT clearing the rest of the pending queue.
+ * Used by the "Re-scan" action next to an unstable-rank hint.
+ */
+export interface RescanKeywordMessage {
+  type: 'RESCAN_KEYWORD';
+  /** The keyword to re-scan. */
+  keywordId: number;
+}
+
 /** Union of all messages the Dashboard/Popup can send to the Service Worker. */
 export type DashboardMessage =
   | TriggerRefreshMessage
   | PauseScanMessage
   | ResumeScanMessage
   | CancelScanMessage
-  | TestPaginationMessage;
+  | TestPaginationMessage
+  | RescanKeywordMessage;

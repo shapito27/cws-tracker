@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   findEffectivePrevious,
+  classifyDrop,
   dayDiff,
   RANK_NULL_LOOKBACK_DAYS,
 } from '../../../src/shared/utils/rank-history';
@@ -159,5 +160,33 @@ describe('findEffectivePrevious', () => {
     expect(
       findEffectivePrevious([apr25, apr28], apr28, '2026-04-29', 5)
     ).toBe(apr25);
+  });
+});
+
+describe('classifyDrop', () => {
+  it('returns "none" when current position is ranked (not a drop)', () => {
+    expect(classifyDrop(5, null, 9)).toBe('none');
+    expect(classifyDrop(5, 7, 7)).toBe('none');
+  });
+
+  it('returns "none" when there is no recent rank to drop from', () => {
+    expect(classifyDrop(null, null, null)).toBe('none');
+    expect(classifyDrop(null, undefined, undefined)).toBe('none');
+  });
+
+  it('returns "provisional" on the first null after a ranked snapshot', () => {
+    // Yesterday #9, today null → unconfirmed single-scan drop (likely volatility).
+    expect(classifyDrop(null, 9, 9)).toBe('provisional');
+  });
+
+  it('returns "provisional" when the immediate prior is a gap (undefined)', () => {
+    // No prior-date snapshot, but a non-null exists within lookback → treat the
+    // first null after the gap as unconfirmed.
+    expect(classifyDrop(null, undefined, 9)).toBe('provisional');
+  });
+
+  it('returns "confirmed" when the immediate prior was also null', () => {
+    // Two consecutive nulls with a non-null recently → real, sustained drop.
+    expect(classifyDrop(null, null, 9)).toBe('confirmed');
   });
 });

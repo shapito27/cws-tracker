@@ -15,6 +15,7 @@ import {
   handleDailyScanAlarm,
   handleProcessQueueAlarm,
   triggerManualRefresh,
+  triggerKeywordRescan,
   pauseScanning,
   resumeScanning,
   ALARM_DAILY_SCAN,
@@ -87,6 +88,10 @@ async function handleMessage(
   switch (message.type) {
     case 'TRIGGER_REFRESH':
       await triggerManualRefresh(message.projectId, message.scanType ?? 'full');
+      return { ok: true };
+
+    case 'RESCAN_KEYWORD':
+      await triggerKeywordRescan(message.keywordId);
       return { ok: true };
 
     case 'PAUSE_SCAN':

@@ -14,11 +14,23 @@ const props = defineProps<{
   projectId?: number;
 }>();
 
-const { scanStatus, requestRefresh } = useServiceWorker();
+const { scanStatus, requestRefresh, requestKeywordRescan } = useServiceWorker();
 
 async function scanKeywordsOnly(): Promise<void> {
   if (props.projectId === undefined) return;
   await requestRefresh(props.projectId, 'keywords');
+}
+
+/** The most recent visible date in the table. */
+const latestDate = computed<string>(() => dateColumns.value[dateColumns.value.length - 1]);
+
+/** True when a row's latest cell is an unstable (likely volatile) off-list reading. */
+function isRowUnstable(row: KeywordPositionRow): boolean {
+  return getCell(row, latestDate.value)?.unstable === true;
+}
+
+async function rescanKeyword(keywordId: number): Promise<void> {
+  await requestKeywordRescan(keywordId);
 }
 
 const rows = ref<KeywordPositionRow[]>([]);
@@ -202,6 +214,21 @@ function formatDateHeader(dateStr: string): string {
               <span class="text-sm font-medium text-gray-900 truncate block" :title="row.keywordText">
                 {{ row.keywordText }}
               </span>
+              <div v-if="isRowUnstable(row)" class="mt-1 flex items-center gap-1.5">
+                <span
+                  class="inline-flex items-center rounded px-1 py-px text-[10px] font-semibold bg-amber-100 text-amber-700"
+                  title="Latest scan missed this keyword though it ranked recently — CWS results fluctuate. Re-scan to confirm."
+                >Unstable</span>
+                <button
+                  type="button"
+                  class="rounded border border-amber-300 bg-white px-1.5 py-px text-[10px] font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                  :disabled="scanStatus.isRunning"
+                  :title="scanStatus.isRunning ? 'A scan is already running' : 'Re-scan this keyword now'"
+                  @click="rescanKeyword(row.keywordId)"
+                >
+                  {{ scanStatus.isRunning ? 'Re-scanning…' : 'Re-scan' }}
+                </button>
+              </div>
             </td>
 
             <!-- Day cells -->
@@ -214,9 +241,10 @@ function formatDateHeader(dateStr: string): string {
               <template v-if="getCell(row, date)">
                 <div
                   class="text-xs font-semibold"
-                  :class="positionColorClass(getCell(row, date)!.position)"
+                  :class="getCell(row, date)!.unstable ? 'text-amber-600' : positionColorClass(getCell(row, date)!.position)"
+                  :title="getCell(row, date)!.unstable ? 'Unstable: off-list this scan but ranked recently (CWS volatility)' : undefined"
                 >
-                  {{ formatPosition(getCell(row, date)!.position) }}
+                  {{ formatPosition(getCell(row, date)!.position) }}<span v-if="getCell(row, date)!.unstable" aria-hidden="true"> ⚠</span>
                 </div>
                 <div
                   v-if="getCell(row, date)!.delta !== null && getCell(row, date)!.delta !== 0"

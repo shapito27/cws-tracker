@@ -11,10 +11,20 @@ const props = withDefaults(defineProps<{
   rankChange: RankChange;
   linkToProject?: boolean;
   showDate?: boolean;
+  /** Show the "Re-scan" button on unstable items (parent owns the action). */
+  allowRescan?: boolean;
+  /** Whether a scan is currently running (disables the Re-scan button). */
+  scanRunning?: boolean;
 }>(), {
   linkToProject: true,
   showDate: true,
+  allowRescan: false,
+  scanRunning: false,
 });
+
+const emit = defineEmits<{
+  (e: 'rescan', keywordId: number): void;
+}>();
 
 /**
  * Link target for the extension name.
@@ -65,6 +75,8 @@ function isNew(rc: RankChange): boolean {
 }
 
 function isOut(rc: RankChange): boolean {
+  // Unstable (unconfirmed) drops render as "Unstable", not "Out".
+  if (rc.unstable) return false;
   if (rc.type === 'autocomplete') return rc.change === AC_DISAPPEARED_SENTINEL;
   return rc.change !== null && rc.change < -30;
 }
@@ -105,8 +117,30 @@ function isOut(rc: RankChange): boolean {
         'text-red-700': rankChange.change !== null && rankChange.change < 0,
         'text-gray-600': rankChange.currentPosition === null,
       }">{{ formatPosition(rankChange, rankChange.currentPosition) }}</span>
+      <!-- Unstable: an unconfirmed (first) drop off the list — likely CWS volatility -->
+      <template v-if="rankChange.unstable">
+        <span
+          class="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-xs font-semibold text-amber-700"
+          title="This rank looks unstable — CWS results fluctuate. Re-scan to confirm."
+        >
+          <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">
+            <path d="M6 1.5 11 10.5H1L6 1.5Z M5.25 4.5h1.5v3h-1.5z M5.25 8.25h1.5v1.5h-1.5z" />
+          </svg>
+          Unstable
+        </span>
+        <button
+          v-if="allowRescan"
+          type="button"
+          class="inline-flex items-center rounded-full border border-amber-300 bg-white px-1.5 py-0.5 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+          :disabled="scanRunning"
+          :title="scanRunning ? 'A scan is already running' : 'Re-scan this keyword now'"
+          @click="emit('rescan', rankChange.keywordId)"
+        >
+          {{ scanRunning ? 'Re-scanning…' : 'Re-scan' }}
+        </button>
+      </template>
       <span
-        v-if="rankChange.change !== null && rankChange.change > 0"
+        v-else-if="rankChange.change !== null && rankChange.change > 0"
         class="inline-flex items-center rounded-full bg-green-100 px-1.5 py-0.5 text-xs font-semibold text-green-700"
       >
         <svg class="w-3 h-3 mr-0.5" viewBox="0 0 12 12" fill="currentColor">

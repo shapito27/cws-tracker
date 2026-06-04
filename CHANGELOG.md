@@ -2,6 +2,16 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.30.0] - 2026-06-03
+
+### Added
+- **Unstable-rank detection + one-click Re-scan.** CWS search rankings fluctuate between identical queries (verified: an extension oscillating between #10, #20, and >29 within minutes), so a single scan that misses a borderline extension previously surfaced a misleading red **"Out"** badge and fired a "dropped out of top 30" event. A drop off the captured top-30 is now treated as **unconfirmed ("Unstable")** on its first occurrence and only escalates to a real "Out" / `rank_change` event once a **second consecutive null** scan confirms it — mirroring the existing entering-side debounce. Implemented via a shared pure helper `classifyDrop` in `src/shared/utils/rank-history.ts`, consumed by the SW event detector (`detectRankChanges`) and the UI loaders (`loadRecentRankChanges`, `loadAllChanges`, `loadKeywordPositionTable`).
+- The "Your Rank Changes" widget and the Rank Changes page now render an amber **"Unstable"** badge (instead of "Out") for unconfirmed drops, with a **"Re-scan"** button to immediately re-check that keyword. The project Keyword Positions table flags the latest unstable cell with an amber marker + per-row "Re-scan".
+- New `RESCAN_KEYWORD` service-worker message + `triggerKeywordRescan(keywordId)` enqueue a single `keyword_scan` job **without** clearing the rest of the pending queue (non-destructive). Exposed in the dashboard via `useServiceWorker().requestKeywordRescan(keywordId)`. Note: MV3's 1-minute alarm floor means a re-scan runs within ~1 minute.
+
+### Notes
+- Scope is search rank. The recorded `position: null` snapshot is unchanged (data is preserved); only the event/badge presentation is debounced. A sustained 2-day absence still produces a real "Out". Autocomplete "disappeared" debouncing is a possible follow-up.
+
 ## [0.29.1] - 2026-04-30
 
 ### Fixed
