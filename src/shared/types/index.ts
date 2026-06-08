@@ -336,7 +336,7 @@ export interface ScanLog {
   requestUrl: string;
   /** HTTP status code of the response (null if network error). */
   responseStatus: number | null;
-  /** First 100 characters of the response body. */
+  /** Leading portion of the response body, truncated for storage (see SCAN_LOG_PREVIEW_LENGTH). */
   responsePreview: string;
   /** Duration of the request in milliseconds. */
   durationMs: number;
@@ -348,6 +348,16 @@ export interface ScanLog {
   httpMethod?: string;
   /** 1-indexed page number for paginated keyword scan requests. null/undefined for non-paginated. */
   pageNumber?: number | null;
+  /**
+   * Discriminates the entry kind. Optional for backwards compat with pre-0.31.0 logs
+   * (treat undefined as 'request').
+   * - `'request'`: an actual HTTP request/response to CWS (has real timing + body preview).
+   * - `'summary'`: a synthetic per-page diagnostic for a keyword scan — the success
+   *   result (results found, tracked extensions matched, pagination stop reason) or a
+   *   page-2+ failure note (fetch/HTTP/parse). Carries no real duration; the UI folds it
+   *   into its page's request row instead of showing it as a standalone request.
+   */
+  kind?: 'request' | 'summary';
 }
 
 // ---------------------------------------------------------------------------

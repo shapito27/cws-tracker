@@ -5,12 +5,14 @@ import { useScanLogs } from '../composables/useScanLogs';
 import RequestStatsChart from '../components/charts/RequestStatsChart.vue';
 
 const {
+  logs,
   loading,
   error,
   filterLevel,
   filterJobType,
   jobTypes,
   filteredLogs,
+  logGroups,
   stats,
   weeklyStats,
   loadLogs,
@@ -18,6 +20,7 @@ const {
 
 const expandedIds = ref<Set<number>>(new Set());
 const advancedMode = ref(false);
+const copiedKey = ref<string | null>(null);
 
 onMounted(() => {
   loadLogs();
@@ -37,6 +40,18 @@ function isExpanded(id: number): boolean {
   return expandedIds.value.has(id);
 }
 
+async function copyToClipboard(text: string, key: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    copiedKey.value = key;
+    window.setTimeout(() => {
+      if (copiedKey.value === key) copiedKey.value = null;
+    }, 1200);
+  } catch {
+    // Clipboard may be unavailable (permissions / insecure context) - ignore.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Display helpers
 // ---------------------------------------------------------------------------
@@ -53,6 +68,20 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatFullTimestamp(iso: string): string {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const base = d.toLocaleString([], {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  return `${base}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+}
+
 function levelBadgeClass(level: string): string {
   switch (level) {
     case 'warn':
@@ -61,6 +90,17 @@ function levelBadgeClass(level: string): string {
       return 'bg-red-100 text-red-800';
     default:
       return 'bg-gray-100 text-gray-700';
+  }
+}
+
+function levelDotClass(level: string): string {
+  switch (level) {
+    case 'warn':
+      return 'bg-amber-400';
+    case 'error':
+      return 'bg-red-500';
+    default:
+      return 'bg-gray-300';
   }
 }
 
@@ -95,6 +135,16 @@ function jobTypeLabel(type: string): string {
     default:
       return type;
   }
+}
+
+/** Render a duration; synthetic / un-timed entries store 0ms — show a dash instead. */
+function durationLabel(ms: number): string {
+  return ms > 0 ? `${ms}ms` : '—';
+}
+
+function pageLabel(log: SavedScanLog): string | null {
+  if (log.pageNumber === undefined || log.pageNumber === null) return null;
+  return `Page ${log.pageNumber}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,36 +184,6 @@ const parsedUrls = computed<Map<number, ParsedRequestParams>>(() => {
 function getParsedUrl(logId: number): ParsedRequestParams {
   return parsedUrls.value.get(logId) ?? { baseUrl: '', params: [] };
 }
-
-function isPaginationRequest(log: SavedScanLog): boolean {
-  return log.pageNumber !== undefined && log.pageNumber !== null && log.pageNumber > 1;
-}
-
-function getPageLabel(log: SavedScanLog): string | null {
-  if (log.pageNumber === undefined || log.pageNumber === null) return null;
-  return `Page ${log.pageNumber}`;
-}
-
-/** Group logs by date for date separator headers. */
-interface LogGroup {
-  date: string;
-  label: string;
-  logs: SavedScanLog[];
-}
-
-const groupedLogs = computed<LogGroup[]>(() => {
-  const groups: LogGroup[] = [];
-  let currentDate = '';
-  for (const log of filteredLogs.value) {
-    const date = log.timestamp.slice(0, 10);
-    if (date !== currentDate) {
-      currentDate = date;
-      groups.push({ date, label: formatDate(log.timestamp), logs: [] });
-    }
-    groups[groups.length - 1].logs.push(log);
-  }
-  return groups;
-});
 </script>
 
 <template>
@@ -171,7 +191,7 @@ const groupedLogs = computed<LogGroup[]>(() => {
     <!-- Header -->
     <div class="mb-6">
       <h1 class="text-2xl font-bold text-gray-900">Scan Logs</h1>
-      <p class="mt-1 text-sm text-gray-500">Request history for the last 7 days</p>
+      <p class="mt-1 text-sm text-gray-500">Request history for the last 7 days, grouped by scan job</p>
     </div>
 
     <!-- Daily stats chart -->
@@ -202,10 +222,12 @@ const groupedLogs = computed<LogGroup[]>(() => {
       </select>
 
       <button
+        data-testid="advanced-toggle"
         class="ml-auto inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
         :class="advancedMode
           ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
           : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'"
+        :title="advancedMode ? 'Showing request URL, parameters & full response body' : 'Show request URL, parameters & full response body'"
         @click="advancedMode = !advancedMode"
       >
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -252,9 +274,9 @@ const groupedLogs = computed<LogGroup[]>(() => {
       <p class="text-sm text-gray-500">Loading logs...</p>
     </div>
 
-    <!-- Empty state -->
+    <!-- Empty state (no logs at all) -->
     <div
-      v-else-if="filteredLogs.length === 0 && stats.total === 0 && !error"
+      v-else-if="logs.length === 0 && !error"
       class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center"
     >
       <svg class="mx-auto h-10 w-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -271,142 +293,226 @@ const groupedLogs = computed<LogGroup[]>(() => {
       <p class="text-sm text-gray-500">No logs match the selected filters.</p>
     </div>
 
-    <!-- Log list grouped by date -->
-    <div v-else class="space-y-4">
-      <div v-for="group in groupedLogs" :key="group.date">
+    <!-- Log list grouped by date → scan job -->
+    <div v-else class="space-y-5">
+      <div v-for="dateGroup in logGroups" :key="dateGroup.date">
         <!-- Date separator -->
-        <div class="mb-2 text-xs font-medium text-gray-400">{{ group.label }}</div>
+        <div class="mb-2 text-xs font-medium text-gray-400">{{ formatDate(dateGroup.jobs[0].timestamp) }}</div>
 
-        <div class="space-y-1.5">
+        <div class="space-y-2">
+          <!-- Job group card -->
           <div
-            v-for="log in group.logs"
-            :key="log.id"
-            class="rounded-lg border border-gray-200 border-l-4 bg-white"
-            :class="[rowBorderClass(log.level), isPaginationRequest(log) ? 'ml-6' : '']"
+            v-for="group in dateGroup.jobs"
+            :key="group.key"
+            data-testid="job-card"
+            class="overflow-hidden rounded-lg border border-gray-200 border-l-4 bg-white"
+            :class="rowBorderClass(group.level)"
           >
-            <!-- Row header -->
+            <!-- Job header (only for multi-request jobs, e.g. paginated keyword scans) -->
             <div
-              class="flex cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-gray-50"
-              @click="toggleExpand(log.id)"
+              v-if="group.entries.length > 1"
+              data-testid="job-header"
+              class="flex items-center gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-2.5"
             >
-              <!-- Expand chevron -->
-              <button
-                class="shrink-0 text-gray-400 transition-transform"
-                :class="isExpanded(log.id) ? 'rotate-90' : ''"
-              >
-                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-
-              <!-- HTTP method badge -->
-              <span class="inline-flex shrink-0 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-xs font-medium text-blue-700">
-                {{ log.httpMethod ?? 'GET' }}
+              <span class="h-2 w-2 shrink-0 rounded-full" :class="levelDotClass(group.level)"></span>
+              <span class="shrink-0 rounded bg-white px-1.5 py-0.5 text-xs text-gray-600 ring-1 ring-gray-200">
+                {{ jobTypeLabel(group.jobType) }}
               </span>
-
-              <!-- Time -->
-              <span class="shrink-0 font-mono text-xs text-gray-500">{{ formatTime(log.timestamp) }}</span>
-
-              <!-- Level badge -->
-              <span
-                class="inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="levelBadgeClass(log.level)"
-              >
-                {{ log.level }}
-              </span>
-
-              <!-- Job type -->
-              <span class="shrink-0 rounded bg-gray-50 px-1.5 py-0.5 text-xs text-gray-600">
-                {{ jobTypeLabel(log.jobType) }}
-              </span>
-
-              <!-- Job detail -->
-              <span class="min-w-0 flex-1 truncate text-sm text-gray-900">{{ log.jobDetail }}</span>
-
-              <!-- Pagination page badge -->
-              <span
-                v-if="getPageLabel(log)"
-                class="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
-              >
-                {{ getPageLabel(log) }}
-              </span>
-
-              <!-- HTTP status -->
-              <span class="shrink-0 font-mono text-xs" :class="statusClass(log.responseStatus)">
-                {{ log.responseStatus ?? '---' }}
-              </span>
-
-              <!-- Duration -->
-              <span class="shrink-0 text-xs text-gray-400">
-                {{ log.durationMs }}ms
-              </span>
+              <span class="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900">{{ group.title }}</span>
+              <span v-if="group.jobId !== null" class="shrink-0 font-mono text-xs text-gray-400">#{{ group.jobId }}</span>
+              <span class="shrink-0 text-xs text-gray-400">{{ group.entries.length }} requests</span>
+              <span class="shrink-0 text-xs text-gray-400">{{ durationLabel(group.totalDurationMs) }} total</span>
+              <span class="shrink-0 font-mono text-xs text-gray-500">{{ formatTime(group.timestamp) }}</span>
             </div>
 
-            <!-- Expanded details -->
+            <!-- Request entries -->
             <div
-              v-if="isExpanded(log.id)"
-              class="border-t border-gray-100 bg-gray-50 px-4 py-3 text-xs"
+              v-for="entry in group.entries"
+              :key="entry.log.id"
+              :class="group.entries.length > 1 ? 'border-t border-gray-100 first:border-t-0' : ''"
             >
-              <div class="space-y-2">
-                <!-- Error (always shown) -->
-                <div v-if="log.error">
-                  <span class="font-medium text-red-600">Error</span>
-                  <p class="mt-0.5 font-mono text-red-700">{{ log.error }}</p>
-                </div>
+              <!-- Row header -->
+              <div
+                data-testid="log-row"
+                class="flex cursor-pointer items-center gap-3 hover:bg-gray-50"
+                :class="group.entries.length > 1 ? 'py-2 pl-10 pr-4' : 'px-4 py-2.5'"
+                @click="toggleExpand(entry.log.id)"
+              >
+                <!-- Expand chevron -->
+                <button
+                  class="shrink-0 text-gray-400 transition-transform"
+                  :class="isExpanded(entry.log.id) ? 'rotate-90' : ''"
+                >
+                  <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
 
-                <!-- Job ID (always shown) -->
-                <div v-if="log.jobId !== null">
-                  <span class="font-medium text-gray-500">Job ID</span>
-                  <span class="ml-1 text-gray-600">#{{ log.jobId }}</span>
-                </div>
+                <!-- HTTP method badge -->
+                <span class="inline-flex shrink-0 rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-xs font-medium text-blue-700">
+                  {{ entry.log.httpMethod ?? 'GET' }}
+                </span>
 
-                <!-- Advanced details (behind toggle) -->
-                <template v-if="advancedMode">
-                  <!-- Request: method + base URL -->
-                  <div>
-                    <span class="font-medium text-gray-500">Request</span>
-                    <p class="mt-0.5 break-all font-mono text-gray-700">
-                      <span class="font-semibold">{{ log.httpMethod ?? 'GET' }}</span>
-                      {{ getParsedUrl(log.id).baseUrl }}
-                    </p>
+                <!-- Single-request job: full context inline -->
+                <template v-if="group.entries.length === 1">
+                  <span class="shrink-0 font-mono text-xs text-gray-500">{{ formatTime(entry.log.timestamp) }}</span>
+                  <span
+                    class="inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
+                    :class="levelBadgeClass(entry.log.level)"
+                  >
+                    {{ entry.log.level }}
+                  </span>
+                  <span class="shrink-0 rounded bg-gray-50 px-1.5 py-0.5 text-xs text-gray-600">
+                    {{ jobTypeLabel(entry.log.jobType) }}
+                  </span>
+                  <span class="min-w-0 flex-1 truncate text-sm text-gray-900">
+                    {{ group.title }}<span v-if="entry.summaryText" class="text-gray-500"> · {{ entry.summaryText }}</span>
+                  </span>
+                </template>
+
+                <!-- Multi-request job: page badge + per-page result -->
+                <template v-else>
+                  <span
+                    v-if="pageLabel(entry.log)"
+                    class="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
+                  >
+                    {{ pageLabel(entry.log) }}
+                  </span>
+                  <span
+                    v-if="entry.log.level !== 'info'"
+                    class="inline-flex shrink-0 rounded-full px-2 py-0.5 text-xs font-medium"
+                    :class="levelBadgeClass(entry.log.level)"
+                  >
+                    {{ entry.log.level }}
+                  </span>
+                  <span class="min-w-0 flex-1 truncate text-sm text-gray-700">
+                    {{ entry.summaryText ?? entry.log.jobDetail }}
+                  </span>
+                </template>
+
+                <!-- HTTP status -->
+                <span class="shrink-0 font-mono text-xs" :class="statusClass(entry.log.responseStatus)">
+                  {{ entry.log.responseStatus ?? '---' }}
+                </span>
+
+                <!-- Duration -->
+                <span class="w-14 shrink-0 text-right text-xs text-gray-400">
+                  {{ durationLabel(entry.log.durationMs) }}
+                </span>
+              </div>
+
+              <!-- Expanded details -->
+              <div
+                v-if="isExpanded(entry.log.id)"
+                class="border-t border-gray-100 bg-gray-50 py-3 pr-4 text-xs"
+                :class="group.entries.length > 1 ? 'pl-10' : 'pl-4'"
+              >
+                <div class="space-y-3">
+                  <!-- Error (always shown; a folded page diagnostic may carry it) -->
+                  <div v-if="entry.log.error || entry.summary?.error">
+                    <span class="font-medium text-red-600">Error</span>
+                    <p class="mt-0.5 whitespace-pre-wrap break-words font-mono text-red-700">{{ entry.log.error ?? entry.summary?.error }}</p>
                   </div>
 
-                  <!-- Query parameters table -->
-                  <div v-if="getParsedUrl(log.id).params.length > 0">
-                    <span class="font-medium text-gray-500">Parameters</span>
-                    <div class="mt-1 overflow-hidden rounded border border-gray-200 bg-white">
-                      <div
-                        v-for="param in getParsedUrl(log.id).params"
-                        :key="param.key"
-                        class="flex border-b border-gray-100 last:border-b-0"
-                      >
-                        <span class="w-20 shrink-0 border-r border-gray-100 px-2 py-1 font-mono font-medium text-gray-600">
-                          {{ param.key }}
-                        </span>
-                        <span class="min-w-0 flex-1 break-all px-2 py-1 font-mono text-gray-700">
-                          {{ param.value }}
-                        </span>
-                      </div>
+                  <!-- Result summary (folded-in per-page diagnostic, always shown) -->
+                  <div v-if="entry.summary">
+                    <span class="font-medium text-gray-500">Result</span>
+                    <p class="mt-0.5 text-gray-700">{{ entry.summary.jobDetail }}</p>
+                  </div>
+
+                  <!-- Field grid (always shown) -->
+                  <div class="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+                    <div class="min-w-0">
+                      <div class="text-gray-400">Time</div>
+                      <div class="truncate font-mono text-gray-700">{{ formatFullTimestamp(entry.log.timestamp) }}</div>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-gray-400">Level</div>
+                      <div class="text-gray-700">{{ entry.log.level }}</div>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-gray-400">Job type</div>
+                      <div class="text-gray-700">{{ jobTypeLabel(entry.log.jobType) }}</div>
+                    </div>
+                    <div v-if="entry.log.jobId !== null" class="min-w-0">
+                      <div class="text-gray-400">Job ID</div>
+                      <div class="font-mono text-gray-700">#{{ entry.log.jobId }}</div>
+                    </div>
+                    <div v-if="entry.log.pageNumber !== undefined && entry.log.pageNumber !== null" class="min-w-0">
+                      <div class="text-gray-400">Page</div>
+                      <div class="font-mono text-gray-700">{{ entry.log.pageNumber }}</div>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-gray-400">Status</div>
+                      <div class="font-mono" :class="statusClass(entry.log.responseStatus)">{{ entry.log.responseStatus ?? '—' }}</div>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="text-gray-400">Duration</div>
+                      <div class="font-mono text-gray-700">{{ durationLabel(entry.log.durationMs) }}</div>
                     </div>
                   </div>
 
-                  <!-- Page info -->
-                  <div v-if="log.pageNumber !== undefined && log.pageNumber !== null">
-                    <span class="font-medium text-gray-500">Page</span>
-                    <span class="ml-1 text-gray-600">{{ log.pageNumber }}</span>
-                  </div>
+                  <!-- Advanced details (behind toggle) -->
+                  <template v-if="advancedMode">
+                    <!-- Request URL -->
+                    <div>
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="font-medium text-gray-500">Request URL</span>
+                        <button
+                          class="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+                          @click.stop="copyToClipboard(entry.log.requestUrl, `url-${entry.log.id}`)"
+                        >
+                          {{ copiedKey === `url-${entry.log.id}` ? 'Copied' : 'Copy' }}
+                        </button>
+                      </div>
+                      <p class="mt-0.5 break-all font-mono text-gray-700">
+                        <span class="font-semibold">{{ entry.log.httpMethod ?? 'GET' }}</span>
+                        {{ getParsedUrl(entry.log.id).baseUrl }}
+                      </p>
+                    </div>
 
-                  <!-- Response preview -->
-                  <div v-if="log.responsePreview">
-                    <span class="font-medium text-gray-500">Response preview</span>
-                    <p class="mt-0.5 truncate font-mono text-gray-600">{{ log.responsePreview }}</p>
-                  </div>
-                </template>
+                    <!-- Query parameters table -->
+                    <div v-if="getParsedUrl(entry.log.id).params.length > 0">
+                      <span class="font-medium text-gray-500">Parameters</span>
+                      <div class="mt-1 overflow-hidden rounded border border-gray-200 bg-white">
+                        <div
+                          v-for="param in getParsedUrl(entry.log.id).params"
+                          :key="param.key"
+                          class="flex border-b border-gray-100 last:border-b-0"
+                        >
+                          <span class="w-20 shrink-0 border-r border-gray-100 px-2 py-1 font-mono font-medium text-gray-600">
+                            {{ param.key }}
+                          </span>
+                          <span class="min-w-0 flex-1 break-all px-2 py-1 font-mono text-gray-700">
+                            {{ param.value }}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
 
-                <!-- Hint when simple mode and no error/jobId shown -->
-                <p v-if="!advancedMode && !log.error && log.jobId === null" class="text-gray-400 italic">
-                  Switch to Advanced mode for request details.
-                </p>
+                    <!-- Response preview -->
+                    <div v-if="entry.log.responsePreview">
+                      <div class="flex items-center justify-between gap-2">
+                        <span class="font-medium text-gray-500">
+                          Response preview
+                          <span class="text-gray-400">&middot; {{ entry.log.responsePreview.length }} chars</span>
+                        </span>
+                        <button
+                          class="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+                          @click.stop="copyToClipboard(entry.log.responsePreview, `body-${entry.log.id}`)"
+                        >
+                          {{ copiedKey === `body-${entry.log.id}` ? 'Copied' : 'Copy' }}
+                        </button>
+                      </div>
+                      <pre class="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-gray-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-gray-600">{{ entry.log.responsePreview }}</pre>
+                    </div>
+                  </template>
+
+                  <!-- Hint for simple mode -->
+                  <p v-if="!advancedMode" class="text-gray-400 italic">
+                    Switch to Advanced for the request URL, parameters, and full response body.
+                  </p>
+                </div>
               </div>
             </div>
           </div>

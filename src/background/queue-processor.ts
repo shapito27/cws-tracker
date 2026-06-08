@@ -71,7 +71,7 @@ const MAX_BACKOFF_MS = 600_000;
 const RETRY_BASE_DELAY_MS = 120_000;
 
 /** Maximum length of response body preview stored in scan logs. */
-const SCAN_LOG_PREVIEW_LENGTH = 300;
+const SCAN_LOG_PREVIEW_LENGTH = 2000;
 
 /** Minimum alarm delay in ms (1 minute per MV3 rules). */
 const MIN_ALARM_DELAY_MS = 60_000;
@@ -512,6 +512,7 @@ async function processKeywordScan(
         error: errMsg,
         httpMethod: 'GET',
         pageNumber: page + 1,
+        kind: 'summary',
       });
       break;
     }
@@ -535,6 +536,7 @@ async function processKeywordScan(
         error: `CWS returned HTTP ${cwsStatus}`,
         httpMethod: 'GET',
         pageNumber: page + 1,
+        kind: 'summary',
       });
       break;
     }
@@ -560,6 +562,7 @@ async function processKeywordScan(
         error: errMsg,
         httpMethod: 'GET',
         pageNumber: page + 1,
+        kind: 'summary',
       });
       break;
     }
@@ -602,6 +605,7 @@ async function processKeywordScan(
       error: null,
       httpMethod: 'GET',
       pageNumber: page + 1,
+      kind: 'summary',
     });
 
     if (allFound || !nextToken) {
