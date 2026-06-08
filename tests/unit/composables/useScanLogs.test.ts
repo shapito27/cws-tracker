@@ -264,16 +264,26 @@ describe('groupLogsByJob', () => {
     expect(groups[0].jobs[1].jobId).toBe(7);
   });
 
-  it('escalates the job level to the worst entry severity', () => {
+  it('folds a page-2 HTTP error diagnostic into its request row and escalates level', () => {
+    // Production shape for a page-2 HTTP error: the real fetch log (warn, has the
+    // error-page body) plus a kind:'summary' "Page 2 HTTP ..." diagnostic, both
+    // pageNumber 2 — so the page still collapses to a single row.
     const logs: SavedScanLog[] = [
-      makeSaved({ jobId: 9, timestamp: '2026-06-08T10:00:02.000Z', level: 'warn', pageNumber: 2, durationMs: 0, error: 'CWS returned HTTP 429', jobDetail: 'Page 2 HTTP 429 for "x"' }),
+      makeSaved({ jobId: 9, timestamp: '2026-06-08T10:00:03.000Z', level: 'warn', pageNumber: 2, kind: 'summary', error: 'CWS returned HTTP 429', jobDetail: 'Page 2 HTTP 429 for "x"' }),
+      makeSaved({ jobId: 9, timestamp: '2026-06-08T10:00:02.000Z', level: 'warn', pageNumber: 2, durationMs: 380, responseStatus: 429, responsePreview: '<html>err', jobDetail: 'Search: "x" (kw#1)' }),
       makeSaved({ jobId: 9, timestamp: '2026-06-08T10:00:01.000Z', level: 'info', pageNumber: 1, kind: 'summary', jobDetail: 'Page 1 for "x": 30 results, 0/1 tracked found, continuing' }),
-      makeSaved({ jobId: 9, timestamp: '2026-06-08T10:00:00.000Z', level: 'info', pageNumber: 1, durationMs: 410, jobDetail: 'Search: "x" (kw#1)' }),
+      makeSaved({ jobId: 9, timestamp: '2026-06-08T10:00:00.000Z', level: 'info', pageNumber: 1, durationMs: 410, responsePreview: '<html>p1', jobDetail: 'Search: "x" (kw#1)' }),
     ];
     const job = groupLogsByJob(logs)[0].jobs[0];
     expect(job.level).toBe('warn');
-    // 2 request rows (page 1 success + page 2 HTTP error); the page-1 summary folds in.
+    // Exactly one row per page (2), not four — the error diagnostic folds in too.
     expect(job.entries).toHaveLength(2);
+    const page2 = job.entries[1];
+    expect(page2.log.pageNumber).toBe(2);
+    expect(page2.log.responsePreview).toBe('<html>err'); // primary = the real fetch
+    expect(page2.summary?.jobDetail).toBe('Page 2 HTTP 429 for "x"'); // diagnostic folded
+    expect(page2.summary?.error).toBe('CWS returned HTTP 429');
+    expect(page2.summaryText).toBe('Page 2 HTTP 429 for "x"'); // no success prefix to strip
   });
 
   it('buckets jobs spanning two days into separate date groups', () => {

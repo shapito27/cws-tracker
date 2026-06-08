@@ -222,6 +222,7 @@ function getParsedUrl(logId: number): ParsedRequestParams {
       </select>
 
       <button
+        data-testid="advanced-toggle"
         class="ml-auto inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
         :class="advancedMode
           ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
@@ -303,12 +304,14 @@ function getParsedUrl(logId: number): ParsedRequestParams {
           <div
             v-for="group in dateGroup.jobs"
             :key="group.key"
+            data-testid="job-card"
             class="overflow-hidden rounded-lg border border-gray-200 border-l-4 bg-white"
             :class="rowBorderClass(group.level)"
           >
             <!-- Job header (only for multi-request jobs, e.g. paginated keyword scans) -->
             <div
               v-if="group.entries.length > 1"
+              data-testid="job-header"
               class="flex items-center gap-3 border-b border-gray-100 bg-gray-50/60 px-4 py-2.5"
             >
               <span class="h-2 w-2 shrink-0 rounded-full" :class="levelDotClass(group.level)"></span>
@@ -330,6 +333,7 @@ function getParsedUrl(logId: number): ParsedRequestParams {
             >
               <!-- Row header -->
               <div
+                data-testid="log-row"
                 class="flex cursor-pointer items-center gap-3 hover:bg-gray-50"
                 :class="group.entries.length > 1 ? 'py-2 pl-10 pr-4' : 'px-4 py-2.5'"
                 @click="toggleExpand(entry.log.id)"
@@ -404,10 +408,10 @@ function getParsedUrl(logId: number): ParsedRequestParams {
                 :class="group.entries.length > 1 ? 'pl-10' : 'pl-4'"
               >
                 <div class="space-y-3">
-                  <!-- Error (always shown) -->
-                  <div v-if="entry.log.error">
+                  <!-- Error (always shown; a folded page diagnostic may carry it) -->
+                  <div v-if="entry.log.error || entry.summary?.error">
                     <span class="font-medium text-red-600">Error</span>
-                    <p class="mt-0.5 whitespace-pre-wrap break-words font-mono text-red-700">{{ entry.log.error }}</p>
+                    <p class="mt-0.5 whitespace-pre-wrap break-words font-mono text-red-700">{{ entry.log.error ?? entry.summary?.error }}</p>
                   </div>
 
                   <!-- Result summary (folded-in per-page diagnostic, always shown) -->

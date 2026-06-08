@@ -352,10 +352,10 @@ export interface ScanLog {
    * Discriminates the entry kind. Optional for backwards compat with pre-0.31.0 logs
    * (treat undefined as 'request').
    * - `'request'`: an actual HTTP request/response to CWS (has real timing + body preview).
-   * - `'summary'`: a synthetic per-page diagnostic for a keyword scan (results found,
-   *   tracked extensions matched, pagination stop reason). Carries no real duration or
-   *   body; the UI folds it into its corresponding request row instead of showing it
-   *   as a standalone request.
+   * - `'summary'`: a synthetic per-page diagnostic for a keyword scan — the success
+   *   result (results found, tracked extensions matched, pagination stop reason) or a
+   *   page-2+ failure note (fetch/HTTP/parse). Carries no real duration; the UI folds it
+   *   into its page's request row instead of showing it as a standalone request.
    */
   kind?: 'request' | 'summary';
 }

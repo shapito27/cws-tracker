@@ -512,6 +512,7 @@ async function processKeywordScan(
         error: errMsg,
         httpMethod: 'GET',
         pageNumber: page + 1,
+        kind: 'summary',
       });
       break;
     }
@@ -535,6 +536,7 @@ async function processKeywordScan(
         error: `CWS returned HTTP ${cwsStatus}`,
         httpMethod: 'GET',
         pageNumber: page + 1,
+        kind: 'summary',
       });
       break;
     }
@@ -560,6 +562,7 @@ async function processKeywordScan(
         error: errMsg,
         httpMethod: 'GET',
         pageNumber: page + 1,
+        kind: 'summary',
       });
       break;
     }
