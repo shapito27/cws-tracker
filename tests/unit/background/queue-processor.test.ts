@@ -839,18 +839,22 @@ describe('Queue Processor', () => {
       await processNextJob(deps);
 
       const logs = await testDb.scan_logs.toArray();
-      // 2 logs: fetch log + per-page diagnostic log
+      // 2 logs: fetch log (request) + per-page diagnostic (summary)
       expect(logs).toHaveLength(2);
       expect(logs[0].level).toBe('info');
       expect(logs[0].jobType).toBe('keyword_scan');
       expect(logs[0].jobDetail).toContain('ad blocker');
       expect(logs[0].httpMethod).toBe('GET');
       expect(logs[0].pageNumber).toBe(1);
-      // Second log is the per-page diagnostic
+      // First log is the real request: kind defaults to undefined ('request')
+      expect(logs[0].kind).toBeUndefined();
+      // Second log is the per-page diagnostic, tagged as a summary so the UI
+      // folds it into the request row instead of showing it standalone.
       expect(logs[1].level).toBe('info');
       expect(logs[1].jobDetail).toContain('Page 1');
       expect(logs[1].httpMethod).toBe('GET');
       expect(logs[1].pageNumber).toBe(1);
+      expect(logs[1].kind).toBe('summary');
     });
 
     it('HTTP error: writes scan log with error level', async () => {
@@ -891,12 +895,12 @@ describe('Queue Processor', () => {
       expect(logs[0].error).toContain('Failed to fetch');
     });
 
-    it('response preview is truncated to 100 characters', async () => {
+    it('response preview is truncated to the preview length cap', async () => {
       const { processNextJob } = await import('@/background/queue-processor');
       await seedProject();
       await testDb.enqueueJobs([makeListingJob()]);
 
-      const longHtml = 'x'.repeat(500);
+      const longHtml = 'x'.repeat(3000);
       const fetchPage = vi.fn().mockResolvedValue(
         new Response(longHtml, { status: 200 })
       );
@@ -905,7 +909,7 @@ describe('Queue Processor', () => {
       await processNextJob(deps);
 
       const logs = await testDb.scan_logs.toArray();
-      expect(logs[0].responsePreview).toHaveLength(300);
+      expect(logs[0].responsePreview).toHaveLength(2000);
     });
 
     it('scan log records correct jobId', async () => {

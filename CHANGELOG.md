@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.31.0] - 2026-06-08
+
+### Changed
+- **Scan Logs page redesigned around scan jobs.** Previously a paginated keyword scan wrote *two* near-identical rows per page — the real HTTP fetch (`Search: "kw"`, with timing + response body) and a synthetic per-page diagnostic (`Page N for "kw": X results, Y/Z tracked found, …`, hard-coded `0ms`, empty body) — interleaved in reverse-chronological order with no visual link between rows belonging to the same job. The two were impossible to tell apart and the `0ms` rows looked broken. The page now groups consecutive logs from the same queue job into a single titled card (e.g. a keyword scan and its 1–3 page requests), and **folds each per-page summary into its request row** so there is exactly one row per real request, showing the result inline (`30 results · 4/5 tracked · continuing`). One-request jobs (listing / autocomplete scans) render as a single compact row. The misleading `0ms` is shown as `—`.
+- **Stats now count real requests only.** The request total, warning/error counts, average-duration figure in the stats bar, and the 7-day Request Stats chart previously counted the synthetic `0ms` summary rows as requests — roughly doubling the keyword-scan request count and dragging the average duration toward zero. They now exclude summary entries, so the numbers reflect actual CWS requests.
+
+### Added
+- **Verbose Advanced view.** Expanding a request in Advanced mode now shows the full ISO timestamp (with milliseconds), level, job type, job ID, page, status, and duration in a field grid, the folded per-page result, the request method + URL, the query-parameter table, and the response body. The stored response preview was raised from **300 → 2000 characters** and is now rendered in a scrollable, wrapped, monospace block instead of a single truncated line. **Copy** buttons were added for the request URL and the response body.
+
+### Notes
+- New optional `kind: 'request' | 'summary'` discriminator on `ScanLog` distinguishes real requests from the synthetic per-page diagnostics so the UI can fold them robustly. It is **not indexed**, so no Dexie schema bump is required; pre-0.31.0 logs (no `kind`) fall back to a body-pattern heuristic and fold correctly until they age out of the 7-day retention window.
+
 ## [0.30.0] - 2026-06-03
 
 ### Added

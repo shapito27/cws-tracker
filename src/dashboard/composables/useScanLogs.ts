@@ -1,8 +1,15 @@
 /**
- * Composable for loading and filtering scan logs.
+ * Composable for loading, grouping, and filtering scan logs.
  *
  * Loads all recent scan logs from IndexedDB (max 500, 7-day retention keeps
- * volume small) and provides client-side filtering by level and job type.
+ * volume small) and provides client-side filtering by level and job type plus
+ * job-oriented grouping for the Logs page.
+ *
+ * A keyword scan emits one log per HTTP request plus a synthetic per-page
+ * `kind: 'summary'` log (results / tracked-found / stop reason). The grouping
+ * here folds each summary into its request row and clusters all of a queue
+ * job's requests under a single job group so the page reads as
+ * "one scan job → its page requests" instead of a flat list of near-duplicates.
  */
 
 import { ref, computed } from 'vue';
@@ -35,6 +42,149 @@ export interface DailyRequestStat {
   avgDurationMs: number;
 }
 
+/** One real HTTP request row, with its per-page summary folded in (if any). */
+export interface LogRequestEntry {
+  log: SavedScanLog;
+  /** Matching `kind: 'summary'` log (paired by page number), or null. */
+  summary: SavedScanLog | null;
+  /** Result text from the summary with its redundant prefix stripped, or null. */
+  summaryText: string | null;
+}
+
+/** One queue job's worth of consecutive request entries. */
+export interface LogJobGroup {
+  /** Stable v-for key. */
+  key: string;
+  jobId: number | null;
+  jobType: string;
+  /** Primary title from the first request (e.g. `Search: "ad blocker" (kw#5)`). */
+  title: string;
+  /** Representative (newest) timestamp in the group. */
+  timestamp: string;
+  /** Worst severity across the group's entries (error > warn > info). */
+  level: ScanLogLevel;
+  /** Sum of real request durations across the group. */
+  totalDurationMs: number;
+  entries: LogRequestEntry[];
+}
+
+/** Job groups bucketed by calendar date (YYYY-MM-DD). */
+export interface LogDateGroup {
+  date: string;
+  jobs: LogJobGroup[];
+}
+
+const SEVERITY_RANK: Record<ScanLogLevel, number> = { info: 0, warn: 1, error: 2 };
+
+/** Matches the successful per-page summary jobDetail, e.g. `Page 2 for "kw": ...`. */
+const SUMMARY_DETAIL_RE = /^Page \d+ for "/;
+
+/**
+ * A synthetic per-page summary log (not a real HTTP request). Tagged via
+ * `kind: 'summary'` since 0.31.0; the body-pattern fallback keeps pre-0.31.0
+ * logs folding correctly until they age out of the 7-day window. Page error
+ * logs ("Page N fetch failed/HTTP/parse failed") are deliberately NOT matched —
+ * they are real failed attempts and stay as request rows.
+ */
+export function isSummaryLog(log: ScanLog): boolean {
+  if (log.kind === 'summary') return true;
+  return (
+    log.kind === undefined &&
+    log.durationMs === 0 &&
+    log.responsePreview === '' &&
+    log.error === null &&
+    SUMMARY_DETAIL_RE.test(log.jobDetail)
+  );
+}
+
+/** Strip the redundant `Page N for "kw": ` prefix; page + keyword are shown elsewhere. */
+function extractSummaryText(summary: SavedScanLog): string {
+  return summary.jobDetail.replace(/^Page \d+ for ".*?": /, '');
+}
+
+/** Split a reverse-chronological list into maximal runs of the same non-null jobId. */
+function segmentByJob(logs: SavedScanLog[]): SavedScanLog[][] {
+  const runs: SavedScanLog[][] = [];
+  for (const log of logs) {
+    const last = runs[runs.length - 1];
+    if (last && log.jobId !== null && last[0].jobId === log.jobId) {
+      last.push(log);
+    } else {
+      runs.push([log]);
+    }
+  }
+  return runs;
+}
+
+/** Build a single job group from one run of logs (reverse-chronological). */
+function buildJobGroup(run: SavedScanLog[]): LogJobGroup {
+  const requests = run.filter((l) => !isSummaryLog(l));
+  const summaries = run.filter((l) => isSummaryLog(l));
+
+  const summaryByPage = new Map<number, SavedScanLog>();
+  for (const s of summaries) {
+    if (s.pageNumber != null) summaryByPage.set(s.pageNumber, s);
+  }
+
+  const entries: LogRequestEntry[] = requests.map((log) => {
+    const summary = log.pageNumber != null ? summaryByPage.get(log.pageNumber) ?? null : null;
+    if (summary && log.pageNumber != null) summaryByPage.delete(log.pageNumber);
+    return { log, summary, summaryText: summary ? extractSummaryText(summary) : null };
+  });
+
+  // Defensive: surface any summary that never matched a request rather than drop it.
+  for (const orphan of summaryByPage.values()) {
+    entries.push({ log: orphan, summary: null, summaryText: null });
+  }
+
+  // Natural reading order: page 1 → N, then by time.
+  entries.sort((a, b) => {
+    const pa = a.log.pageNumber ?? 0;
+    const pb = b.log.pageNumber ?? 0;
+    if (pa !== pb) return pa - pb;
+    return a.log.timestamp.localeCompare(b.log.timestamp);
+  });
+
+  const level = run.reduce<ScanLogLevel>(
+    (worst, l) => (SEVERITY_RANK[l.level] > SEVERITY_RANK[worst] ? l.level : worst),
+    'info'
+  );
+  const totalDurationMs = entries.reduce((sum, e) => sum + e.log.durationMs, 0);
+  // Title comes from the first request (page 1 for keyword scans); fall back to
+  // the run's newest log if a group somehow has only orphan summaries.
+  const title = entries[0]?.log.jobDetail ?? run[0].jobDetail;
+
+  return {
+    key: `job-${run[0].id}`,
+    jobId: run[0].jobId,
+    jobType: run[0].jobType,
+    title,
+    timestamp: run[0].timestamp, // newest (run is reverse-chronological)
+    level,
+    totalDurationMs,
+    entries,
+  };
+}
+
+/**
+ * Group a reverse-chronological log list into date buckets, each containing
+ * job groups (newest first). Pure + exported for testing.
+ */
+export function groupLogsByJob(logs: SavedScanLog[]): LogDateGroup[] {
+  const dateGroups: LogDateGroup[] = [];
+  let currentDate = '';
+  for (const run of segmentByJob(logs)) {
+    const group = buildJobGroup(run);
+    const date = group.timestamp.slice(0, 10);
+    if (date !== currentDate) {
+      currentDate = date;
+      dateGroups.push({ date, jobs: [] });
+    }
+    dateGroups[dateGroups.length - 1].jobs.push(group);
+  }
+  return dateGroups;
+}
+
 export function useScanLogs() {
   const logs = ref<SavedScanLog[]>([]);
   const loading = ref(false);
@@ -59,12 +209,17 @@ export function useScanLogs() {
     });
   });
 
+  /** Filtered logs grouped by date → scan job, with summaries folded into requests. */
+  const logGroups = computed<LogDateGroup[]>(() => groupLogsByJob(filteredLogs.value));
+
   /**
    * Per-day request stats over the last 7 calendar days (chronological,
    * oldest → today). Missing days are zero-filled so the chart x-axis is
    * always full. Intentionally derived from all loaded `logs` (not
    * `filteredLogs`) so the level/jobType filters on the list don't
-   * distort the overall health view.
+   * distort the overall health view. Synthetic `summary` logs are excluded
+   * so counts reflect real requests and the 0ms diagnostics don't deflate
+   * the average duration.
    */
   const weeklyStats = computed<DailyRequestStat[]>(() => {
     const buckets = new Map<string, { info: number; warn: number; error: number; totalDuration: number; count: number }>();
@@ -72,6 +227,7 @@ export function useScanLogs() {
       buckets.set(daysAgo(i), { info: 0, warn: 0, error: 0, totalDuration: 0, count: 0 });
     }
     for (const log of logs.value) {
+      if (isSummaryLog(log)) continue;
       const date = log.timestamp.slice(0, 10);
       const bucket = buckets.get(date);
       if (!bucket) continue;
@@ -95,7 +251,8 @@ export function useScanLogs() {
   });
 
   const stats = computed<LogStats>(() => {
-    const all = filteredLogs.value;
+    // Count only real requests; fold-in summaries are not separate requests.
+    const all = filteredLogs.value.filter((log) => !isSummaryLog(log));
     if (all.length === 0) {
       return { total: 0, infoCount: 0, warnCount: 0, errorCount: 0, avgDurationMs: 0 };
     }
@@ -143,6 +300,7 @@ export function useScanLogs() {
     filterJobType,
     jobTypes,
     filteredLogs,
+    logGroups,
     stats,
     weeklyStats,
     loadLogs,
