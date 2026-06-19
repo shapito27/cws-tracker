@@ -10,6 +10,7 @@ import {
   SettingsManager,
   SettingsValidationError,
   DEFAULT_SETTINGS,
+  isProxyConfigured,
 } from '../../../src/shared/utils/settings';
 
 let settings: SettingsManager;
@@ -297,5 +298,27 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.translationLocales).toContain('en');
     expect(DEFAULT_SETTINGS.translationLocales).toContain('zh_CN');
     expect(DEFAULT_SETTINGS.translationLocales).toContain('pt_BR');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isProxyConfigured
+// ---------------------------------------------------------------------------
+
+describe('isProxyConfigured()', () => {
+  it('is false for the empty default proxyUrl', () => {
+    expect(isProxyConfigured({ proxyUrl: '' })).toBe(false);
+  });
+
+  it('is false for a whitespace-only proxyUrl', () => {
+    expect(isProxyConfigured({ proxyUrl: '   ' })).toBe(false);
+  });
+
+  it('is true for a non-empty proxyUrl', () => {
+    expect(isProxyConfigured({ proxyUrl: 'https://proxy.example.com' })).toBe(true);
+  });
+
+  it('reflects the default settings (proxy not configured out of the box)', () => {
+    expect(isProxyConfigured(DEFAULT_SETTINGS)).toBe(false);
   });
 });

@@ -27,6 +27,10 @@ const {
   testProxyConnection,
 } = useSettings();
 
+// One-click proxy deployment target (or self-host your own).
+const PROXY_REPO_URL = 'https://github.com/shapito27/cws-tracker-proxy';
+const DEPLOY_TO_CLOUDFLARE_URL = `https://deploy.workers.cloudflare.com/?url=${PROXY_REPO_URL}`;
+
 // Local form state for inputs that need debouncing / explicit save
 const localOpenAIKey = ref('');
 const localQueueDelay = ref(60);
@@ -681,9 +685,36 @@ onUnmounted(() => {
       <section class="rounded-lg border border-gray-200 bg-white">
         <div class="border-b border-gray-200 px-6 py-4">
           <h3 class="text-base font-semibold text-gray-900">Proxy Settings</h3>
-          <p class="text-sm text-gray-500 mt-0.5">Optional proxy server for CWS requests.</p>
+          <p class="text-sm text-gray-500 mt-0.5">
+            Required — scans route through this proxy to reach the Chrome Web Store.
+          </p>
         </div>
         <div class="px-6 py-4 space-y-4">
+          <!-- Deploy / self-host help -->
+          <div class="rounded-md border border-blue-200 bg-blue-50 p-3">
+            <p class="text-sm font-medium text-blue-900">Don't have a proxy yet?</p>
+            <p class="mt-0.5 text-xs text-blue-700">
+              Deploy your own free proxy to Cloudflare in one click, then paste its URL below.
+            </p>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <a
+                :href="DEPLOY_TO_CLOUDFLARE_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Deploy to Cloudflare (free)
+              </a>
+              <a
+                :href="PROXY_REPO_URL"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-xs font-medium text-blue-700 underline hover:text-blue-900"
+              >
+                Self-host instructions
+              </a>
+            </div>
+          </div>
           <div>
             <label for="proxyUrl" class="block text-sm font-medium text-gray-700">Proxy URL</label>
             <input

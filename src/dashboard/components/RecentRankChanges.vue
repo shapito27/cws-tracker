@@ -6,9 +6,11 @@ import {
   type RankChange,
 } from '@/popup/composables/usePopupState';
 import { useServiceWorker } from '../composables/useServiceWorker';
+import { useProxyStatus } from '../composables/useProxyStatus';
 import RankChangeItem from './RankChangeItem.vue';
 
 const { scanStatus, requestKeywordRescan } = useServiceWorker();
+const { proxyConfigured } = useProxyStatus();
 
 const rankChanges = ref<RankChange[]>([]);
 const loading = ref(true);
@@ -63,7 +65,7 @@ watch(
         :rank-change="rc"
         :link-to-project="true"
         :show-date="true"
-        :allow-rescan="true"
+        :allow-rescan="proxyConfigured"
         :scan-running="scanStatus.isRunning"
         @rescan="requestKeywordRescan"
       />

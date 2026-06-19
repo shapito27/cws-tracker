@@ -11,7 +11,7 @@
  */
 
 import { db } from '@/shared/db/database';
-import { SettingsManager } from '@/shared/utils/settings';
+import { SettingsManager, isProxyConfigured } from '@/shared/utils/settings';
 import { today, daysAgo } from '@/shared/utils/dates';
 import {
   buildDailyScanJobs,
@@ -20,6 +20,7 @@ import {
 } from '@/background/queue-builder';
 import { processNextJob, type ProcessorDeps } from '@/background/queue-processor';
 import type { ScanType, QueueJob } from '@/shared/types';
+import type { ScanErrorMessage } from '@/shared/types/messages';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -48,6 +49,37 @@ export interface SchedulerDeps {
 
 const defaultSettings = new SettingsManager();
 
+/**
+ * Proxy guard: scans cannot run without a configured proxy (CWS blocks direct
+ * extension-origin fetches via CORS). Returns true when a proxy URL is set.
+ *
+ * When `broadcast` is true (manual scans), emits a SCAN_ERROR so an open
+ * dashboard/popup can explain why nothing happened. Scheduled scans pass
+ * `broadcast: false` since no UI is listening.
+ */
+async function ensureProxyConfigured(
+  settings: SettingsManager,
+  broadcast: boolean
+): Promise<boolean> {
+  const s = await settings.getWithDefaults();
+  if (isProxyConfigured(s)) return true;
+
+  if (broadcast) {
+    const message: ScanErrorMessage = {
+      type: 'SCAN_ERROR',
+      jobId: -1,
+      error: 'Proxy not configured — add a proxy URL in Settings to scan.',
+      retriesLeft: 0,
+    };
+    try {
+      chrome.runtime.sendMessage(message);
+    } catch {
+      // Dashboard/popup may not be open — ignore.
+    }
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -74,6 +106,13 @@ export async function handleDailyScanAlarm(
   // Check if daily scanning is enabled
   const enabled = await settings.get('dailyScanEnabled');
   if (!enabled) return;
+
+  // Guard: a proxy is required to scan. Skip without stamping
+  // lastDailyScanDate so the next alarm retries once a proxy is configured.
+  if (!(await ensureProxyConfigured(settings, false))) {
+    console.warn('[CWS Tracker] Daily scan skipped: proxy not configured.');
+    return;
+  }
 
   // Check if already scanned today
   const lastScan = await settings.get('lastDailyScanDate');
@@ -175,6 +214,9 @@ export async function triggerManualRefresh(
   scanType: ScanType = 'full',
   deps: SchedulerDeps = { settings: defaultSettings }
 ): Promise<void> {
+  // Guard: a proxy is required to scan. Bail before touching the queue.
+  if (!(await ensureProxyConfigured(deps.settings, true))) return;
+
   // Clear all pending jobs from queue
   const pendingJobs = await db.queue.where('status').equals('pending').toArray();
   if (pendingJobs.length > 0) {
@@ -243,7 +285,13 @@ export async function triggerManualRefresh(
  * processor. Used by the "Re-scan" action next to an unstable-rank hint to
  * quickly re-check a volatile rank.
  */
-export async function triggerKeywordRescan(keywordId: number): Promise<void> {
+export async function triggerKeywordRescan(
+  keywordId: number,
+  deps: SchedulerDeps = { settings: defaultSettings }
+): Promise<void> {
+  // Guard: a proxy is required to scan.
+  if (!(await ensureProxyConfigured(deps.settings, true))) return;
+
   const keyword = await db.keywords.get(keywordId);
   if (!keyword) return;
 

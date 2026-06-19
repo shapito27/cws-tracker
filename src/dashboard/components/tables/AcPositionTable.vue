@@ -4,6 +4,7 @@ import type { Keyword } from '@/shared/types';
 import type { AcPositionRow, AcDayCell } from '../../composables/useAutocomplete';
 import { loadKeywordAcPositionTable } from '../../composables/useAutocomplete';
 import { useServiceWorker } from '../../composables/useServiceWorker';
+import { useProxyStatus } from '../../composables/useProxyStatus';
 import { daysAgo } from '@/shared/utils/dates';
 
 type DateRange = 7 | 14 | 30;
@@ -15,6 +16,7 @@ const props = defineProps<{
 }>();
 
 const { scanStatus, requestRefresh } = useServiceWorker();
+const { scanBlocked } = useProxyStatus();
 
 async function scanAutocompleteOnly(): Promise<void> {
   if (props.projectId === undefined) return;
@@ -125,9 +127,9 @@ function formatDateHeader(dateStr: string): string {
         <button
           v-if="projectId !== undefined"
           type="button"
-          class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          :disabled="scanStatus.isRunning"
-          :title="scanStatus.isRunning ? 'A scan is already running' : 'Scan autocomplete positions for this project'"
+          class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="scanStatus.isRunning || scanBlocked"
+          :title="scanBlocked ? 'Configure a proxy in Settings to enable scanning' : scanStatus.isRunning ? 'A scan is already running' : 'Scan autocomplete positions for this project'"
           @click="scanAutocompleteOnly"
         >
           {{ scanStatus.isRunning ? 'Scanning...' : 'Scan' }}

@@ -4,6 +4,7 @@ import type { Keyword } from '@/shared/types';
 import type { KeywordPositionRow, KeywordDayCell } from '../../composables/useRankings';
 import { loadKeywordPositionTable } from '../../composables/useRankings';
 import { useServiceWorker } from '../../composables/useServiceWorker';
+import { useProxyStatus } from '../../composables/useProxyStatus';
 import { daysAgo } from '@/shared/utils/dates';
 
 type DateRange = 7 | 14 | 30;
@@ -15,6 +16,7 @@ const props = defineProps<{
 }>();
 
 const { scanStatus, requestRefresh, requestKeywordRescan } = useServiceWorker();
+const { scanBlocked } = useProxyStatus();
 
 async function scanKeywordsOnly(): Promise<void> {
   if (props.projectId === undefined) return;
@@ -136,9 +138,9 @@ function formatDateHeader(dateStr: string): string {
         <button
           v-if="projectId !== undefined"
           type="button"
-          class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          :disabled="scanStatus.isRunning"
-          :title="scanStatus.isRunning ? 'A scan is already running' : 'Scan keyword positions for this project'"
+          class="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="scanStatus.isRunning || scanBlocked"
+          :title="scanBlocked ? 'Configure a proxy in Settings to enable scanning' : scanStatus.isRunning ? 'A scan is already running' : 'Scan keyword positions for this project'"
           @click="scanKeywordsOnly"
         >
           {{ scanStatus.isRunning ? 'Scanning...' : 'Scan' }}
@@ -221,9 +223,9 @@ function formatDateHeader(dateStr: string): string {
                 >Unstable</span>
                 <button
                   type="button"
-                  class="rounded border border-amber-300 bg-white px-1.5 py-px text-[10px] font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50"
-                  :disabled="scanStatus.isRunning"
-                  :title="scanStatus.isRunning ? 'A scan is already running' : 'Re-scan this keyword now'"
+                  class="rounded border border-amber-300 bg-white px-1.5 py-px text-[10px] font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  :disabled="scanStatus.isRunning || scanBlocked"
+                  :title="scanBlocked ? 'Configure a proxy in Settings to enable scanning' : scanStatus.isRunning ? 'A scan is already running' : 'Re-scan this keyword now'"
                   @click="rescanKeyword(row.keywordId)"
                 >
                   {{ scanStatus.isRunning ? 'Re-scanning…' : 'Re-scan' }}

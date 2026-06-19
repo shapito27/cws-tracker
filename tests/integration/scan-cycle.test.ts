@@ -1191,6 +1191,9 @@ describe('1.10.8 Manual refresh while scan running', () => {
     const pendingBefore = await testDb.getPendingCount();
     expect(pendingBefore).toBe(3);
 
+    // A proxy is required for scans to run.
+    await new SettingsManager().set('proxyUrl', 'https://proxy.test');
+
     // Trigger manual refresh
     await triggerManualRefresh(undefined, 'full', createSchedulerDeps());
 
@@ -1240,6 +1243,9 @@ describe('1.10.8 Manual refresh while scan running', () => {
     });
     await testDb.saveKeyword({ id: 1, text: 'keyword A', projectId: 1, createdAt: new Date() });
     await testDb.saveKeyword({ id: 2, text: 'keyword B', projectId: 2, createdAt: new Date() });
+
+    // A proxy is required for scans to run.
+    await new SettingsManager().set('proxyUrl', 'https://proxy.test');
 
     // Refresh only project 1
     await triggerManualRefresh(1, 'full', createSchedulerDeps());

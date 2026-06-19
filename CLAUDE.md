@@ -94,8 +94,11 @@ tests/                    # See tests/CLAUDE.md for patterns
   fixtures/               # Saved CWS HTML responses from Phase 0 spike
   unit/                   # Mirrors src/ structure
   integration/            # End-to-end scan cycle tests
-proxy/                    # Cloudflare Worker - see proxy/CLAUDE.md
 ```
+
+> **Proxy moved:** the Cloudflare Worker proxy is now its **own repository** at
+> `~/Projects/cws-tracker-proxy` (public mirror: `github.com/shapito27/cws-tracker-proxy`).
+> It is a standalone package that shares no code with the extension — see that repo's `CLAUDE.md`.
 
 ## Architecture Rules
 
@@ -171,11 +174,11 @@ npx tsc --noEmit       # Type check (alternative, does not check .vue files)
 
 Load in Chrome: `npm run build` -> chrome://extensions -> Load unpacked -> select `dist/`
 
-**Proxy (Cloudflare Worker) - separate package in `proxy/`:**
+**Proxy (Cloudflare Worker) — now its own repo at `~/Projects/cws-tracker-proxy`** (push directly; no monorepo sync needed):
 ```bash
-cd proxy && npm test              # Run proxy tests
-cd proxy && npx wrangler dev      # Local dev server on port 8787
-cd proxy && npx wrangler deploy   # Deploy to Cloudflare — always use npx, not bare wrangler
+cd ~/Projects/cws-tracker-proxy && npm test            # Run proxy tests
+cd ~/Projects/cws-tracker-proxy && npx wrangler dev    # Local dev server on port 8787
+cd ~/Projects/cws-tracker-proxy && npx wrangler deploy # Deploy to Cloudflare — always use npx, not bare wrangler
 ```
 
 ## Feature Workflow

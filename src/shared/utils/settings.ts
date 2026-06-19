@@ -195,3 +195,19 @@ export class SettingsManager {
     return { ...DEFAULT_SETTINGS, ...stored };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * True when a usable proxy URL is configured (non-empty after trimming).
+ *
+ * Scans must route through a proxy — direct CWS fetches from a
+ * chrome-extension:// origin are blocked by CORS in production. This is the
+ * single source of truth for the "proxy required before scanning" guard,
+ * shared by the service worker, dashboard, and popup.
+ */
+export function isProxyConfigured(settings: Pick<Settings, 'proxyUrl'>): boolean {
+  return typeof settings.proxyUrl === 'string' && settings.proxyUrl.trim() !== '';
+}

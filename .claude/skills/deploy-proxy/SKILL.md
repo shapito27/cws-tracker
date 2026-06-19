@@ -1,7 +1,7 @@
 ---
 name: deploy-proxy
 description: Run proxy tests, deploy Cloudflare Worker, and verify health endpoint
-allowed-tools: Bash(cd proxy && npx vitest:*), Bash(cd proxy && npx wrangler:*), Bash(curl:*), Read
+allowed-tools: Bash(cd ~/Projects/cws-tracker-proxy && npx vitest:*), Bash(cd ~/Projects/cws-tracker-proxy && npx wrangler:*), Bash(curl:*), Read
 ---
 
 # Deploy & Verify Proxy
@@ -12,9 +12,9 @@ Run tests, deploy the Cloudflare Worker proxy, and verify the deployment.
 
 ### Step 1: Run proxy tests
 
-Run the proxy test suite:
+Run the proxy test suite (the proxy is now its own repo at `~/Projects/cws-tracker-proxy`):
 ```bash
-cd proxy && npx vitest run
+cd ~/Projects/cws-tracker-proxy && npx vitest run
 ```
 
 If tests fail, stop and report the failures. Do NOT deploy with failing tests.
@@ -23,7 +23,7 @@ If tests fail, stop and report the failures. Do NOT deploy with failing tests.
 
 Deploy the worker:
 ```bash
-cd proxy && npx wrangler deploy
+cd ~/Projects/cws-tracker-proxy && npx wrangler deploy
 ```
 
 Capture the deployed URL from the output.

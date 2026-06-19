@@ -5,6 +5,8 @@ import type { Project } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useServiceWorker } from '../composables/useServiceWorker';
 
+import ProxyRequiredBanner from '../components/ProxyRequiredBanner.vue';
+
 const OverviewTab = defineAsyncComponent(() => import('../components/project/OverviewTab.vue'));
 const RankingsTab = defineAsyncComponent(() => import('../components/project/RankingsTab.vue'));
 const ExtensionsTab = defineAsyncComponent(() => import('../components/project/ExtensionsTab.vue'));
@@ -118,6 +120,8 @@ watch(
       </div>
       <h2 class="text-2xl font-bold text-gray-900">{{ project.name }}</h2>
     </div>
+
+    <ProxyRequiredBanner class="mb-6" />
 
     <!-- Tab navigation -->
     <div class="border-b border-gray-200 mb-6">

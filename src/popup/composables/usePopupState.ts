@@ -12,7 +12,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import type { ServiceWorkerMessage, RankSnapshot, AutocompleteSnapshot, ScanPhase } from '../../shared/types';
 import { db } from '../../shared/db/database';
-import { SettingsManager } from '../../shared/utils/settings';
+import { SettingsManager, isProxyConfigured } from '../../shared/utils/settings';
 import { today, daysBetween } from '../../shared/utils/dates';
 import { findEffectivePrevious, classifyDrop } from '../../shared/utils/rank-history';
 
@@ -720,6 +720,15 @@ export function openDashboard(): void {
 }
 
 /**
+ * Open the dashboard Settings page (where the proxy is configured) in a new tab.
+ */
+export function openSettings(): void {
+  chrome.tabs.create({
+    url: chrome.runtime.getURL('src/dashboard/index.html#/settings'),
+  });
+}
+
+/**
  * Send a TRIGGER_REFRESH message to the service worker.
  */
 export function requestRefresh(): void {
@@ -768,11 +777,17 @@ export function usePopupState() {
   const lastScanDate = ref<string | null>(null);
   const rankChanges = ref<RankChange[]>([]);
   const isPaused = ref(false);
+  const proxyConfigured = ref(false);
+  const proxyChecked = ref(false);
 
   const showScanNudge = computed(() => {
     if (!lastScanDate.value) return true;
     return daysBetween(lastScanDate.value, today()) > 7;
   });
+
+  // True only once we've confirmed no proxy is set — gates the warning banner
+  // and Refresh button so neither flashes before init() reads settings.
+  const scanBlocked = computed(() => proxyChecked.value && !proxyConfigured.value);
 
   const progressPercent = computed(() => {
     if (scanProgress.value.total === 0) return 0;
@@ -837,6 +852,7 @@ export function usePopupState() {
       const s = await settings.getWithDefaults();
       lastScanDate.value = s.lastDailyScanDate;
       isPaused.value = !s.dailyScanEnabled;
+      proxyConfigured.value = isProxyConfigured(s);
 
       // Load rank changes from DB
       rankChanges.value = await loadRecentRankChanges();
@@ -846,6 +862,10 @@ export function usePopupState() {
     } catch {
       // On error, keep safe defaults so popup still renders
       rankChanges.value = [];
+    } finally {
+      // Mark the proxy status as checked either way, so the warning banner
+      // reflects a real read rather than the initial `false` placeholder.
+      proxyChecked.value = true;
     }
   }
 
@@ -865,8 +885,11 @@ export function usePopupState() {
     lastScanDate,
     rankChanges,
     isPaused,
+    proxyConfigured,
+    scanBlocked,
     showScanNudge,
     openDashboard,
+    openSettings,
     requestRefresh,
     requestPause,
     requestResume,

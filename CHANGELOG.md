@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.34.0] - 2026-06-19
+
+### Added
+- **Proxy is now required before scanning, with a one-click setup path.** A proxy is no longer "optional" — because the Chrome Web Store blocks direct extension-origin requests (CORS), scans cannot work without one. Until a proxy URL is saved, scanning is now guarded:
+  - **Dashboard:** an amber *"A proxy is required to scan"* banner appears on the Projects and project pages, and every scan trigger ("Refresh All", per-project "Scan Now", keyword-positions "Scan", and the unstable-rank "Re-scan") is disabled with an explanatory tooltip. Saving a proxy URL in Settings unlocks them instantly (no reload) via a `chrome.storage.onChanged` listener.
+  - **Popup:** shows a *"Proxy not configured — scanning is disabled"* warning with a **Configure Proxy** button (opens Settings), and disables **Refresh Now**.
+  - **Service worker (safety net):** `triggerManualRefresh`, `triggerKeywordRescan`, and the scheduled daily scan all bail out when no proxy is configured — manual triggers broadcast a `SCAN_ERROR` so the UI can explain why; the daily alarm logs a skip and does **not** stamp `lastDailyScanDate`, so it retries automatically once a proxy is set.
+- **"Deploy to Cloudflare" one-click button.** The Proxy Settings section now leads with a callout to deploy your own free proxy in one click (`github.com/shapito27/cws-tracker-proxy`), plus a link to self-host instructions. The same Deploy button appears in the setup banner.
+
+### Notes
+- "Configured" means a non-empty proxy URL is saved; the API key remains optional (a missing/incorrect key still surfaces via the existing *Test Connection* button and at scan time). Shared `isProxyConfigured()` helper in `src/shared/utils/settings.ts` is the single source of truth, consumed by the SW guard, the dashboard `useProxyStatus` composable, and the popup. No schema or settings migration required.
+
 ## [0.33.0] - 2026-06-19
 
 ### Removed

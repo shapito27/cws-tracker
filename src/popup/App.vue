@@ -12,8 +12,11 @@ const {
   lastScanDate,
   rankChanges,
   isPaused,
+  proxyConfigured,
+  scanBlocked,
   showScanNudge,
   openDashboard,
+  openSettings,
   requestRefresh,
   requestPause,
   requestResume,
@@ -83,6 +86,22 @@ function togglePause(): void {
     <div class="flex items-center gap-2 mb-3">
       <img :src="iconUrl" alt="CWS Tracker" class="h-6 w-6 rounded" />
       <h1 class="text-lg font-bold text-gray-900">CWS Tracker</h1>
+    </div>
+
+    <!-- Proxy required warning -->
+    <div
+      v-if="scanBlocked"
+      class="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-3"
+    >
+      <p class="text-xs font-medium text-amber-800">
+        Proxy not configured — scanning is disabled
+      </p>
+      <button
+        class="mt-2 w-full rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+        @click="openSettings"
+      >
+        Configure Proxy
+      </button>
     </div>
 
     <!-- Scan Status -->
@@ -157,7 +176,7 @@ function togglePause(): void {
 
     <!-- Free tier nudge -->
     <div
-      v-if="showScanNudge"
+      v-if="showScanNudge && proxyConfigured"
       class="rounded-lg bg-amber-50 border border-amber-200 p-3 mb-3"
     >
       <p class="text-xs font-medium text-amber-800">
@@ -310,8 +329,9 @@ function togglePause(): void {
       </button>
       <div class="flex gap-2">
         <button
-          class="flex-1 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-200"
-          :disabled="scanStatus === 'running'"
+          class="flex-1 rounded-lg bg-gray-100 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="scanStatus === 'running' || scanBlocked"
+          :title="scanBlocked ? 'Configure a proxy in Settings to enable scanning' : ''"
           @click="requestRefresh"
         >
           Refresh Now

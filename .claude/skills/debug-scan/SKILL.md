@@ -47,7 +47,7 @@ If the error might be proxy-related, verify the proxy is responding:
 curl -s -o /dev/null -w "%{http_code}" https://cws-tracker-proxy.<domain>.workers.dev/
 ```
 
-Also check `proxy/src/index.ts` for any recent changes that might affect request handling.
+Also check `~/Projects/cws-tracker-proxy/src/index.ts` for any recent changes that might affect request handling.
 
 ### Step 5: Check queue processor state
 

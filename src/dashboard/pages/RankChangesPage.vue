@@ -2,9 +2,11 @@
 import { ref, computed, onMounted, watch } from 'vue';
 import { loadAllChanges, type ChangesDateGroup } from '@/popup/composables/usePopupState';
 import { useServiceWorker } from '../composables/useServiceWorker';
+import { useProxyStatus } from '../composables/useProxyStatus';
 import RankChangeItem from '../components/RankChangeItem.vue';
 
 const { scanStatus, requestKeywordRescan } = useServiceWorker();
+const { proxyConfigured } = useProxyStatus();
 
 const allGroups = ref<ChangesDateGroup[]>([]);
 const loading = ref(true);
@@ -141,7 +143,7 @@ onMounted(loadGroups);
             :rank-change="rc"
             :link-to-project="true"
             :show-date="false"
-            :allow-rescan="true"
+            :allow-rescan="proxyConfigured"
             :scan-running="scanStatus.isRunning"
             @rescan="requestKeywordRescan"
           />

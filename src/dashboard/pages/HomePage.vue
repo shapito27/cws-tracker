@@ -4,15 +4,18 @@ import { useRouter } from 'vue-router';
 import { useProjects } from '../composables/useProjects';
 import { useServiceWorker } from '../composables/useServiceWorker';
 import { useSettings } from '../composables/useSettings';
+import { useProxyStatus } from '../composables/useProxyStatus';
 import { db } from '@/shared/db/database';
 import type { Project, Extension } from '@/shared/types';
 import ExtensionsOverviewTable from '../components/tables/ExtensionsOverviewTable.vue';
 import RecentRankChanges from '../components/RecentRankChanges.vue';
+import ProxyRequiredBanner from '../components/ProxyRequiredBanner.vue';
 
 const router = useRouter();
 const { projects, loading, loadProjects, createProject } = useProjects();
 const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
+const { proxyConfigured, scanBlocked } = useProxyStatus();
 
 const showCreateModal = ref(false);
 const createExtensionInput = ref('');
@@ -148,8 +151,11 @@ async function handleCreate(): Promise<void> {
     showCreateModal.value = false;
     createExtensionInput.value = '';
     router.push({ name: 'project', params: { id: String(project.id) } });
-    // Trigger scan so listing name populates the project name
-    requestRefresh(project.id);
+    // Trigger scan so listing name populates the project name — only when a
+    // proxy is configured (otherwise the guard blocks it; the banner guides setup).
+    if (proxyConfigured.value) {
+      requestRefresh(project.id);
+    }
   } catch (e) {
     createError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -167,13 +173,16 @@ function openCreateModal(): void {
 
 <template>
   <div>
+    <ProxyRequiredBanner class="mb-6" />
+
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-2xl font-bold text-gray-900">Projects</h2>
       <div class="flex items-center gap-3">
         <button
           v-if="projects.length > 0"
-          class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          :disabled="scanStatus.isRunning"
+          class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          :disabled="scanStatus.isRunning || scanBlocked"
+          :title="scanBlocked ? 'Configure a proxy in Settings to enable scanning' : ''"
           @click="requestRefresh()"
         >
           {{ scanStatus.isRunning ? 'Scanning...' : 'Refresh All' }}

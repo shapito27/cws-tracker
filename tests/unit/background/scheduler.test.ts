@@ -108,7 +108,15 @@ let settingsManager: SettingsManager;
 
 function createSchedulerDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps {
   const processorDeps: ProcessorDeps = {
-    fetchPage: vi.fn().mockResolvedValue(new Response('ok', { status: 200 })),
+    // A proxy is configured in beforeEach, so the processor uses the proxy
+    // transport, which expects a JSON `{ html, status }` body (parser is mocked,
+    // so the HTML content is irrelevant).
+    fetchPage: vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ html: '<html></html>', status: 200 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    ),
     sendMessage: vi.fn(),
     settings: settingsManager,
   };
@@ -164,6 +172,10 @@ describe('Scheduler', () => {
     (dbMod as unknown as { _setTestDb: (db: CWSDatabase) => void })._setTestDb(testDb);
 
     settingsManager = new SettingsManager();
+
+    // Scans require a configured proxy. Set one by default so the existing
+    // scan-trigger tests exercise the happy path; guard tests clear it.
+    await settingsManager.set('proxyUrl', 'https://proxy.test');
   });
 
   describe('setupAlarms', () => {
@@ -590,6 +602,56 @@ describe('Scheduler', () => {
       // lastDailyScanDate should be set
       const lastScan = await settingsManager.get('lastDailyScanDate');
       expect(lastScan).toBe(today());
+    });
+  });
+
+  describe('proxy guard', () => {
+    it('triggerManualRefresh enqueues nothing and broadcasts SCAN_ERROR when no proxy', async () => {
+      const { triggerManualRefresh } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('proxyUrl', ''); // clear the default proxy
+
+      const deps = createSchedulerDeps();
+      await triggerManualRefresh(undefined, 'full', deps);
+
+      // No jobs enqueued, no processing alarm scheduled.
+      expect(await testDb.queue.count()).toBe(0);
+      const processQueueAlarm = getCalls('alarms.create').find((c) => c.args[0] === 'processQueue');
+      expect(processQueueAlarm).toBeUndefined();
+
+      // A SCAN_ERROR is broadcast so the dashboard can explain why.
+      const errorMsg = getCalls('runtime.sendMessage').find(
+        (c) => (c.args[0] as { type: string }).type === 'SCAN_ERROR'
+      );
+      expect(errorMsg).toBeDefined();
+      expect((errorMsg!.args[0] as { error: string }).error).toMatch(/proxy not configured/i);
+    });
+
+    it('triggerKeywordRescan enqueues nothing when no proxy', async () => {
+      const { triggerKeywordRescan } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('proxyUrl', '');
+
+      await triggerKeywordRescan(1, createSchedulerDeps());
+
+      expect(await testDb.queue.count()).toBe(0);
+    });
+
+    it('handleDailyScanAlarm skips and leaves lastDailyScanDate unset when no proxy', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('proxyUrl', '');
+
+      const deps = createSchedulerDeps();
+      await handleDailyScanAlarm(deps);
+
+      // No jobs, and lastDailyScanDate NOT stamped so the next alarm retries.
+      expect(await testDb.queue.count()).toBe(0);
+      expect(await settingsManager.get('lastDailyScanDate')).toBeNull();
     });
   });
 });

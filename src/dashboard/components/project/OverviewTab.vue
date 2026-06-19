@@ -12,6 +12,7 @@ import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
 import { useSettings } from '../../composables/useSettings';
+import { useProxyStatus } from '../../composables/useProxyStatus';
 import { loadExtensionRankHistory } from '../../composables/useRankings';
 import { loadExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
 import { daysAgo, today } from '@/shared/utils/dates';
@@ -31,6 +32,7 @@ const props = defineProps<{
 const { getExtensionsByProject, getLatestSnapshot } = useExtensions();
 const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
+const { scanBlocked } = useProxyStatus();
 
 type UnifiedEvent =
   | { kind: 'rank_change'; data: RankChange; sortTime: number }
@@ -296,8 +298,9 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
     <!-- Scan actions -->
     <div class="flex items-center gap-3 mb-6">
       <button
-        class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        :disabled="scanStatus.isRunning"
+        class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        :disabled="scanStatus.isRunning || scanBlocked"
+        :title="scanBlocked ? 'Configure a proxy in Settings to enable scanning' : ''"
         @click="requestRefresh(project.id)"
       >
         {{ scanStatus.isRunning ? 'Scanning...' : 'Scan Now' }}

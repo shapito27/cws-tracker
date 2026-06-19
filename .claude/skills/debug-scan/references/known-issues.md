@@ -90,7 +90,7 @@ Reference document for diagnosing scan failures. Updated as new patterns are dis
 
 **Fix:**
 - Check proxy health: `curl -s https://cws-tracker-proxy.<domain>.workers.dev/`
-- Check `proxy/src/index.ts` for recent changes
+- Check `~/Projects/cws-tracker-proxy/src/index.ts` for recent changes
 - Verify Cloudflare Worker is deployed and not hitting resource limits
 
 ---
@@ -115,6 +115,6 @@ Reference document for diagnosing scan failures. Updated as new patterns are dis
 **Cause:** Proxy not returning proper CORS headers, or CWS response headers are being passed through incorrectly.
 
 **Fix:**
-- Check proxy CORS configuration in `proxy/src/index.ts`
+- Check proxy CORS configuration in `~/Projects/cws-tracker-proxy/src/index.ts`
 - Ensure `Access-Control-Allow-Origin` is set for the extension origin
 - Verify preflight (OPTIONS) requests are handled
