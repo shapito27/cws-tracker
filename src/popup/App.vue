@@ -11,7 +11,6 @@ const {
   progressPercent,
   lastScanDate,
   rankChanges,
-  subscriptionStatus,
   isPaused,
   showScanNudge,
   openDashboard,
@@ -84,9 +83,6 @@ function togglePause(): void {
     <div class="flex items-center gap-2 mb-3">
       <img :src="iconUrl" alt="CWS Tracker" class="h-6 w-6 rounded" />
       <h1 class="text-lg font-bold text-gray-900">CWS Tracker</h1>
-      <span v-if="subscriptionStatus === 'pro'" class="ml-auto inline-block rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700">
-        Pro
-      </span>
     </div>
 
     <!-- Scan Status -->

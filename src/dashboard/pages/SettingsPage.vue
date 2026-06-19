@@ -29,7 +29,6 @@ const {
 
 // Local form state for inputs that need debouncing / explicit save
 const localOpenAIKey = ref('');
-const localLemonSqueezyLicense = ref('');
 const localQueueDelay = ref(60);
 const localQueueJitter = ref(10);
 const localDailyScanTime = ref('03:00');
@@ -117,7 +116,6 @@ const hasUnsavedChanges = computed(() => {
     localDailyScanTime.value !== settings.dailyScanTime ||
     localDailyScanEnabled.value !== settings.dailyScanEnabled ||
     localOpenAIKey.value !== (settings.openaiApiKey ?? '') ||
-    localLemonSqueezyLicense.value !== (settings.lemonSqueezyLicense ?? '') ||
     localDataRetention.value !== settings.dataRetentionDays ||
     localProxyUrl.value !== settings.proxyUrl ||
     localProxyApiKey.value !== (settings.proxyApiKey ?? '') ||
@@ -136,7 +134,6 @@ onBeforeRouteLeave((_to, _from, next) => {
 
 function syncLocalState(): void {
   localOpenAIKey.value = settings.openaiApiKey ?? '';
-  localLemonSqueezyLicense.value = settings.lemonSqueezyLicense ?? '';
   localQueueDelay.value = Math.round(settings.queueDelayMs / 1000);
   localQueueJitter.value = Math.round(settings.queueJitterMs / 1000);
   localDailyScanTime.value = settings.dailyScanTime;
@@ -180,11 +177,6 @@ async function saveScanSettings(): Promise<void> {
 async function saveOpenAIKey(): Promise<void> {
   const key = localOpenAIKey.value.trim() || null;
   await saveSetting('openaiApiKey', key);
-}
-
-async function saveLicenseKey(): Promise<void> {
-  const key = localLemonSqueezyLicense.value.trim() || null;
-  await saveSetting('lemonSqueezyLicense', key);
 }
 
 async function saveDataRetention(): Promise<void> {
@@ -404,7 +396,7 @@ onUnmounted(() => {
       <section class="rounded-lg border border-gray-200 bg-white">
         <div class="border-b border-gray-200 px-6 py-4">
           <h3 class="text-base font-semibold text-gray-900">API Keys</h3>
-          <p class="text-sm text-gray-500 mt-0.5">Manage your API keys for AI features and licensing.</p>
+          <p class="text-sm text-gray-500 mt-0.5">Manage your API keys for AI features.</p>
         </div>
         <div class="px-6 py-4 space-y-4">
           <!-- OpenAI API Key -->
@@ -441,40 +433,6 @@ onUnmounted(() => {
               >
                 {{ openAITestResult.message }}
               </p>
-            </div>
-          </div>
-
-          <!-- LemonSqueezy License -->
-          <div>
-            <label for="licenseKey" class="block text-sm font-medium text-gray-700">License Key</label>
-            <p class="text-xs text-gray-500">LemonSqueezy license key for Pro tier features.</p>
-            <div class="mt-1 flex gap-2">
-              <input
-                id="licenseKey"
-                v-model="localLemonSqueezyLicense"
-                type="text"
-                placeholder="Enter license key"
-                class="block flex-1 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <button
-                class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                :disabled="saving"
-                @click="saveLicenseKey"
-              >
-                Save
-              </button>
-            </div>
-            <div class="mt-1.5">
-              <span
-                class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="{
-                  'bg-green-100 text-green-800': settings.subscriptionStatus === 'pro',
-                  'bg-gray-100 text-gray-800': settings.subscriptionStatus === 'free',
-                  'bg-red-100 text-red-800': settings.subscriptionStatus === 'expired',
-                }"
-              >
-                {{ settings.subscriptionStatus === 'pro' ? 'Pro' : settings.subscriptionStatus === 'expired' ? 'Expired' : 'Free' }}
-              </span>
             </div>
           </div>
         </div>

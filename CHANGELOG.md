@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.33.0] - 2026-06-19
+
+### Removed
+- **LemonSqueezy license key / Pro tier scaffolding.** Removed the non-functional "License Key" input and subscription-status badge from Settings, along with the entire `subscriptionStatus` / Pro-tier concept that depended on it. This deletes the `lemonSqueezyLicense` and `subscriptionStatus` settings fields (and the `SubscriptionStatus` type), the validation for them, the popup header **Pro** badge, and the subscription gate in the popup's scan-nudge logic (the nudge now keys solely on whether a scan has run in the last 7 days). No data migration is required: any `lemonSqueezyLicense` / `subscriptionStatus` values already in `chrome.storage.local` are simply ignored. Monetization remains a future roadmap item in the PRD/TODO — only the dead UI/scaffolding was removed.
+
 ## [0.32.0] - 2026-06-19
 
 ### Added

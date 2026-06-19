@@ -5,7 +5,7 @@
  * chrome.storage.local take precedence over defaults.
  */
 
-import type { Settings, SubscriptionStatus, AuditPromptVariant } from '../types/settings';
+import type { Settings, AuditPromptVariant } from '../types/settings';
 
 // ---------------------------------------------------------------------------
 // Defaults (values from PRD Section 4.2 / 5.3.6)
@@ -20,8 +20,6 @@ const DEFAULT_TRANSLATION_LOCALES: string[] = [
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   openaiApiKey: null,
-  lemonSqueezyLicense: null,
-  subscriptionStatus: 'free',
   queueDelayMs: 60_000,
   queueJitterMs: 10_000,
   dailyScanTime: '03:00',
@@ -49,8 +47,6 @@ const MIN_QUEUE_DELAY_MS = 30_000;
 const MIN_DATA_RETENTION_DAYS = 7;
 /** Pattern for HH:MM 24-hour time. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
-/** Valid subscription statuses at runtime. */
-const VALID_SUBSCRIPTION_STATUSES: SubscriptionStatus[] = ['free', 'pro', 'expired'];
 /** Valid audit prompt variants. */
 const VALID_AUDIT_VARIANTS: AuditPromptVariant[] = ['default', 'cot', 'rubric'];
 
@@ -107,14 +103,6 @@ function validatePartial(partial: Partial<Settings>): void {
     }
     if (!partial.translationLocales.every((loc) => typeof loc === 'string' && loc.length > 0)) {
       throw new SettingsValidationError('translationLocales must contain only non-empty strings');
-    }
-  }
-
-  if ('subscriptionStatus' in partial) {
-    if (!VALID_SUBSCRIPTION_STATUSES.includes(partial.subscriptionStatus as SubscriptionStatus)) {
-      throw new SettingsValidationError(
-        `subscriptionStatus must be one of ${VALID_SUBSCRIPTION_STATUSES.join(', ')}, got "${partial.subscriptionStatus}"`
-      );
     }
   }
 

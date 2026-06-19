@@ -3,21 +3,14 @@
  * All fields have defaults defined in DEFAULT_SETTINGS (see settings manager).
  */
 
-/** Subscription / license status. */
-export type SubscriptionStatus = 'free' | 'pro' | 'expired';
-
 /** Audit prompt variant for A/B testing. */
 export type AuditPromptVariant = 'default' | 'cot' | 'rubric';
 
 export interface Settings {
-  // -- API keys & licensing --------------------------------------------------
+  // -- API keys --------------------------------------------------------------
 
   /** User's OpenAI API key for AI features. */
   openaiApiKey: string | null;
-  /** LemonSqueezy license key for Pro tier. */
-  lemonSqueezyLicense: string | null;
-  /** Current subscription status. */
-  subscriptionStatus: SubscriptionStatus;
 
   // -- Queue & scanning ------------------------------------------------------
 

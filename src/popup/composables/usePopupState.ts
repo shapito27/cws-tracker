@@ -15,7 +15,6 @@ import { db } from '../../shared/db/database';
 import { SettingsManager } from '../../shared/utils/settings';
 import { today, daysBetween } from '../../shared/utils/dates';
 import { findEffectivePrevious, classifyDrop } from '../../shared/utils/rank-history';
-import type { SubscriptionStatus } from '../../shared/types/settings';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,7 +73,6 @@ export interface PopupState {
   };
   lastScanDate: string | null;
   rankChanges: RankChange[];
-  subscriptionStatus: SubscriptionStatus;
   isPaused: boolean;
   showScanNudge: boolean;
 }
@@ -769,11 +767,9 @@ export function usePopupState() {
   }>({ completed: 0, total: 0, currentJob: '', phase: 'running', nextProcessingAt: null });
   const lastScanDate = ref<string | null>(null);
   const rankChanges = ref<RankChange[]>([]);
-  const subscriptionStatus = ref<SubscriptionStatus>('free');
   const isPaused = ref(false);
 
   const showScanNudge = computed(() => {
-    if (subscriptionStatus.value !== 'free') return false;
     if (!lastScanDate.value) return true;
     return daysBetween(lastScanDate.value, today()) > 7;
   });
@@ -840,7 +836,6 @@ export function usePopupState() {
       // Load settings
       const s = await settings.getWithDefaults();
       lastScanDate.value = s.lastDailyScanDate;
-      subscriptionStatus.value = s.subscriptionStatus;
       isPaused.value = !s.dailyScanEnabled;
 
       // Load rank changes from DB
@@ -869,7 +864,6 @@ export function usePopupState() {
     progressPercent,
     lastScanDate,
     rankChanges,
-    subscriptionStatus,
     isPaused,
     showScanNudge,
     openDashboard,

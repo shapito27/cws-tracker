@@ -43,7 +43,6 @@ describe('getWithDefaults()', () => {
     // Other defaults remain
     expect(result.dataRetentionDays).toBe(DEFAULT_SETTINGS.dataRetentionDays);
     expect(result.dailyScanTime).toBe(DEFAULT_SETTINGS.dailyScanTime);
-    expect(result.subscriptionStatus).toBe('free');
   });
 });
 
@@ -215,23 +214,6 @@ describe('Validation', () => {
     ).rejects.toThrow('translationLocales must contain only non-empty strings');
   });
 
-  it('rejects invalid subscriptionStatus', async () => {
-    await expect(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      settings.set('subscriptionStatus', 'premium' as any)
-    ).rejects.toThrow(SettingsValidationError);
-    await expect(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      settings.set('subscriptionStatus', 'premium' as any)
-    ).rejects.toThrow('subscriptionStatus must be one of');
-  });
-
-  it('accepts valid subscriptionStatus values', async () => {
-    await expect(settings.set('subscriptionStatus', 'free')).resolves.toBeUndefined();
-    await expect(settings.set('subscriptionStatus', 'pro')).resolves.toBeUndefined();
-    await expect(settings.set('subscriptionStatus', 'expired')).resolves.toBeUndefined();
-  });
-
   it('rejects empty parserVersion', async () => {
     await expect(settings.set('parserVersion', '')).rejects.toThrow(
       'parserVersion must be a non-empty string'
@@ -302,11 +284,9 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.dailyScanTime).toBe('03:00');
     expect(DEFAULT_SETTINGS.dailyScanEnabled).toBe(false);
     expect(DEFAULT_SETTINGS.dataRetentionDays).toBe(365);
-    expect(DEFAULT_SETTINGS.subscriptionStatus).toBe('free');
     expect(DEFAULT_SETTINGS.parserVersion).toBe('v1');
     expect(DEFAULT_SETTINGS.onboardingCompleted).toBe(false);
     expect(DEFAULT_SETTINGS.openaiApiKey).toBeNull();
-    expect(DEFAULT_SETTINGS.lemonSqueezyLicense).toBeNull();
     expect(DEFAULT_SETTINGS.lastDailyScanDate).toBeNull();
     expect(DEFAULT_SETTINGS.proxyUrl).toBe('');
     expect(DEFAULT_SETTINGS.proxyApiKey).toBeNull();

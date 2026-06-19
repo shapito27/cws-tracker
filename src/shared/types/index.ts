@@ -25,7 +25,7 @@ export type {
   ScanPhase,
 } from './messages';
 
-export type { Settings, SubscriptionStatus, AuditPromptVariant } from './settings';
+export type { Settings, AuditPromptVariant } from './settings';
 
 // ---------------------------------------------------------------------------
 // Enumerations (string literal unions)
