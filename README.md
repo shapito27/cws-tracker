@@ -36,6 +36,7 @@ running locally in your browser, with your data never leaving the machine.
   - [Your data stays yours](#-your-data-stays-yours)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
+- [Install](#install)
 - [Getting started](#getting-started)
 - [Project structure](#project-structure)
 - [Testing](#testing)
@@ -287,7 +288,37 @@ mocked internally, never hitting the live network in tests.
 
 ---
 
+## Install
+
+A **prebuilt copy of the extension is committed to this repo** ([`dist/`](./dist)), so you
+can install it without Node, npm, or a build step. It's an unpacked Manifest V3 extension —
+point Chrome straight at the folder:
+
+1. **Get the files** — either:
+   - **Clone:** `git clone https://github.com/shapito27/cws-tracker.git`, or
+   - **Download:** click the green **Code → Download ZIP** button on GitHub and unzip it.
+2. Open **`chrome://extensions`** in Chrome (or any Chromium browser — Edge, Brave, Opera…).
+3. Turn on **Developer mode** (toggle, top-right).
+4. Click **Load unpacked** and select the **`dist/`** folder inside the project.
+5. Pin the CWS Tracker icon, open the dashboard, then set up scanning under
+   **Settings → Proxy** (see [Getting started](#getting-started) for the proxy step).
+
+> **Why "Load unpacked" and not a `.crx`?** Chrome only auto-installs packaged extensions
+> from the Web Store; for a self-distributed build, *Load unpacked* on a folder is the
+> supported path. A downloaded ZIP must be **unzipped first** — `chrome://extensions` loads
+> a folder, not a `.zip`.
+
+> **Updating.** `git pull` (or re-download the ZIP) to refresh `dist/`, then click the
+> **↻ reload** icon on the CWS Tracker card in `chrome://extensions`.
+
+Prefer to build it yourself instead of trusting the committed `dist/`? See
+[Getting started](#getting-started).
+
+---
+
 ## Getting started
+
+For building from source (and the dev workflow):
 
 ```bash
 npm install
@@ -297,7 +328,7 @@ npm test             # Run the full Vitest suite
 npm run typecheck    # Type-check with vue-tsc (also checks .vue files)
 ```
 
-**Load the unpacked extension:**
+**Load the freshly built extension:**
 
 ```bash
 npm run build:only

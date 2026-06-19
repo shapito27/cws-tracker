@@ -14,6 +14,9 @@ All notable changes to CWS Tracker will be documented in this file.
 ### Notes
 - "Configured" means a non-empty proxy URL is saved; the API key remains optional (a missing/incorrect key still surfaces via the existing *Test Connection* button and at scan time). Shared `isProxyConfigured()` helper in `src/shared/utils/settings.ts` is the single source of truth, consumed by the SW guard, the dashboard `useProxyStatus` composable, and the popup. No schema or settings migration required.
 
+### Distribution
+- **Prebuilt extension now committed to the repo** ([`dist/`](./dist), this 0.34.0 build). Users can install without Node/npm: clone or **Download ZIP** → unzip → `chrome://extensions` → Developer mode → **Load unpacked** → select `dist/`. See the new [Install](./README.md#install) section. `.gitignore` now tracks `dist/` (only Vite's `dist/.vite/` build-metadata folder stays ignored); refresh it with `npm run build:only` before committing a new release.
+
 ## [0.33.0] - 2026-06-19
 
 ### Removed
