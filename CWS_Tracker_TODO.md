@@ -1019,6 +1019,8 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 ### 4.1 LemonSqueezy Integration (~6h)
 
+> **Note:** An early scaffolding pass (License Key input in Settings, `lemonSqueezyLicense`/`subscriptionStatus` settings fields + `SubscriptionStatus` type, popup "Pro" badge) was **removed in v0.33.0** as non-functional dead code. All tasks below are still unstarted — rebuild from scratch when this phase begins.
+
 - [ ] **4.1.1** Create LemonSqueezy product and subscription plans ($14/mo monthly, $120/year annual)
 - [ ] **4.1.2** Create `src/dashboard/composables/useLicense.ts`:
   - `validateLicense(key)` - call LemonSqueezy API
@@ -1151,7 +1153,7 @@ End-to-end flows tested with mock fetch responses (no real CWS requests).
 
 - [x] **4.5.1** Create `src/dashboard/pages/SettingsPage.vue`:
   - Section: Scan Settings (queue delay, jitter, daily scan time, enable/disable)
-  - Section: API Keys (OpenAI key input with test button, LemonSqueezy license key)
+  - Section: API Keys (OpenAI key input with test button) — LemonSqueezy license key input was added here then removed in v0.33.0; deferred to Phase 4 (§4.1)
   - Section: Data Management (retention period, storage usage, prune now, backup, restore)
   - Section: Translation Audit (locale selector for default audit locales)
   - Section: About (version, links)

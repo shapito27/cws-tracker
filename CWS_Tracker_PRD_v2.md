@@ -430,8 +430,6 @@ Settings and small configuration values are stored in `chrome.storage.local` rat
 | Field | Type | Description |
 |-------|------|-------------|
 | openaiApiKey | string \| null | User's OpenAI API key (see Security section 8 for storage notes) |
-| lemonSqueezyLicense | string \| null | License key for Pro tier |
-| subscriptionStatus | string | 'free' \| 'pro' \| 'expired' |
 | queueDelayMs | number | Base delay between requests (default: 60000) |
 | queueJitterMs | number | Randomized jitter range (default: 10000, so delay = base +/- jitter) |
 | dailyScanTime | string | Preferred daily scan time (HH:MM, default: "03:00") |
@@ -440,6 +438,8 @@ Settings and small configuration values are stored in `chrome.storage.local` rat
 | dataRetentionDays | number | How long to keep snapshots (default: 365) |
 | lastDailyScanDate | string \| null | Date of last completed daily scan |
 | parserVersion | string | Current parser version (for detecting parser breakage) |
+
+> **Licensing fields deferred.** The `lemonSqueezyLicense` and `subscriptionStatus` fields, plus the `SubscriptionStatus` type, were part of an early scaffolding pass that was **removed in v0.33.0** (it was non-functional). They will be reintroduced when monetization is built — see Phase 4 (§5.4).
 
 ### 4.3 IndexedDB Indexes
 
@@ -648,7 +648,7 @@ class CWSDatabase extends Dexie {
 - **Extensions Tab:** Table of all tracked extensions with latest metrics. Sortable columns. Click to see extension detail and snapshot history.
 - **Keywords Tab:** Table of tracked keywords with latest positions for each extension. Add/remove keywords.
 - **Events Tab:** Chronological list of all detected changes across tracked extensions.
-- **Settings:** Global settings page (API keys, scan schedule, queue delay, data retention, license management)
+- **Settings:** Global settings page (API keys, scan schedule, queue delay, data retention; license management deferred to Phase 4 — see §5.4)
 
 **Empty & Error States (all views):**
 
@@ -911,6 +911,8 @@ Each component is scored 0-100 individually, then weighted. The dashboard shows 
 **Goal:** Prepare the extension for public release on CWS with freemium subscription model.
 
 #### 5.4.1 LemonSqueezy Integration
+
+> **Status: not started (planned).** An early non-functional scaffolding (License Key input, `lemonSqueezyLicense`/`subscriptionStatus` settings fields, popup "Pro" badge) was removed in v0.33.0. Nothing below is implemented yet; this remains future Phase 4 work.
 
 **Description:** Subscription management using LemonSqueezy's JS SDK for license validation. No custom backend required.
 
