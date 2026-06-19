@@ -18,10 +18,13 @@ const {
   successMessage,
   testingOpenAI,
   openAITestResult,
+  testingProxy,
+  proxyTestResult,
   loadSettings,
   saveSetting,
   saveMultipleSettings,
   testOpenAIConnection,
+  testProxyConnection,
 } = useSettings();
 
 // Local form state for inputs that need debouncing / explicit save
@@ -193,6 +196,11 @@ async function saveProxySettings(): Promise<void> {
     proxyUrl: localProxyUrl.value.trim(),
     proxyApiKey: localProxyApiKey.value.trim() || null,
   });
+}
+
+/** Test the currently-entered proxy URL + key (before saving). */
+function onTestProxyConnection(): void {
+  void testProxyConnection(localProxyUrl.value, localProxyApiKey.value.trim() || null);
 }
 
 async function saveTranslationLocales(): Promise<void> {
@@ -738,7 +746,7 @@ onUnmounted(() => {
               class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
-          <div class="pt-2">
+          <div class="pt-2 flex items-center gap-2">
             <button
               class="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
               :disabled="saving"
@@ -746,6 +754,21 @@ onUnmounted(() => {
             >
               Save Proxy Settings
             </button>
+            <button
+              class="rounded-md border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              :disabled="testingProxy || !localProxyUrl"
+              @click="onTestProxyConnection"
+            >
+              {{ testingProxy ? 'Testing...' : 'Test Connection' }}
+            </button>
+          </div>
+          <div v-if="proxyTestResult">
+            <p
+              class="text-xs"
+              :class="proxyTestResult.success ? 'text-green-600' : 'text-red-600'"
+            >
+              {{ proxyTestResult.message }}
+            </p>
           </div>
         </div>
       </section>

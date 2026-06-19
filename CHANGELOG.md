@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.32.0] - 2026-06-19
+
+### Added
+- **"Test Connection" button for Proxy Settings.** Next to *Save Proxy Settings* there is now a **Test Connection** button that probes the currently-entered proxy URL + API key (before saving) and reports the result inline, mirroring the existing OpenAI *Test Connection* UX. It fetches a stable extension's `/detail` page through the proxy — the exact path scans use — and maps the HTTP status to a plain-language message so a URL problem is distinguishable from a key problem at a glance: success, **401** ("no API key — add your Proxy API Key"), **403** ("API key was rejected"), **429** ("rate limited"), **502/504** ("proxy + key OK, but couldn't reach the Chrome Web Store"), **404** ("not a CWS Tracker proxy"), and timeout / network / invalid-URL cases. Implemented as `testProxyConnection(url, apiKey)` in the `useSettings` composable (a direct dashboard fetch with a 12s `AbortController` timeout); no service-worker or proxy changes.
+
 ## [0.31.0] - 2026-06-08
 
 ### Changed

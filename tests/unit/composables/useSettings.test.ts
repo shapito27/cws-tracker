@@ -284,4 +284,130 @@ describe('useSettings', () => {
       expect(testingOpenAI.value).toBe(false);
     });
   });
+
+  describe('testProxyConnection', () => {
+    const PROXY_URL = 'https://cws-proxy.example.workers.dev';
+
+    it('should report error when no URL is provided', async () => {
+      const { proxyTestResult, testProxyConnection } = useSettings();
+
+      await testProxyConnection('   ', 'somekey');
+
+      expect(proxyTestResult.value).toEqual({
+        success: false,
+        message: 'Enter a proxy URL first',
+      });
+    });
+
+    it('should report error for an invalid URL', async () => {
+      const { proxyTestResult, testProxyConnection } = useSettings();
+
+      await testProxyConnection('not-a-url', 'somekey');
+
+      expect(proxyTestResult.value).toEqual({
+        success: false,
+        message: 'Proxy URL is not a valid URL',
+      });
+    });
+
+    it('should report success on HTTP 200 and hit /detail with id + key', async () => {
+      const { proxyTestResult, testProxyConnection } = useSettings();
+
+      const originalFetch = globalThis.fetch;
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      globalThis.fetch = fetchMock;
+
+      await testProxyConnection(PROXY_URL, 'valid-key');
+
+      expect(proxyTestResult.value).toEqual({
+        success: true,
+        message: 'Connection successful — proxy and API key are working',
+      });
+      const calledUrl = String(fetchMock.mock.calls[0][0]);
+      expect(calledUrl).toContain(`${PROXY_URL}/detail`);
+      expect(calledUrl).toContain('id=cjpalhdlnbpafiamejdnhcphjbkeiagm');
+      expect(calledUrl).toContain('key=valid-key');
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should report a rejected key on HTTP 403', async () => {
+      const { proxyTestResult, testProxyConnection } = useSettings();
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+
+      await testProxyConnection(PROXY_URL, 'wrong-key');
+
+      expect(proxyTestResult.value).toEqual({
+        success: false,
+        message: 'Proxy reachable, but the API key was rejected — check it matches the proxy',
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should report a missing key on HTTP 401', async () => {
+      const { proxyTestResult, testProxyConnection } = useSettings();
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+
+      await testProxyConnection(PROXY_URL, null);
+
+      expect(proxyTestResult.value).toEqual({
+        success: false,
+        message: 'Proxy reachable, but no API key was provided — add your Proxy API Key',
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should report a generic network failure', async () => {
+      const { proxyTestResult, testProxyConnection } = useSettings();
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Failed to fetch'));
+
+      await testProxyConnection(PROXY_URL, 'valid-key');
+
+      expect(proxyTestResult.value).toEqual({
+        success: false,
+        message: 'Could not reach the proxy URL — check that it is correct',
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should report a timeout when the request aborts', async () => {
+      const { proxyTestResult, testProxyConnection } = useSettings();
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi
+        .fn()
+        .mockRejectedValue(new DOMException('aborted', 'AbortError'));
+
+      await testProxyConnection(PROXY_URL, 'valid-key');
+
+      expect(proxyTestResult.value).toEqual({
+        success: false,
+        message: 'Connection timed out — check the proxy URL',
+      });
+
+      globalThis.fetch = originalFetch;
+    });
+
+    it('should set testingProxy to false after completion', async () => {
+      const { testingProxy, testProxyConnection } = useSettings();
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+      await testProxyConnection(PROXY_URL, 'valid-key');
+
+      expect(testingProxy.value).toBe(false);
+
+      globalThis.fetch = originalFetch;
+    });
+  });
 });
