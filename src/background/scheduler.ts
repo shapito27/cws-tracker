@@ -12,7 +12,7 @@
 
 import { db } from '@/shared/db/database';
 import { SettingsManager, isProxyConfigured } from '@/shared/utils/settings';
-import { today, daysAgo } from '@/shared/utils/dates';
+import { today, toDateString } from '@/shared/utils/dates';
 import {
   buildDailyScanJobs,
   buildKeywordScanJobs,
@@ -20,6 +20,7 @@ import {
 } from '@/background/queue-builder';
 import { processNextJob, type ProcessorDeps } from '@/background/queue-processor';
 import type { ScanType, QueueJob } from '@/shared/types';
+import type { Settings } from '@/shared/types/settings';
 import type { ScanErrorMessage } from '@/shared/types/messages';
 
 // ---------------------------------------------------------------------------
@@ -85,28 +86,150 @@ async function ensureProxyConfigured(
 // ---------------------------------------------------------------------------
 
 /**
- * Set up chrome.alarms on extension install or service worker startup.
- * Creates the recurring dailyScan alarm.
+ * Compute the absolute timestamp (epoch ms) of the next occurrence of the
+ * given `HH:MM` scan time relative to `now`, using local calendar fields.
+ *
+ * If today's scheduled time has already passed (or is exactly `now`), the
+ * next occurrence is tomorrow at the same time.
  */
-export function setupAlarms(): void {
+export function nextDailyScanTimestamp(scanTime: string, now: Date): number {
+  const [hours, minutes] = scanTime.split(':').map(Number);
+  const next = new Date(now);
+  next.setHours(hours, minutes, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next.getTime();
+}
+
+/**
+ * Arm (or clear) the one-shot `dailyScan` alarm so it fires at the user's
+ * configured scan time.
+ *
+ * Replaces the old fixed `delayInMinutes: 1 / periodInMinutes: 1440` alarm,
+ * whose fire time was anchored to install/update time and ignored
+ * `dailyScanTime` entirely. We use an absolute `when` for the next occurrence
+ * and re-arm after each fire (see {@link handleDailyScanAlarm}), on browser
+ * startup, and whenever the relevant settings change.
+ *
+ * When auto-scan is disabled, the alarm is cleared instead — re-enabling
+ * re-arms it via {@link handleSettingsChange}.
+ */
+export async function scheduleNextDailyScan(
+  deps: SchedulerDeps = { settings: defaultSettings },
+  now: Date = new Date()
+): Promise<void> {
+  const s = await deps.settings.getWithDefaults();
+  if (!s.dailyScanEnabled) {
+    await chrome.alarms.clear(ALARM_DAILY_SCAN);
+    return;
+  }
   chrome.alarms.create(ALARM_DAILY_SCAN, {
-    delayInMinutes: MIN_ALARM_DELAY_MINUTES,
-    periodInMinutes: 1440, // 24 hours
+    when: nextDailyScanTimestamp(s.dailyScanTime, now),
   });
 }
 
 /**
- * Handle the dailyScan alarm. Checks conditions and initiates a scan cycle.
+ * Set up chrome.alarms on extension install or update. Arms the dailyScan
+ * alarm for the next configured scan time (or clears it when auto-scan is off).
+ */
+export async function setupAlarms(
+  deps: SchedulerDeps = { settings: defaultSettings }
+): Promise<void> {
+  await scheduleNextDailyScan(deps);
+}
+
+/**
+ * True when a daily scan is "due now": auto-scan is enabled, no scan has
+ * completed today, and the configured scan time for today has already passed
+ * at `now`.
+ *
+ * This is the catch-up predicate: if the browser was closed (or the extension
+ * not running) at the scheduled time, opening it later should still run the
+ * day's scan rather than waiting until tomorrow.
+ */
+export async function isDailyScanDue(
+  deps: SchedulerDeps = { settings: defaultSettings },
+  now: Date = new Date()
+): Promise<boolean> {
+  const s = await deps.settings.getWithDefaults();
+  if (!s.dailyScanEnabled) return false;
+  if (s.lastDailyScanDate === toDateString(now)) return false;
+  const [hours, minutes] = s.dailyScanTime.split(':').map(Number);
+  const scheduledToday = new Date(now);
+  scheduledToday.setHours(hours, minutes, 0, 0);
+  return now.getTime() >= scheduledToday.getTime();
+}
+
+/**
+ * Handle browser startup (chrome.runtime.onStartup). Runs a missed scan if one
+ * is due (catch-up), otherwise just (re)arms the next dailyScan alarm.
+ */
+export async function handleBrowserStartup(
+  deps: SchedulerDeps = { settings: defaultSettings },
+  now: Date = new Date()
+): Promise<void> {
+  if (await isDailyScanDue(deps, now)) {
+    // Missed today's scheduled scan while closed — run it now.
+    // handleDailyScanAlarm re-arms the next alarm in its finally block.
+    await handleDailyScanAlarm(deps);
+  } else {
+    // Not due (already ran today, or before today's scan time) — just arm.
+    await scheduleNextDailyScan(deps, now);
+  }
+}
+
+/**
+ * React to a chrome.storage.local settings change. When the scan time or the
+ * enabled flag changes, re-arm (or clear) the dailyScan alarm so the edit
+ * takes effect immediately instead of waiting for the next browser restart.
+ */
+export async function handleSettingsChange(
+  oldSettings: Partial<Settings>,
+  newSettings: Partial<Settings>,
+  deps: SchedulerDeps = { settings: defaultSettings }
+): Promise<void> {
+  const timeChanged = oldSettings.dailyScanTime !== newSettings.dailyScanTime;
+  const enabledChanged =
+    oldSettings.dailyScanEnabled !== newSettings.dailyScanEnabled;
+  if (!timeChanged && !enabledChanged) return;
+  await scheduleNextDailyScan(deps);
+}
+
+/**
+ * Handle the dailyScan alarm. Checks conditions and initiates a scan cycle,
+ * then re-arms the next day's alarm.
+ *
+ * The next alarm is re-armed in a `finally` so the daily schedule survives
+ * regardless of whether this run scanned, was skipped (already ran today / no
+ * proxy / no projects), or threw — a one-shot `when` alarm does not repeat on
+ * its own.
  */
 export async function handleDailyScanAlarm(
   deps: SchedulerDeps = { settings: defaultSettings }
 ): Promise<void> {
   const { settings } = deps;
 
-  // Check if daily scanning is enabled
+  // Check if daily scanning is enabled. When disabled there is no alarm to
+  // re-arm (scheduleNextDailyScan would clear it), so bail early.
   const enabled = await settings.get('dailyScanEnabled');
   if (!enabled) return;
 
+  try {
+    await runDailyScanCycle(settings);
+  } finally {
+    await scheduleNextDailyScan(deps);
+  }
+}
+
+/**
+ * Run one daily scan cycle: guard on proxy, skip if already scanned today,
+ * clean up old data, then build and enqueue jobs and kick the processor.
+ *
+ * Assumes auto-scan is enabled (checked by the caller). Does not schedule the
+ * next dailyScan alarm — that is the caller's responsibility.
+ */
+async function runDailyScanCycle(settings: SettingsManager): Promise<void> {
   // Guard: a proxy is required to scan. Skip without stamping
   // lastDailyScanDate so the next alarm retries once a proxy is configured.
   if (!(await ensureProxyConfigured(settings, false))) {

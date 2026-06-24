@@ -134,6 +134,45 @@ function createStorageArea(): StorageArea {
   };
 }
 
+// --- chrome.storage.onChanged ---
+
+interface StorageChange {
+  oldValue?: unknown;
+  newValue?: unknown;
+}
+
+type StorageChangedListener = (
+  changes: Record<string, StorageChange>,
+  areaName: string
+) => void;
+
+function createStorageOnChanged() {
+  const listeners: StorageChangedListener[] = [];
+
+  return {
+    _listeners: listeners,
+
+    addListener(listener: StorageChangedListener): void {
+      recordCall('storage.onChanged.addListener', [listener]);
+      listeners.push(listener);
+    },
+    removeListener(listener: StorageChangedListener): void {
+      const idx = listeners.indexOf(listener);
+      if (idx !== -1) listeners.splice(idx, 1);
+    },
+    hasListener(listener: StorageChangedListener): boolean {
+      return listeners.includes(listener);
+    },
+
+    /** Test helper: fire a storage change event. */
+    _fire(changes: Record<string, StorageChange>, areaName = 'local'): void {
+      for (const listener of listeners) {
+        listener(changes, areaName);
+      }
+    },
+  };
+}
+
 // --- chrome.alarms ---
 
 function createAlarms() {
@@ -206,10 +245,12 @@ function createAlarms() {
 function createRuntime() {
   const messageListeners: MessageListener[] = [];
   const installedListeners: InstalledListener[] = [];
+  const startupListeners: Array<() => void> = [];
 
   return {
     _messageListeners: messageListeners,
     _installedListeners: installedListeners,
+    _startupListeners: startupListeners,
 
     sendMessage(message: unknown): Promise<unknown> {
       recordCall('runtime.sendMessage', [message]);
@@ -262,6 +303,20 @@ function createRuntime() {
       },
     },
 
+    onStartup: {
+      addListener(listener: () => void): void {
+        recordCall('runtime.onStartup.addListener', [listener]);
+        startupListeners.push(listener);
+      },
+      removeListener(listener: () => void): void {
+        const idx = startupListeners.indexOf(listener);
+        if (idx !== -1) startupListeners.splice(idx, 1);
+      },
+      hasListener(listener: () => void): boolean {
+        return startupListeners.includes(listener);
+      },
+    },
+
     getURL(path: string): string {
       return `chrome-extension://mock-extension-id/${path}`;
     },
@@ -274,6 +329,13 @@ function createRuntime() {
     _fireInstalled(details: InstalledDetails): void {
       for (const listener of installedListeners) {
         listener(details);
+      }
+    },
+
+    /** Test helper: fire onStartup */
+    _fireStartup(): void {
+      for (const listener of startupListeners) {
+        listener();
       }
     },
   };
@@ -364,6 +426,7 @@ export function createChromeMock() {
   return {
     storage: {
       local: createStorageArea(),
+      onChanged: createStorageOnChanged(),
     },
     alarms: createAlarms(),
     runtime: createRuntime(),
@@ -388,6 +451,7 @@ export function resetChromeMock(): void {
   for (const key of Object.keys(storage._store)) {
     delete storage._store[key];
   }
+  chromeMock.storage.onChanged._listeners.length = 0;
 
   // Reset alarms
   chromeMock.alarms._alarms.clear();
@@ -396,6 +460,7 @@ export function resetChromeMock(): void {
   // Reset runtime listeners
   chromeMock.runtime._messageListeners.length = 0;
   chromeMock.runtime._installedListeners.length = 0;
+  chromeMock.runtime._startupListeners.length = 0;
 
   // Reset permissions
   chromeMock.permissions._granted.clear();

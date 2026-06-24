@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.35.0] - 2026-06-24
+
+### Fixed
+- **The daily scan now actually runs at the configured "Scan Time".** Previously the `dailyScanTime` setting (e.g. *11:00*) was purely cosmetic: the background `dailyScan` alarm was created with a fixed `delayInMinutes: 1` / `periodInMinutes: 1440`, so it fired **one minute after the extension was last installed/updated and then every 24 hours from that point** — drifting around the clock and ignoring the time you picked. The dashboard's "next scan ~11:00 AM" label read from `dailyScanTime`, so the UI promised a time the scheduler never honored. The scan now arms a one-shot alarm at the **next real occurrence** of your configured time (computed via `nextDailyScanTimestamp`) and re-arms for the following day after each run, so an 11:00 setting fires at ~11:00 (within Chrome's ~1-minute alarm granularity).
+- **Changing the scan time (or toggling auto-scan) now takes effect immediately.** A `chrome.storage.onChanged` listener in the service worker re-arms (or clears) the `dailyScan` alarm whenever `dailyScanTime` or `dailyScanEnabled` changes, instead of the edit only applying after the next extension reinstall/update.
+
+### Added
+- **Catch-up on browser startup.** If the browser was closed at your scheduled scan time, opening it later now notices that today's scan was missed and runs it right away, instead of waiting until tomorrow. A new `chrome.runtime.onStartup` handler checks `isDailyScanDue` — auto-scan enabled, no scan completed today, and the scheduled time already passed — and kicks the missed scan; otherwise it just (re)arms the next alarm. Opening the browser *before* the scheduled time does not scan early; it waits for the configured time as expected.
+
+### Notes
+- No schema or settings migration: this is purely scheduling behavior in `src/background/scheduler.ts` + `src/background/index.ts`. The one-shot `dailyScan` alarm replaces the old 24h-periodic alarm; `handleDailyScanAlarm` re-arms the next day in a `finally` so the schedule survives skipped runs (already-scanned / no-proxy / no-projects) and errors. The `today()`/`daysAgo()` date helpers now share an exported `toDateString(date)` so the catch-up logic can derive "today" from an injectable clock.
+
 ## [0.34.0] - 2026-06-19
 
 ### Added

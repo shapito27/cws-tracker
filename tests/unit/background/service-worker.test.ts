@@ -17,10 +17,13 @@ import '../../mocks/chrome';
 import { resetChromeMock, getCalls, chromeMock } from '../../mocks/chrome';
 
 // Mock the scheduler module so we can spy on its functions
-const mockSetupAlarms = vi.fn();
+const mockSetupAlarms = vi.fn().mockResolvedValue(undefined);
 const mockHandleDailyScanAlarm = vi.fn().mockResolvedValue(undefined);
 const mockHandleProcessQueueAlarm = vi.fn().mockResolvedValue(undefined);
+const mockHandleBrowserStartup = vi.fn().mockResolvedValue(undefined);
+const mockHandleSettingsChange = vi.fn().mockResolvedValue(undefined);
 const mockTriggerManualRefresh = vi.fn().mockResolvedValue(undefined);
+const mockTriggerKeywordRescan = vi.fn().mockResolvedValue(undefined);
 const mockPauseScanning = vi.fn().mockResolvedValue(undefined);
 const mockResumeScanning = vi.fn().mockResolvedValue(undefined);
 
@@ -28,7 +31,10 @@ vi.mock('@/background/scheduler', () => ({
   setupAlarms: (...args: unknown[]) => mockSetupAlarms(...args),
   handleDailyScanAlarm: (...args: unknown[]) => mockHandleDailyScanAlarm(...args),
   handleProcessQueueAlarm: (...args: unknown[]) => mockHandleProcessQueueAlarm(...args),
+  handleBrowserStartup: (...args: unknown[]) => mockHandleBrowserStartup(...args),
+  handleSettingsChange: (...args: unknown[]) => mockHandleSettingsChange(...args),
   triggerManualRefresh: (...args: unknown[]) => mockTriggerManualRefresh(...args),
+  triggerKeywordRescan: (...args: unknown[]) => mockTriggerKeywordRescan(...args),
   pauseScanning: (...args: unknown[]) => mockPauseScanning(...args),
   resumeScanning: (...args: unknown[]) => mockResumeScanning(...args),
   ALARM_DAILY_SCAN: 'dailyScan',
@@ -72,7 +78,10 @@ describe('Service Worker Entry Point', () => {
       setupAlarms: (...args: unknown[]) => mockSetupAlarms(...args),
       handleDailyScanAlarm: (...args: unknown[]) => mockHandleDailyScanAlarm(...args),
       handleProcessQueueAlarm: (...args: unknown[]) => mockHandleProcessQueueAlarm(...args),
+      handleBrowserStartup: (...args: unknown[]) => mockHandleBrowserStartup(...args),
+      handleSettingsChange: (...args: unknown[]) => mockHandleSettingsChange(...args),
       triggerManualRefresh: (...args: unknown[]) => mockTriggerManualRefresh(...args),
+      triggerKeywordRescan: (...args: unknown[]) => mockTriggerKeywordRescan(...args),
       pauseScanning: (...args: unknown[]) => mockPauseScanning(...args),
       resumeScanning: (...args: unknown[]) => mockResumeScanning(...args),
       ALARM_DAILY_SCAN: 'dailyScan',
@@ -116,6 +125,64 @@ describe('Service Worker Entry Point', () => {
       expect(mockSetupAlarms).toHaveBeenCalledTimes(1);
       // triggerManualRefresh should NOT be called on update
       expect(mockTriggerManualRefresh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onStartup', () => {
+    it('dispatches browser startup to handleBrowserStartup (catch-up)', async () => {
+      await loadServiceWorker();
+
+      chromeMock.runtime._fireStartup();
+
+      await vi.waitFor(() => {
+        expect(mockHandleBrowserStartup).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('storage.onChanged', () => {
+    it('re-arms via handleSettingsChange when settings change in local storage', async () => {
+      await loadServiceWorker();
+
+      chromeMock.storage.onChanged._fire(
+        {
+          settings: {
+            oldValue: { dailyScanTime: '11:00' },
+            newValue: { dailyScanTime: '14:00' },
+          },
+        },
+        'local'
+      );
+
+      await vi.waitFor(() => {
+        expect(mockHandleSettingsChange).toHaveBeenCalledTimes(1);
+      });
+      expect(mockHandleSettingsChange).toHaveBeenCalledWith(
+        { dailyScanTime: '11:00' },
+        { dailyScanTime: '14:00' }
+      );
+    });
+
+    it('ignores changes from non-local storage areas', async () => {
+      await loadServiceWorker();
+
+      chromeMock.storage.onChanged._fire(
+        { settings: { oldValue: {}, newValue: { dailyScanTime: '09:00' } } },
+        'sync'
+      );
+
+      expect(mockHandleSettingsChange).not.toHaveBeenCalled();
+    });
+
+    it('ignores changes that do not touch the settings key', async () => {
+      await loadServiceWorker();
+
+      chromeMock.storage.onChanged._fire(
+        { somethingElse: { oldValue: 1, newValue: 2 } },
+        'local'
+      );
+
+      expect(mockHandleSettingsChange).not.toHaveBeenCalled();
     });
   });
 

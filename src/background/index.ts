@@ -14,6 +14,8 @@ import {
   setupAlarms,
   handleDailyScanAlarm,
   handleProcessQueueAlarm,
+  handleBrowserStartup,
+  handleSettingsChange,
   triggerManualRefresh,
   triggerKeywordRescan,
   pauseScanning,
@@ -24,6 +26,7 @@ import {
 import { runPaginationDiagnostic } from '@/background/pagination-diagnostic';
 import { db } from '@/shared/db/database';
 import type { DashboardMessage } from '@/shared/types';
+import type { Settings } from '@/shared/types/settings';
 
 // ---------------------------------------------------------------------------
 // chrome.runtime.onInstalled — extension install / update
@@ -31,15 +34,31 @@ import type { DashboardMessage } from '@/shared/types';
 
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason === 'install') {
-    setupAlarms();
+    setupAlarms().catch((err) => {
+      console.error('[CWS Tracker] setupAlarms error:', err);
+    });
     // Trigger an initial scan attempt after install
     triggerManualRefresh().catch(() => {
       // May fail if no projects exist yet — that's fine
     });
   } else if (details.reason === 'update') {
-    // Re-create alarms in case they were lost during update
-    setupAlarms();
+    // Re-arm the dailyScan alarm in case it was lost during update
+    setupAlarms().catch((err) => {
+      console.error('[CWS Tracker] setupAlarms error:', err);
+    });
   }
+});
+
+// ---------------------------------------------------------------------------
+// chrome.runtime.onStartup — browser launched / service worker cold start
+// ---------------------------------------------------------------------------
+
+chrome.runtime.onStartup.addListener(() => {
+  // Re-arm the dailyScan alarm and, if today's scheduled scan was missed while
+  // the browser was closed, run it now (catch-up).
+  handleBrowserStartup().catch((err) => {
+    console.error('[CWS Tracker] startup handler error:', err);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -62,6 +81,23 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 
   // Unknown alarm — ignore gracefully
+});
+
+// ---------------------------------------------------------------------------
+// chrome.storage.onChanged — re-arm the daily scan when settings change
+// ---------------------------------------------------------------------------
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') return;
+  const change = changes.settings;
+  if (!change) return;
+  const oldSettings = (change.oldValue ?? {}) as Partial<Settings>;
+  const newSettings = (change.newValue ?? {}) as Partial<Settings>;
+  // Editing the scan time or toggling auto-scan re-arms the alarm immediately,
+  // so changes take effect without waiting for the next browser restart.
+  handleSettingsChange(oldSettings, newSettings).catch((err) => {
+    console.error('[CWS Tracker] settings-change handler error:', err);
+  });
 });
 
 // ---------------------------------------------------------------------------

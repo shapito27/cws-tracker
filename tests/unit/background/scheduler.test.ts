@@ -8,7 +8,7 @@ import { CWSDatabase } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import '../../mocks/chrome';
 import { resetChromeMock, getCalls, chromeMock } from '../../mocks/chrome';
-import { today } from '@/shared/utils/dates';
+import { today, toDateString } from '@/shared/utils/dates';
 
 // Mock parsers (needed by queue-processor → imported via scheduler)
 vi.mock('@/background/parsers/index', () => {
@@ -179,18 +179,205 @@ describe('Scheduler', () => {
   });
 
   describe('setupAlarms', () => {
-    it('creates dailyScan alarm with delayInMinutes: 1 and periodInMinutes: 1440', async () => {
+    it('arms a one-shot dailyScan alarm at the configured time when auto-scan is enabled', async () => {
       const { setupAlarms, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
 
-      setupAlarms();
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
 
-      const alarmCalls = getCalls('alarms.create');
+      await setupAlarms(createSchedulerDeps());
+
+      const alarmCalls = getCalls('alarms.create').filter(
+        (c) => c.args[0] === ALARM_DAILY_SCAN
+      );
       expect(alarmCalls).toHaveLength(1);
-      expect(alarmCalls[0].args[0]).toBe(ALARM_DAILY_SCAN);
-      expect(alarmCalls[0].args[1]).toEqual({
-        delayInMinutes: 1,
-        periodInMinutes: 1440,
-      });
+      const info = alarmCalls[0].args[1] as { when?: number; periodInMinutes?: number };
+      // One-shot (absolute `when`), NOT a fixed 24h period anchored to install time.
+      expect(info.when).toBeTypeOf('number');
+      expect(info.periodInMinutes).toBeUndefined();
+      // Fires at 11:00 (today or tomorrow).
+      const scheduled = new Date(info.when!);
+      expect(scheduled.getHours()).toBe(11);
+      expect(scheduled.getMinutes()).toBe(0);
+    });
+
+    it('clears the dailyScan alarm when auto-scan is disabled', async () => {
+      const { setupAlarms, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+
+      // Default dailyScanEnabled = false
+      await setupAlarms(createSchedulerDeps());
+
+      const created = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
+      expect(created).toHaveLength(0);
+      const cleared = getCalls('alarms.clear').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
+      expect(cleared.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('nextDailyScanTimestamp', () => {
+    it('returns today at the scan time when it is still in the future', async () => {
+      const { nextDailyScanTimestamp } = await import('@/background/scheduler');
+      const now = new Date(2026, 5, 24, 9, 0, 0); // Jun 24 2026, 09:00 local
+      expect(nextDailyScanTimestamp('11:00', now)).toBe(
+        new Date(2026, 5, 24, 11, 0, 0, 0).getTime()
+      );
+    });
+
+    it('rolls over to tomorrow when the scan time already passed today', async () => {
+      const { nextDailyScanTimestamp } = await import('@/background/scheduler');
+      const now = new Date(2026, 5, 24, 13, 0, 0); // 13:00, past 11:00
+      expect(nextDailyScanTimestamp('11:00', now)).toBe(
+        new Date(2026, 5, 25, 11, 0, 0, 0).getTime()
+      );
+    });
+
+    it('rolls over to tomorrow when the scan time is exactly now', async () => {
+      const { nextDailyScanTimestamp } = await import('@/background/scheduler');
+      const now = new Date(2026, 5, 24, 11, 0, 0);
+      expect(nextDailyScanTimestamp('11:00', now)).toBe(
+        new Date(2026, 5, 25, 11, 0, 0, 0).getTime()
+      );
+    });
+  });
+
+  describe('scheduleNextDailyScan', () => {
+    it('arms the dailyScan alarm at the next occurrence when enabled', async () => {
+      const { scheduleNextDailyScan, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '08:30');
+      const now = new Date(2026, 5, 24, 9, 0, 0); // past 08:30 → tomorrow
+
+      await scheduleNextDailyScan(createSchedulerDeps(), now);
+
+      const calls = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
+      expect(calls).toHaveLength(1);
+      expect((calls[0].args[1] as { when?: number }).when).toBe(
+        new Date(2026, 5, 25, 8, 30, 0, 0).getTime()
+      );
+    });
+
+    it('clears the dailyScan alarm when disabled', async () => {
+      const { scheduleNextDailyScan, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+
+      await scheduleNextDailyScan(createSchedulerDeps()); // default disabled
+
+      expect(getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN)).toHaveLength(0);
+      expect(
+        getCalls('alarms.clear').filter((c) => c.args[0] === ALARM_DAILY_SCAN).length
+      ).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('isDailyScanDue (catch-up predicate)', () => {
+    it('true when enabled, not scanned today, and the scan time has passed', async () => {
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
+      const now = new Date(2026, 5, 24, 13, 0, 0);
+      expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(true);
+    });
+
+    it('false before the scan time even if not scanned today', async () => {
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
+      const now = new Date(2026, 5, 24, 9, 0, 0);
+      expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
+    });
+
+    it('false when already scanned today', async () => {
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
+      const now = new Date(2026, 5, 24, 13, 0, 0);
+      await settingsManager.set('lastDailyScanDate', toDateString(now));
+      expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
+    });
+
+    it('false when auto-scan is disabled', async () => {
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanTime', '11:00'); // enabled stays false
+      const now = new Date(2026, 5, 24, 13, 0, 0);
+      expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
+    });
+  });
+
+  describe('handleBrowserStartup (catch-up)', () => {
+    it('runs a missed scan when one is due', async () => {
+      const { handleBrowserStartup } = await import('@/background/scheduler');
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
+      const now = new Date(2026, 5, 24, 13, 0, 0); // past 11:00, not scanned today
+
+      await handleBrowserStartup(createSchedulerDeps(), now);
+
+      // The missed daily scan ran: 1 listing + 1 keyword + 1 autocomplete job.
+      expect(await testDb.queue.count()).toBe(3);
+    });
+
+    it('does not scan before the scheduled time, but arms the alarm for today', async () => {
+      const { handleBrowserStartup, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
+      const now = new Date(2026, 5, 24, 9, 0, 0); // before 11:00
+
+      await handleBrowserStartup(createSchedulerDeps(), now);
+
+      expect(await testDb.queue.count()).toBe(0);
+      const armed = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
+      expect(armed).toHaveLength(1);
+      expect((armed[0].args[1] as { when?: number }).when).toBe(
+        new Date(2026, 5, 24, 11, 0, 0, 0).getTime()
+      );
+    });
+  });
+
+  describe('handleSettingsChange', () => {
+    it('re-arms the alarm when the scan time changes', async () => {
+      const { handleSettingsChange, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '14:00');
+
+      await handleSettingsChange(
+        { dailyScanTime: '11:00', dailyScanEnabled: true },
+        { dailyScanTime: '14:00', dailyScanEnabled: true },
+        createSchedulerDeps()
+      );
+
+      expect(
+        getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN).length
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('clears the alarm when auto-scan is toggled off', async () => {
+      const { handleSettingsChange, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+      // Storage reflects the new (disabled) state — default dailyScanEnabled is false.
+
+      await handleSettingsChange(
+        { dailyScanEnabled: true },
+        { dailyScanEnabled: false },
+        createSchedulerDeps()
+      );
+
+      expect(
+        getCalls('alarms.clear').filter((c) => c.args[0] === ALARM_DAILY_SCAN).length
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does nothing when no scheduling-relevant setting changed', async () => {
+      const { handleSettingsChange, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+
+      await handleSettingsChange(
+        { dailyScanTime: '11:00', dailyScanEnabled: true, proxyUrl: 'https://a.test' },
+        { dailyScanTime: '11:00', dailyScanEnabled: true, proxyUrl: 'https://b.test' },
+        createSchedulerDeps()
+      );
+
+      expect(getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN)).toHaveLength(0);
+      expect(getCalls('alarms.clear').filter((c) => c.args[0] === ALARM_DAILY_SCAN)).toHaveLength(0);
     });
   });
 
@@ -257,6 +444,20 @@ describe('Scheduler', () => {
       // Should have set lastDailyScanDate to today
       const lastScan = await settingsManager.get('lastDailyScanDate');
       expect(lastScan).toBe(today());
+    });
+
+    it('re-arms the next dailyScan alarm after running (one-shot does not repeat)', async () => {
+      const { handleDailyScanAlarm, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+
+      const deps = createSchedulerDeps();
+      await handleDailyScanAlarm(deps);
+
+      const armed = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
+      expect(armed.length).toBeGreaterThanOrEqual(1);
+      expect((armed[armed.length - 1].args[1] as { when?: number }).when).toBeTypeOf('number');
     });
   });
 
