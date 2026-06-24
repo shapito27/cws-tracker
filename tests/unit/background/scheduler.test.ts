@@ -459,6 +459,53 @@ describe('Scheduler', () => {
       expect(armed.length).toBeGreaterThanOrEqual(1);
       expect((armed[armed.length - 1].args[1] as { when?: number }).when).toBeTypeOf('number');
     });
+
+    it('does not enqueue a second set of jobs when a cycle is already in flight (startup double-fire)', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+
+      const deps = createSchedulerDeps();
+      // First trigger (e.g. onStartup catch-up) enqueues the day's jobs but does
+      // NOT drain them, so lastDailyScanDate is not yet stamped.
+      await handleDailyScanAlarm(deps);
+      expect(await testDb.queue.count()).toBe(3);
+
+      // Second trigger (the past-due dailyScan alarm firing on the same startup)
+      // must NOT duplicate the day's jobs.
+      await handleDailyScanAlarm(deps);
+      expect(await testDb.queue.count()).toBe(3);
+    });
+
+    it('skips enqueuing when a scan cycle is already marked in progress today', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      // Simulate a cycle already underway today (e.g. a manual refresh, or the
+      // first of two startup triggers).
+      await settingsManager.set('scanCycleStartedAt', new Date().toISOString());
+
+      const deps = createSchedulerDeps();
+      await handleDailyScanAlarm(deps);
+
+      expect(await testDb.queue.count()).toBe(0);
+    });
+
+    it('clears scanCycleStartedAt when there are no projects to scan', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await settingsManager.set('dailyScanEnabled', true);
+
+      const deps = createSchedulerDeps();
+      await handleDailyScanAlarm(deps);
+
+      // No jobs → the cycle marker we stamped is cleared so it can't block a
+      // later scan, and lastDailyScanDate is set.
+      expect(await settingsManager.get('scanCycleStartedAt')).toBeNull();
+      expect(await settingsManager.get('lastDailyScanDate')).toBe(today());
+    });
   });
 
   describe('handleProcessQueueAlarm', () => {

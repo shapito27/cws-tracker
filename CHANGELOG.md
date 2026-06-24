@@ -13,6 +13,7 @@ All notable changes to CWS Tracker will be documented in this file.
 
 ### Notes
 - No schema or settings migration: this is purely scheduling behavior in `src/background/scheduler.ts` + `src/background/index.ts`. The one-shot `dailyScan` alarm replaces the old 24h-periodic alarm; `handleDailyScanAlarm` re-arms the next day in a `finally` so the schedule survives skipped runs (already-scanned / no-proxy / no-projects) and errors. The `today()`/`daysAgo()` date helpers now share an exported `toDateString(date)` so the catch-up logic can derive "today" from an injectable clock.
+- **Duplicate-cycle guard:** on browser startup the catch-up trigger and a past-due `dailyScan` alarm can both fire. The daily cycle now stamps `scanCycleStartedAt` *before* building jobs and skips if a cycle is already marked as started today, so the day's jobs are never enqueued twice (which would double CWS requests). The marker is cleared on queue drain and on `CANCEL_SCAN` so a cancelled scan never blocks the next day's run.
 
 ## [0.34.0] - 2026-06-19
 

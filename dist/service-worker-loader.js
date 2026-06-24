@@ -1,1 +1,1 @@
-import './assets/index.ts-CD5UXO_t.js';
+import './assets/index.ts-simUfOTY.js';

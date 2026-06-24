@@ -91,6 +91,9 @@ async function ensureProxyConfigured(
  *
  * If today's scheduled time has already passed (or is exactly `now`), the
  * next occurrence is tomorrow at the same time.
+ *
+ * Uses `setHours` (local wall-clock), so the scan stays at the same local time
+ * across DST transitions rather than drifting by an hour.
  */
 export function nextDailyScanTimestamp(scanTime: string, now: Date): number {
   const [hours, minutes] = scanTime.split(':').map(Number);
@@ -124,6 +127,8 @@ export async function scheduleNextDailyScan(
     await chrome.alarms.clear(ALARM_DAILY_SCAN);
     return;
   }
+  // Chrome enforces a ~1-minute minimum, so an alarm armed less than a minute
+  // before its `when` may fire up to ~1 minute late — acceptable for a daily scan.
   chrome.alarms.create(ALARM_DAILY_SCAN, {
     when: nextDailyScanTimestamp(s.dailyScanTime, now),
   });
@@ -241,6 +246,19 @@ async function runDailyScanCycle(settings: SettingsManager): Promise<void> {
   const lastScan = await settings.get('lastDailyScanDate');
   if (lastScan === today()) return;
 
+  // Idempotency guard against a duplicate scan cycle. On browser startup the
+  // onStartup catch-up (handleBrowserStartup) and a past-due `dailyScan` alarm
+  // can BOTH reach this point, and lastDailyScanDate is only stamped once the
+  // queue drains — so without this guard the day's jobs would be enqueued twice
+  // (double the CWS requests). `scanCycleStartedAt` marks an in-progress cycle:
+  // it is stamped here BEFORE the slow job build (shrinking the check→stamp
+  // race window) and cleared when the queue drains (handleProcessQueueAlarm) or
+  // a scan is cancelled (cancelScan), so a today-stamped value reliably means a
+  // cycle is already running.
+  const existingCycle = await settings.get('scanCycleStartedAt');
+  if (existingCycle && toDateString(new Date(existingCycle)) === today()) return;
+  await settings.set('scanCycleStartedAt', new Date().toISOString());
+
   // Run queue cleanup
   const now = new Date();
   const completedBefore = new Date(now.getTime() - COMPLETED_RETENTION_DAYS * 24 * 60 * 60 * 1000);
@@ -261,16 +279,14 @@ async function runDailyScanCycle(settings: SettingsManager): Promise<void> {
   const jobs = buildDailyScanJobs(projects, extensions, allKeywords);
 
   if (jobs.length === 0) {
-    // No projects/extensions/keywords to scan
+    // No projects/extensions/keywords to scan — clear the cycle marker we just
+    // stamped (no cycle is actually running).
     await settings.set('lastDailyScanDate', today());
+    await settings.set('scanCycleStartedAt', null);
     return;
   }
 
-  // Record the scan cycle start so progress counts only include jobs from
-  // this cycle (prior completed jobs are retained in the queue table for 7d).
-  await settings.set('scanCycleStartedAt', new Date().toISOString());
-
-  // Enqueue jobs
+  // Enqueue jobs (scanCycleStartedAt was stamped above).
   await db.enqueueJobs(jobs);
 
   // Schedule first processQueue alarm

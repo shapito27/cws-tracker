@@ -25,8 +25,11 @@ import {
 } from '@/background/scheduler';
 import { runPaginationDiagnostic } from '@/background/pagination-diagnostic';
 import { db } from '@/shared/db/database';
+import { SettingsManager } from '@/shared/utils/settings';
 import type { DashboardMessage } from '@/shared/types';
 import type { Settings } from '@/shared/types/settings';
+
+const settings = new SettingsManager();
 
 // ---------------------------------------------------------------------------
 // chrome.runtime.onInstalled — extension install / update
@@ -172,4 +175,9 @@ async function cancelScan(): Promise<void> {
 
   // Stop the processQueue alarm
   await chrome.alarms.clear(ALARM_PROCESS_QUEUE);
+
+  // Clear the in-progress cycle marker so a cancelled scan doesn't block the
+  // next scheduled daily scan's idempotency guard (which skips when a cycle is
+  // already marked as started today).
+  await settings.set('scanCycleStartedAt', null);
 }
