@@ -18,6 +18,10 @@ running locally in your browser, with your data never leaving the machine.
 [![License: PolyForm NC](https://img.shields.io/badge/license-PolyForm_Noncommercial-blue)](./LICENSE)
 [![Version](https://img.shields.io/badge/version-0.34.0-informational)](./CHANGELOG.md)
 
+<br/>
+
+<img src="docs/screenshots/overview-dashboard.png" alt="CWS Tracker dashboard — extension overview with stat cards (users, reviews, keywords, last & next scan) and a 30-day users & reviews trend chart" width="900" />
+
 </div>
 
 ---
@@ -117,6 +121,10 @@ flowchart LR
 Add any competitor by Chrome Web Store URL or raw 32-char ID and CWS Tracker starts
 building a daily history of their listing.
 
+<p align="center">
+  <img src="docs/screenshots/competitors-risk-scores.png" alt="Competitors tab showing a Tracked Extensions table with rating, users, version, last-updated date, and a color-coded permission risk score per extension" width="820" />
+</p>
+
 - **Per-competitor overview page** — a dedicated dashboard scoped to one competitor:
   listing details, users/reviews trend, keyword rank history, autocomplete history,
   position tables, and that competitor's recent events.
@@ -137,6 +145,10 @@ building a daily history of their listing.
   at the dates listings changed.
 - **Rank heatmap** and **keyword scatter plot** for spotting patterns across many
   keyword/extension pairs at a glance.
+
+<p align="center">
+  <img src="docs/screenshots/rank-heatmap.png" alt="Rank Position Heatmap — latest rank for each keyword across every tracked extension, color-coded by rank quality from Top 3 to 30+" width="820" />
+</p>
 - **Unstable-rank detection** — CWS search results are genuinely noisy (an extension can
   oscillate between #10, #20, and out-of-top-30 within minutes), so a single dropped
   scan is flagged as a debounced amber **"Unstable"** with a one-click **Re-scan**, and
@@ -158,6 +170,10 @@ type?"*
 - **Keyword discovery** — text suggestions surfaced by the store become candidate
   keywords you may not be tracking yet.
 - **Coverage chart** — how much of the suggestion surface you (and rivals) occupy.
+
+<p align="center">
+  <img src="docs/screenshots/keyword-positions.png" alt="Keyword Positions and Autocomplete (AC) Positions tables showing day-by-day ranks per keyword with up/down deltas and a 7d/14d/30d range toggle" width="820" />
+</p>
 
 ### 🏆 Listing quality & optimization
 
@@ -200,6 +216,10 @@ keyword audit through your own OpenAI key:
 Every scan diffs the new snapshot against the last and records typed events you can
 filter and color-code on a chronological timeline — and annotate directly onto rank
 charts:
+
+<p align="center">
+  <img src="docs/screenshots/events-timeline.png" alt="Recent Events timeline mixing rank-change events with typed listing changes — title, description, version, permission, and size changes — each tagged and dated" width="820" />
+</p>
 
 `title_change` · `description_change` · `version_change` · `permission_change` ·
 `rating_milestone` · `user_milestone` · `translation_change` · `screenshot_change` ·
