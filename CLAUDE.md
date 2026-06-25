@@ -17,10 +17,10 @@ Read before starting any feature:
 - **Bundler:** Vite 5 + @crxjs/vite-plugin (MV3 HMR)
 - **Styling:** Tailwind CSS v4 (uses `@tailwindcss/vite` plugin, NOT the PostCSS-based v3 setup)
 - **Charts:** ApexCharts via `vue3-apexcharts`
-- **Database:** Dexie.js v4 for IndexedDB (currently schema v4, manifest v0.18.0)
+- **Database:** Dexie.js v4 for IndexedDB (schema v4; DB version bumps only on schema change, independent of `manifest.json`)
 - **Storage:** `chrome.storage.local` for user settings (proxy URL, API keys, scan config)
 - **Testing:** Vitest + fake-indexeddb + jsdom. `@vue/test-utils` for component tests.
-- **Payments:** LemonSqueezy (planned)
+- **Payments:** none yet — LemonSqueezy/Pro-tier scaffolding was removed in 0.33.0; monetization remains a PRD roadmap item
 - **AI:** OpenAI API (user-provided key) for keyword audit and optimization
 - **State management:** Vue composables (`ref`/`reactive`/`computed`). No Pinia.
 - **Routing:** Vue Router with hash history (`createWebHashHistory`) - required for chrome-extension:// URLs
@@ -48,7 +48,7 @@ src/
     index.html            # Dashboard SPA entry
     main.ts               # Vue app init
     App.vue               # Root component with layout
-    router.ts             # Hash-based routes: /, /project/:id, /logs, /settings
+    router.ts             # Hash routes: /, /project/:id, /project/:id/extension/:extId, /logs, /settings, /rank-changes
     composables/          # State management (replaces Pinia)
       useProjects.ts      # Project CRUD
       useExtensions.ts    # Extension management
@@ -57,6 +57,8 @@ src/
       useAutocomplete.ts  # Autocomplete position tracking and keyword suggestions
       useExtensionSnapshots.ts  # Snapshot data
       useScanLogs.ts      # Scan log queries
+      useProxyStatus.ts   # Reactive proxy-configured state (gates scan UI)
+      useDataTransfer.ts  # Export/import all data (backup/restore)
       useServiceWorker.ts # SW message communication
       useSettings.ts      # Settings via chrome.storage.local
     components/
@@ -65,7 +67,7 @@ src/
       project/            # Tab components (OverviewTab, RankingsTab, KeywordsTab, etc.)
       tables/             # Data tables (ExtensionsOverviewTable, KeywordPositionTable, etc.)
       ai/                 # AuditTool.vue - OpenAI integration
-    pages/                # HomePage, ProjectPage, SettingsPage, LogsPage
+    pages/                # HomePage, ProjectPage, SettingsPage, LogsPage, RankChangesPage, CompetitorExtensionPage
   popup/                  # Lightweight Vue mini-app - quick status view
     composables/
       usePopupState.ts
@@ -88,10 +90,14 @@ src/
       openai.ts           # OpenAI API wrapper
       event-colors.ts     # Color mapping for event types
       snapshot-dedup.ts   # Dedup logic for snapshots
-      settings.ts         # Settings retrieval helpers
+      settings.ts         # Settings retrieval helpers (incl. isProxyConfigured)
+      rank-history.ts     # Drop debounce (classifyDrop) + findEffectivePrevious across gap days
+      scan-phase.ts       # Scan lifecycle phase labels (queued/running/waiting/completing)
+      chart-colors.ts     # Shared chart color palette
+      data-export.ts      # Serialize/deserialize DB for backup/restore
 tests/                    # See tests/CLAUDE.md for patterns
   mocks/chrome.ts         # Chrome API mock (storage, alarms, runtime, action, tabs, permissions)
-  fixtures/               # Saved CWS HTML responses from Phase 0 spike
+  fixtures/               # Saved CWS responses (HTML detail/search + autocomplete JSON) for parser tests
   unit/                   # Mirrors src/ structure
   integration/            # End-to-end scan cycle tests
 ```
@@ -144,7 +150,8 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 **Service Worker:**
 - No `setTimeout`/`setInterval` - use `chrome.alarms` (survives SW termination). Minimum `delayInMinutes` is 1 in production.
 - Never rely on in-memory state. Read from IndexedDB every time.
-- `position: null` in rank snapshots = "not in top 30", NOT "unranked". Display as "30+".
+- `position: null` in rank snapshots = "not in top 30", NOT "unranked". Display as "30+". A *first* drop off top-30 is "Unstable" (unconfirmed); only a 2nd consecutive null escalates to a real "Out"/`rank_change`. Debounce + gap-day logic lives in `shared/utils/rank-history.ts` (`classifyDrop`, `findEffectivePrevious`) and is shared by the SW event detector and UI loaders.
+- Daily scan is a **one-shot** `dailyScan` alarm armed at the next occurrence of `dailyScanTime` and re-armed in a `finally` after each run (NOT a 24h-periodic alarm). `chrome.runtime.onStartup` runs a missed scan via `isDailyScanDue`; a `scanCycleStartedAt` marker guards against the startup catch-up and a past-due alarm double-enqueuing a cycle. See `scheduler.ts` + `index.ts`.
 - All chrome.* event listeners must be registered synchronously at top level of `index.ts`.
 
 **MV3 constraints:**
@@ -154,7 +161,8 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 **Settings:**
 - Stored in `chrome.storage.local`, NOT IndexedDB. Type definition in `src/shared/types/settings.ts`.
 - Dashboard reads via `useSettings` composable. SW reads via `@/shared/utils/settings.ts`.
-- Key settings: `proxyUrl`, `proxyApiKey`, `queueDelayMs`, `queueJitterMs`, `dailyScanTime`, `parserVersion`.
+- Key settings: `proxyUrl`, `proxyApiKey`, `queueDelayMs`, `queueJitterMs`, `dailyScanTime`, `dailyScanEnabled`, `parserVersion`.
+- **A non-empty `proxyUrl` is required to scan** — CWS blocks extension-origin requests (CORS). The SW guard, dashboard (`useProxyStatus`), and popup all gate scan triggers on `isProxyConfigured()` (`src/shared/utils/settings.ts`).
 
 **Post-implementation (every feature/fix):**
 - Always bump `manifest.json` version (MINOR for features, PATCH for fixes) and add a `CHANGELOG.md` entry. Never skip this step.
@@ -165,6 +173,7 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 npm run dev            # Vite dev server with CRXJS HMR
 npm run build          # Production build to dist/ + copy to Windows desktop
 npm run build:only     # Production build to dist/ only
+npm run build:dev      # Unminified + sourcemaps to dist/ + copy (for debugging)
 npm test               # All tests (Vitest)
 npm run test:watch     # Watch mode
 npm run test:coverage  # Coverage report

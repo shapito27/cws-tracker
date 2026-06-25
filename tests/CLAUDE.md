@@ -16,7 +16,7 @@ Test suite for the CWS Tracker extension. Uses Vitest with fake-indexeddb for da
 tests/
   mocks/
     chrome.ts           # Full Chrome API mock (storage, alarms, runtime, action, tabs, permissions)
-  fixtures/             # Saved CWS HTML responses - NEVER modify these
+  fixtures/             # Saved CWS responses - NEVER modify these
     cws-detail-en.html  # English extension detail page
     cws-detail-es.html  # Spanish extension detail page
     cws-detail-ja.html  # Japanese extension detail page
@@ -24,11 +24,15 @@ tests/
     cws-search-results.html       # Search results page
     cws-search-empty.html         # Empty search results
     cws-search-page2-batchexecute.html  # Pagination via batchexecute
+    cws-autocomplete-vpn.json             # Autocomplete (QcU9bc RPC) suggestions
+    cws-autocomplete-password-manager.json
+    cws-autocomplete-pinterest-wrapped.json
   unit/
     background/         # Service worker tests (queue, scheduler, events, messaging)
     parsers/            # Parser tests against fixtures
     db/                 # Database schema, queries, migrations
     composables/        # Vue composable tests
+    dashboard/          # Dashboard component/page tests
     charts/             # Chart annotation and integration tests
     utils/              # Utility function tests
     popup/              # Popup state tests
