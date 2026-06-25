@@ -117,12 +117,14 @@ describe('Service Worker Entry Point', () => {
       expect(mockTriggerManualRefresh).toHaveBeenCalledTimes(1);
     });
 
-    it('sets up alarms on update', async () => {
+    it('catches up the missed scan on update (reload does not fire onStartup)', async () => {
       await loadServiceWorker();
 
-      chromeMock.runtime._fireInstalled({ reason: 'update', previousVersion: '0.6.0' });
+      chromeMock.runtime._fireInstalled({ reason: 'update', previousVersion: '0.34.0' });
 
-      expect(mockSetupAlarms).toHaveBeenCalledTimes(1);
+      // Update/reload must run the catch-up (handleBrowserStartup arms the alarm
+      // when no scan is due), NOT just re-arm — onStartup does not fire on reload.
+      expect(mockHandleBrowserStartup).toHaveBeenCalledTimes(1);
       // triggerManualRefresh should NOT be called on update
       expect(mockTriggerManualRefresh).not.toHaveBeenCalled();
     });

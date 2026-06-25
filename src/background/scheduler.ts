@@ -39,6 +39,15 @@ const COMPLETED_RETENTION_DAYS = 7;
 /** Failed job cleanup: 30 days. */
 const FAILED_RETENTION_DAYS = 30;
 
+/**
+ * Window during which a freshly-stamped `scanCycleStartedAt` suppresses a
+ * duplicate cycle. The onStartup/onInstalled catch-up and a past-due `dailyScan`
+ * alarm fire within seconds of each other; 2 minutes covers that race while
+ * still letting a missed scan run after a stale marker (older than this and with
+ * no jobs left) from an interrupted/reloaded cycle.
+ */
+const DUPLICATE_CYCLE_WINDOW_MS = 2 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Dependencies (injectable for testing)
 // ---------------------------------------------------------------------------
@@ -174,9 +183,23 @@ export async function handleBrowserStartup(
   deps: SchedulerDeps = { settings: defaultSettings },
   now: Date = new Date()
 ): Promise<void> {
+  // Resume an interrupted scan: if jobs are still queued from a cycle that did
+  // not finish (browser closed or extension reloaded mid-scan), kick the
+  // processor so they continue rather than stalling until the next cycle.
+  const [pending, running] = await Promise.all([
+    db.getPendingCount(),
+    db.getRunningJobs(),
+  ]);
+  if (pending > 0 || running.length > 0) {
+    chrome.alarms.create(ALARM_PROCESS_QUEUE, {
+      delayInMinutes: MIN_ALARM_DELAY_MINUTES,
+    });
+  }
+
   if (await isDailyScanDue(deps, now)) {
-    // Missed today's scheduled scan while closed — run it now.
-    // handleDailyScanAlarm re-arms the next alarm in its finally block.
+    // Missed today's scheduled scan (browser was closed, or the extension was
+    // reloaded/updated after the scheduled time) — run it now. handleDailyScanAlarm
+    // re-arms the next alarm in its finally block.
     await handleDailyScanAlarm(deps);
   } else {
     // Not due (already ran today, or before today's scan time) — just arm.
@@ -246,17 +269,25 @@ async function runDailyScanCycle(settings: SettingsManager): Promise<void> {
   const lastScan = await settings.get('lastDailyScanDate');
   if (lastScan === today()) return;
 
-  // Idempotency guard against a duplicate scan cycle. On browser startup the
-  // onStartup catch-up (handleBrowserStartup) and a past-due `dailyScan` alarm
-  // can BOTH reach this point, and lastDailyScanDate is only stamped once the
-  // queue drains — so without this guard the day's jobs would be enqueued twice
-  // (double the CWS requests). `scanCycleStartedAt` marks an in-progress cycle:
-  // it is stamped here BEFORE the slow job build (shrinking the check→stamp
-  // race window) and cleared when the queue drains (handleProcessQueueAlarm) or
-  // a scan is cancelled (cancelScan), so a today-stamped value reliably means a
-  // cycle is already running.
+  // Idempotency guard against a duplicate scan cycle. On startup the
+  // onStartup/onInstalled catch-up and a past-due `dailyScan` alarm can BOTH
+  // reach this point within seconds, and lastDailyScanDate is only stamped once
+  // the queue drains — so without this guard the day's jobs would be enqueued
+  // twice (double the CWS requests). We skip when a cycle is genuinely in
+  // flight: stamped within the last couple of minutes (covers the
+  // near-simultaneous double-fire, before jobs are even enqueued) OR with jobs
+  // still pending/running. A *stale* marker (older, no jobs left — e.g. an
+  // interrupted/reloaded cycle) does NOT block, so a missed scan can still run.
   const existingCycle = await settings.get('scanCycleStartedAt');
-  if (existingCycle && toDateString(new Date(existingCycle)) === today()) return;
+  if (existingCycle && toDateString(new Date(existingCycle)) === today()) {
+    const startedRecently =
+      Date.now() - new Date(existingCycle).getTime() < DUPLICATE_CYCLE_WINDOW_MS;
+    const [pendingCount, runningJobs] = await Promise.all([
+      db.getPendingCount(),
+      db.getRunningJobs(),
+    ]);
+    if (startedRecently || pendingCount > 0 || runningJobs.length > 0) return;
+  }
   await settings.set('scanCycleStartedAt', new Date().toISOString());
 
   // Run queue cleanup

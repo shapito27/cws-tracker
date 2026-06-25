@@ -2,6 +2,15 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.35.1] - 2026-06-25
+
+### Fixed
+- **Reloading/updating the extension after the scheduled time now runs the missed scan.** 0.35.0 added catch-up on `chrome.runtime.onStartup`, but that event only fires on a real browser launch — **not** when you reload the extension at `chrome://extensions` or when it auto-updates. Those paths fire `onInstalled('update')`, which previously only re-armed the alarm for the *next* occurrence (tomorrow if the time had passed), so a reload at, say, 11:30 with an 11:00 scan time would silently wait until the next day. `onInstalled('update')` now runs the same catch-up as startup (`handleBrowserStartup`), so a missed scan kicks off within ~1 minute of the reload.
+- **Interrupted scans now resume on startup/reload.** If the browser closes or the extension reloads mid-scan, any jobs still queued are picked back up (the processor is re-kicked) instead of stalling until the next cycle.
+
+### Changed
+- **Duplicate-cycle guard is now resilient to stale markers.** The `scanCycleStartedAt` guard added in 0.35.0 skipped a scan whenever a marker for "today" existed. A marker left behind by an interrupted/reloaded cycle could therefore block scans for the rest of the day. The guard now only suppresses a *genuinely in-flight* cycle — one stamped within the last 2 minutes (the startup double-fire window) or with jobs still pending/running — so a stale marker no longer prevents a missed scan from running.
+
 ## [0.35.0] - 2026-06-24
 
 ### Fixed

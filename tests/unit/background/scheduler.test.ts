@@ -333,6 +333,36 @@ describe('Scheduler', () => {
         new Date(2026, 5, 24, 11, 0, 0, 0).getTime()
       );
     });
+
+    it('resumes an interrupted scan by kicking the processor when jobs are still queued', async () => {
+      const { handleBrowserStartup, ALARM_PROCESS_QUEUE } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
+      // A leftover pending job from a cycle interrupted by a close/reload.
+      await testDb.enqueueJobs([{
+        type: 'listing_scan',
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'pending',
+        priority: 10,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      }]);
+
+      // Before the scan time → not due, so this isolates the resume behavior.
+      const now = new Date(2026, 5, 24, 9, 0, 0);
+      await handleBrowserStartup(createSchedulerDeps(), now);
+
+      const processQueueAlarm = getCalls('alarms.create').find(
+        (c) => c.args[0] === ALARM_PROCESS_QUEUE
+      );
+      expect(processQueueAlarm).toBeDefined();
+    });
   });
 
   describe('handleSettingsChange', () => {
@@ -505,6 +535,21 @@ describe('Scheduler', () => {
       // later scan, and lastDailyScanDate is set.
       expect(await settingsManager.get('scanCycleStartedAt')).toBeNull();
       expect(await settingsManager.get('lastDailyScanDate')).toBe(today());
+    });
+
+    it('runs the scan when scanCycleStartedAt is stale (old marker, no in-flight jobs)', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      // An old marker from an interrupted/reloaded cycle that never drained, but
+      // no pending/running jobs remain → must NOT block today's scan.
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      await settingsManager.set('scanCycleStartedAt', oneHourAgo);
+
+      await handleDailyScanAlarm(createSchedulerDeps());
+
+      expect(await testDb.queue.count()).toBe(3);
     });
   });
 
