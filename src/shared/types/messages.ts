@@ -132,6 +132,18 @@ export interface RescanKeywordMessage {
   keywordId: number;
 }
 
+/**
+ * Ask the service worker to re-arm the daily-scan alarm from the current
+ * settings. Sent by the dashboard after saving scan settings: `onMessage`
+ * reliably wakes a terminated MV3 worker, whereas `chrome.storage.onChanged`
+ * is not a guaranteed wake signal — so this ensures a scan-time / enabled
+ * change actually takes effect without waiting for the next browser restart.
+ * Idempotent.
+ */
+export interface RescheduleDailyScanMessage {
+  type: 'RESCHEDULE_DAILY_SCAN';
+}
+
 /** Union of all messages the Dashboard/Popup can send to the Service Worker. */
 export type DashboardMessage =
   | TriggerRefreshMessage
@@ -139,4 +151,5 @@ export type DashboardMessage =
   | ResumeScanMessage
   | CancelScanMessage
   | TestPaginationMessage
-  | RescanKeywordMessage;
+  | RescanKeywordMessage
+  | RescheduleDailyScanMessage;

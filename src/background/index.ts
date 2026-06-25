@@ -16,6 +16,7 @@ import {
   handleProcessQueueAlarm,
   handleBrowserStartup,
   handleSettingsChange,
+  scheduleNextDailyScan,
   triggerManualRefresh,
   triggerKeywordRescan,
   pauseScanning,
@@ -143,6 +144,13 @@ async function handleMessage(
 
     case 'RESUME_SCAN':
       await resumeScanning();
+      return { ok: true };
+
+    case 'RESCHEDULE_DAILY_SCAN':
+      // Re-arm (or clear) the daily alarm from current settings. This message
+      // path reliably wakes the worker, so a scan-time/enabled change made in
+      // the dashboard takes effect even if storage.onChanged did not wake us.
+      await scheduleNextDailyScan();
       return { ok: true };
 
     case 'CANCEL_SCAN':

@@ -354,14 +354,18 @@ describe('Scheduler', () => {
         error: null,
       }]);
 
-      // Before the scan time → not due, so this isolates the resume behavior.
-      const now = new Date(2026, 5, 24, 9, 0, 0);
+      // PAST the scan time → a catch-up WOULD be due, but the interrupted cycle
+      // must resume instead of a second cycle being enqueued on top.
+      const now = new Date(2026, 5, 24, 13, 0, 0);
       await handleBrowserStartup(createSchedulerDeps(), now);
 
+      // Processor kicked to resume…
       const processQueueAlarm = getCalls('alarms.create').find(
         (c) => c.args[0] === ALARM_PROCESS_QUEUE
       );
       expect(processQueueAlarm).toBeDefined();
+      // …and NO new daily jobs enqueued (only the leftover one remains).
+      expect(await testDb.queue.count()).toBe(1);
     });
   });
 
@@ -508,48 +512,86 @@ describe('Scheduler', () => {
       expect(await testDb.queue.count()).toBe(3);
     });
 
-    it('skips enqueuing when a scan cycle is already marked in progress today', async () => {
+    it('does not double-enqueue when two triggers fire concurrently (reentrancy lock)', async () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');
 
       await seedProject();
       await settingsManager.set('dailyScanEnabled', true);
-      // Simulate a cycle already underway today (e.g. a manual refresh, or the
-      // first of two startup triggers).
-      await settingsManager.set('scanCycleStartedAt', new Date().toISOString());
 
       const deps = createSchedulerDeps();
-      await handleDailyScanAlarm(deps);
+      // Both triggers on the same browser launch, interleaved (onStartup catch-up
+      // + a past-due dailyScan alarm). The synchronous in-flight lock must let
+      // only one cycle enqueue, even though neither has stamped lastDailyScanDate.
+      await Promise.all([
+        handleDailyScanAlarm(deps),
+        handleDailyScanAlarm(deps),
+      ]);
 
-      expect(await testDb.queue.count()).toBe(0);
+      expect(await testDb.queue.count()).toBe(3);
     });
 
-    it('clears scanCycleStartedAt when there are no projects to scan', async () => {
-      const { handleDailyScanAlarm } = await import('@/background/scheduler');
-
-      await settingsManager.set('dailyScanEnabled', true);
-
-      const deps = createSchedulerDeps();
-      await handleDailyScanAlarm(deps);
-
-      // No jobs → the cycle marker we stamped is cleared so it can't block a
-      // later scan, and lastDailyScanDate is set.
-      expect(await settingsManager.get('scanCycleStartedAt')).toBeNull();
-      expect(await settingsManager.get('lastDailyScanDate')).toBe(today());
-    });
-
-    it('runs the scan when scanCycleStartedAt is stale (old marker, no in-flight jobs)', async () => {
+    it('skips enqueuing when a scan is already in flight (jobs pending)', async () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');
 
       await seedProject();
       await settingsManager.set('dailyScanEnabled', true);
-      // An old marker from an interrupted/reloaded cycle that never drained, but
-      // no pending/running jobs remain → must NOT block today's scan.
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      await settingsManager.set('scanCycleStartedAt', oneHourAgo);
+      // A job already queued (a scan is in progress, from this or a prior cycle).
+      await testDb.enqueueJobs([{
+        type: 'listing_scan',
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'pending',
+        priority: 10,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      }]);
 
       await handleDailyScanAlarm(createSchedulerDeps());
 
-      expect(await testDb.queue.count()).toBe(3);
+      // No new daily jobs piled on — only the pre-existing one remains.
+      expect(await testDb.queue.count()).toBe(1);
+    });
+
+    it('does not pile a new cycle on an interrupted prior-day cycle (Issue 7)', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('dailyScanEnabled', true);
+      // Yesterday's cycle was interrupted: jobs still pending, lastDailyScanDate
+      // never stamped, and a stale marker dated yesterday.
+      const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      await settingsManager.set('scanCycleStartedAt', yesterday);
+      await testDb.enqueueJobs([{
+        type: 'keyword_scan',
+        payload: { keywordId: 1, keyword: 'ad blocker' },
+        status: 'pending',
+        priority: 30,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      }]);
+
+      await handleDailyScanAlarm(createSchedulerDeps());
+
+      // The interrupted cycle resumes; today's cycle is NOT enqueued on top.
+      expect(await testDb.queue.count()).toBe(1);
+    });
+
+    it('sets lastDailyScanDate when there are no projects to scan', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await settingsManager.set('dailyScanEnabled', true);
+
+      await handleDailyScanAlarm(createSchedulerDeps());
+
+      expect(await testDb.queue.count()).toBe(0);
+      expect(await settingsManager.get('lastDailyScanDate')).toBe(today());
     });
   });
 
