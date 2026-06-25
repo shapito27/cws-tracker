@@ -16,6 +16,7 @@ import {
   handleProcessQueueAlarm,
   handleBrowserStartup,
   handleSettingsChange,
+  scheduleNextDailyScan,
   triggerManualRefresh,
   triggerKeywordRescan,
   pauseScanning,
@@ -45,9 +46,13 @@ chrome.runtime.onInstalled.addListener((details) => {
       // May fail if no projects exist yet — that's fine
     });
   } else if (details.reason === 'update') {
-    // Re-arm the dailyScan alarm in case it was lost during update
-    setupAlarms().catch((err) => {
-      console.error('[CWS Tracker] setupAlarms error:', err);
+    // Re-arm the dailyScan alarm AND catch up today's scan if it was missed.
+    // Reloading or updating the extension after the scheduled time is equivalent
+    // to opening the browser late — but chrome.runtime.onStartup does NOT fire on
+    // a reload/update, so the catch-up must run here too (handleBrowserStartup
+    // arms the next alarm when no scan is due).
+    handleBrowserStartup().catch((err) => {
+      console.error('[CWS Tracker] update handler error:', err);
     });
   }
 });
@@ -139,6 +144,13 @@ async function handleMessage(
 
     case 'RESUME_SCAN':
       await resumeScanning();
+      return { ok: true };
+
+    case 'RESCHEDULE_DAILY_SCAN':
+      // Re-arm (or clear) the daily alarm from current settings. This message
+      // path reliably wakes the worker, so a scan-time/enabled change made in
+      // the dashboard takes effect even if storage.onChanged did not wake us.
+      await scheduleNextDailyScan();
       return { ok: true };
 
     case 'CANCEL_SCAN':

@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
 import { onBeforeRouteLeave } from 'vue-router';
 import { useSettings } from '../composables/useSettings';
 import { useDataTransfer } from '../composables/useDataTransfer';
+import { useServiceWorker } from '../composables/useServiceWorker';
 import {
   AUDIT_PLACEHOLDERS,
   getVariantSystemPrompt,
@@ -26,6 +27,8 @@ const {
   testOpenAIConnection,
   testProxyConnection,
 } = useSettings();
+
+const { rescheduleDailyScan } = useServiceWorker();
 
 // One-click proxy deployment target (or self-host your own).
 const PROXY_REPO_URL = 'https://github.com/shapito27/cws-tracker-proxy';
@@ -176,6 +179,10 @@ async function saveScanSettings(): Promise<void> {
     dailyScanTime: localDailyScanTime.value,
     dailyScanEnabled: localDailyScanEnabled.value,
   });
+  // Wake the service worker to re-arm the daily-scan alarm from the new time /
+  // enabled flag. storage.onChanged is not a reliable wake signal for a
+  // terminated worker; this message is.
+  await rescheduleDailyScan();
 }
 
 async function saveOpenAIKey(): Promise<void> {

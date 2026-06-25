@@ -51,6 +51,21 @@ export interface SchedulerDeps {
 const defaultSettings = new SettingsManager();
 
 /**
+ * Best-effort reentrancy guard: stops two event handlers in the SAME live
+ * service-worker instance (e.g. the onStartup/onInstalled catch-up AND a
+ * past-due `dailyScan` alarm, both delivered on the same browser launch) from
+ * both enqueueing the day's jobs. It is checked and set synchronously at the
+ * top of {@link handleDailyScanAlarm} (no `await` between check and set), so a
+ * concurrent second invocation reliably observes it.
+ *
+ * This is NOT durable state — it intentionally resets when the SW is recycled
+ * (when there is, by definition, no concurrent invocation). The durable
+ * `scanCycleStartedAt` guard in {@link runDailyScanCycle} is the cross-restart /
+ * cross-instance backstop.
+ */
+let dailyScanRunning = false;
+
+/**
  * Proxy guard: scans cannot run without a configured proxy (CWS blocks direct
  * extension-origin fetches via CORS). Returns true when a proxy URL is set.
  *
@@ -174,9 +189,27 @@ export async function handleBrowserStartup(
   deps: SchedulerDeps = { settings: defaultSettings },
   now: Date = new Date()
 ): Promise<void> {
+  // Resume an interrupted scan first: if jobs are still queued from a cycle that
+  // did not finish (browser closed or extension reloaded mid-scan), kick the
+  // processor to continue it and do NOT start a second cycle on top — that
+  // interrupted cycle is "today's" scan and will stamp lastDailyScanDate when it
+  // drains. Just re-arm the next scheduled run.
+  const [pending, running] = await Promise.all([
+    db.getPendingCount(),
+    db.getRunningJobs(),
+  ]);
+  if (pending > 0 || running.length > 0) {
+    chrome.alarms.create(ALARM_PROCESS_QUEUE, {
+      delayInMinutes: MIN_ALARM_DELAY_MINUTES,
+    });
+    await scheduleNextDailyScan(deps, now);
+    return;
+  }
+
   if (await isDailyScanDue(deps, now)) {
-    // Missed today's scheduled scan while closed — run it now.
-    // handleDailyScanAlarm re-arms the next alarm in its finally block.
+    // Missed today's scheduled scan (browser was closed, or the extension was
+    // reloaded/updated after the scheduled time) — run it now. handleDailyScanAlarm
+    // re-arms the next alarm in its finally block.
     await handleDailyScanAlarm(deps);
   } else {
     // Not due (already ran today, or before today's scan time) — just arm.
@@ -220,9 +253,16 @@ export async function handleDailyScanAlarm(
   const enabled = await settings.get('dailyScanEnabled');
   if (!enabled) return;
 
+  // Reentrancy guard (synchronous check-and-set, no await between them): if a
+  // concurrent invocation in this SW is already running the cycle, bail — it
+  // re-arms the next alarm, so the schedule still advances.
+  if (dailyScanRunning) return;
+  dailyScanRunning = true;
+
   try {
     await runDailyScanCycle(settings);
   } finally {
+    dailyScanRunning = false;
     await scheduleNextDailyScan(deps);
   }
 }
@@ -246,18 +286,19 @@ async function runDailyScanCycle(settings: SettingsManager): Promise<void> {
   const lastScan = await settings.get('lastDailyScanDate');
   if (lastScan === today()) return;
 
-  // Idempotency guard against a duplicate scan cycle. On browser startup the
-  // onStartup catch-up (handleBrowserStartup) and a past-due `dailyScan` alarm
-  // can BOTH reach this point, and lastDailyScanDate is only stamped once the
-  // queue drains — so without this guard the day's jobs would be enqueued twice
-  // (double the CWS requests). `scanCycleStartedAt` marks an in-progress cycle:
-  // it is stamped here BEFORE the slow job build (shrinking the check→stamp
-  // race window) and cleared when the queue drains (handleProcessQueueAlarm) or
-  // a scan is cancelled (cancelScan), so a today-stamped value reliably means a
-  // cycle is already running.
-  const existingCycle = await settings.get('scanCycleStartedAt');
-  if (existingCycle && toDateString(new Date(existingCycle)) === today()) return;
-  await settings.set('scanCycleStartedAt', new Date().toISOString());
+  // Idempotency guard: never start a new cycle while a scan is already in
+  // flight. This catches (a) the second of two near-simultaneous startup
+  // triggers — once the first has enqueued, the second sees its pending jobs;
+  // and (b) a prior cycle interrupted by a close/reload (its jobs are resumed
+  // on startup), so we must not pile today's jobs on top of yesterday's. The
+  // truly-concurrent case where neither has enqueued yet is handled by the
+  // synchronous in-flight lock in handleDailyScanAlarm; lastDailyScanDate is
+  // stamped only on drain, so it can't be relied on here.
+  const [pendingCount, runningJobs] = await Promise.all([
+    db.getPendingCount(),
+    db.getRunningJobs(),
+  ]);
+  if (pendingCount > 0 || runningJobs.length > 0) return;
 
   // Run queue cleanup
   const now = new Date();
@@ -279,14 +320,16 @@ async function runDailyScanCycle(settings: SettingsManager): Promise<void> {
   const jobs = buildDailyScanJobs(projects, extensions, allKeywords);
 
   if (jobs.length === 0) {
-    // No projects/extensions/keywords to scan — clear the cycle marker we just
-    // stamped (no cycle is actually running).
+    // No projects/extensions/keywords to scan
     await settings.set('lastDailyScanDate', today());
-    await settings.set('scanCycleStartedAt', null);
     return;
   }
 
-  // Enqueue jobs (scanCycleStartedAt was stamped above).
+  // Record the scan cycle start so progress counts only include jobs from this
+  // cycle (prior completed jobs are retained in the queue table for 7d).
+  await settings.set('scanCycleStartedAt', new Date().toISOString());
+
+  // Enqueue jobs
   await db.enqueueJobs(jobs);
 
   // Schedule first processQueue alarm

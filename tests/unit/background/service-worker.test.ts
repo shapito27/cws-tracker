@@ -22,6 +22,7 @@ const mockHandleDailyScanAlarm = vi.fn().mockResolvedValue(undefined);
 const mockHandleProcessQueueAlarm = vi.fn().mockResolvedValue(undefined);
 const mockHandleBrowserStartup = vi.fn().mockResolvedValue(undefined);
 const mockHandleSettingsChange = vi.fn().mockResolvedValue(undefined);
+const mockScheduleNextDailyScan = vi.fn().mockResolvedValue(undefined);
 const mockTriggerManualRefresh = vi.fn().mockResolvedValue(undefined);
 const mockTriggerKeywordRescan = vi.fn().mockResolvedValue(undefined);
 const mockPauseScanning = vi.fn().mockResolvedValue(undefined);
@@ -33,6 +34,7 @@ vi.mock('@/background/scheduler', () => ({
   handleProcessQueueAlarm: (...args: unknown[]) => mockHandleProcessQueueAlarm(...args),
   handleBrowserStartup: (...args: unknown[]) => mockHandleBrowserStartup(...args),
   handleSettingsChange: (...args: unknown[]) => mockHandleSettingsChange(...args),
+  scheduleNextDailyScan: (...args: unknown[]) => mockScheduleNextDailyScan(...args),
   triggerManualRefresh: (...args: unknown[]) => mockTriggerManualRefresh(...args),
   triggerKeywordRescan: (...args: unknown[]) => mockTriggerKeywordRescan(...args),
   pauseScanning: (...args: unknown[]) => mockPauseScanning(...args),
@@ -80,6 +82,7 @@ describe('Service Worker Entry Point', () => {
       handleProcessQueueAlarm: (...args: unknown[]) => mockHandleProcessQueueAlarm(...args),
       handleBrowserStartup: (...args: unknown[]) => mockHandleBrowserStartup(...args),
       handleSettingsChange: (...args: unknown[]) => mockHandleSettingsChange(...args),
+      scheduleNextDailyScan: (...args: unknown[]) => mockScheduleNextDailyScan(...args),
       triggerManualRefresh: (...args: unknown[]) => mockTriggerManualRefresh(...args),
       triggerKeywordRescan: (...args: unknown[]) => mockTriggerKeywordRescan(...args),
       pauseScanning: (...args: unknown[]) => mockPauseScanning(...args),
@@ -117,12 +120,14 @@ describe('Service Worker Entry Point', () => {
       expect(mockTriggerManualRefresh).toHaveBeenCalledTimes(1);
     });
 
-    it('sets up alarms on update', async () => {
+    it('catches up the missed scan on update (reload does not fire onStartup)', async () => {
       await loadServiceWorker();
 
-      chromeMock.runtime._fireInstalled({ reason: 'update', previousVersion: '0.6.0' });
+      chromeMock.runtime._fireInstalled({ reason: 'update', previousVersion: '0.34.0' });
 
-      expect(mockSetupAlarms).toHaveBeenCalledTimes(1);
+      // Update/reload must run the catch-up (handleBrowserStartup arms the alarm
+      // when no scan is due), NOT just re-arm — onStartup does not fire on reload.
+      expect(mockHandleBrowserStartup).toHaveBeenCalledTimes(1);
       // triggerManualRefresh should NOT be called on update
       expect(mockTriggerManualRefresh).not.toHaveBeenCalled();
     });
@@ -276,6 +281,19 @@ describe('Service Worker Entry Point', () => {
 
       await vi.waitFor(() => {
         expect(mockResumeScanning).toHaveBeenCalledTimes(1);
+      });
+      expect(response).toEqual({ ok: true });
+    });
+
+    it('handles RESCHEDULE_DAILY_SCAN message by re-arming the alarm', async () => {
+      await loadServiceWorker();
+
+      const response = await chromeMock.runtime.sendMessage({
+        type: 'RESCHEDULE_DAILY_SCAN',
+      });
+
+      await vi.waitFor(() => {
+        expect(mockScheduleNextDailyScan).toHaveBeenCalledTimes(1);
       });
       expect(response).toEqual({ ok: true });
     });

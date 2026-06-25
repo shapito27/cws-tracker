@@ -2,6 +2,16 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.35.1] - 2026-06-25
+
+### Fixed
+- **Reloading/updating the extension after the scheduled time now runs the missed scan.** 0.35.0 added catch-up on `chrome.runtime.onStartup`, but that event only fires on a real browser launch — **not** when you reload the extension at `chrome://extensions` or when it auto-updates. Those paths fire `onInstalled('update')`, which previously only re-armed the alarm for the *next* occurrence (tomorrow if the time had passed), so a reload at, say, 11:30 with an 11:00 scan time would silently wait until the next day. `onInstalled('update')` now runs the same catch-up as startup (`handleBrowserStartup`), so a missed scan kicks off within ~1 minute of the reload.
+- **Saving scan settings now re-arms the alarm reliably.** The service worker re-armed the alarm via a `chrome.storage.onChanged` listener, but that is not a guaranteed wake signal for a terminated MV3 worker — so changing the scan time or toggling auto-scan could fail to take effect until the next browser restart. The dashboard now also sends a `RESCHEDULE_DAILY_SCAN` message on save (`onMessage` *does* reliably wake the worker), guaranteeing the new schedule is armed immediately.
+- **Interrupted scans now resume instead of doubling up.** If the browser closes or the extension reloads mid-scan, the leftover jobs are resumed on the next startup, and a second cycle is **not** enqueued on top of them — previously a cycle interrupted on one day could be joined by a fresh cycle the next day, doubling the queued CWS requests.
+
+### Changed
+- **Duplicate-cycle guard hardened.** The day's jobs can no longer be enqueued twice when the `onStartup`/`onInstalled` catch-up and a past-due `dailyScan` alarm fire together. Two layers now prevent it: a synchronous in-flight lock serialises concurrent triggers within a worker, and `runDailyScanCycle` refuses to start when any scan jobs are already pending/running. `lastDailyScanDate` stamping and the proxy/empty-project handling are unchanged.
+
 ## [0.35.0] - 2026-06-24
 
 ### Fixed

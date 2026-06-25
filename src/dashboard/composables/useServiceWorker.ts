@@ -157,6 +157,15 @@ export function useServiceWorker() {
     await sendToServiceWorker({ type: 'RESCAN_KEYWORD', keywordId });
   }
 
+  /**
+   * Ask the worker to re-arm the daily-scan alarm from current settings. Call
+   * after saving scan settings so the change takes effect immediately — this
+   * message reliably wakes the worker, unlike a bare storage write.
+   */
+  async function rescheduleDailyScan(): Promise<void> {
+    await sendToServiceWorker({ type: 'RESCHEDULE_DAILY_SCAN' });
+  }
+
   return {
     scanProgress,
     lastScanStatus,
@@ -167,6 +176,7 @@ export function useServiceWorker() {
     requestResume,
     requestCancel,
     requestKeywordRescan,
+    rescheduleDailyScan,
     // Exposed for testing
     handleMessage,
     startListening,
