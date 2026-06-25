@@ -6,9 +6,13 @@
  */
 
 /**
- * Format a Date object as a YYYY-MM-DD string.
+ * Format a Date object as a YYYY-MM-DD string (using local calendar fields).
+ *
+ * Exported so callers can derive a date string from an explicit `Date` —
+ * e.g. the scheduler computing "today" from an injectable `now` for
+ * deterministic catch-up logic, instead of always reading the wall clock.
  */
-function formatDate(date: Date): string {
+export function toDateString(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -19,7 +23,7 @@ function formatDate(date: Date): string {
  * Returns today's date as a YYYY-MM-DD string.
  */
 export function today(): string {
-  return formatDate(new Date());
+  return toDateString(new Date());
 }
 
 /**
@@ -30,7 +34,7 @@ export function today(): string {
 export function daysAgo(n: number): string {
   const date = new Date();
   date.setDate(date.getDate() - n);
-  return formatDate(date);
+  return toDateString(date);
 }
 
 /**
