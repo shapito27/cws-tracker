@@ -46,7 +46,7 @@ export type EventType =
   | 'size_change';
 
 /** Queue job variants. */
-export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan';
+export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan' | 'review_scan';
 
 /** Lifecycle states of a queue job. */
 export type QueueJobStatus = 'pending' | 'running' | 'completed' | 'failed';
@@ -281,7 +281,8 @@ export type QueueJobPayload =
   | ListingScanPayload
   | KeywordScanPayload
   | TranslationAuditPayload
-  | AutocompleteScanPayload;
+  | AutocompleteScanPayload
+  | ReviewScanPayload;
 
 /**
  * A queued job in IndexedDB. Survives service worker restarts.

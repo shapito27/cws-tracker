@@ -313,8 +313,8 @@ describe('Scheduler', () => {
 
       await handleBrowserStartup(createSchedulerDeps(), now);
 
-      // The missed daily scan ran: 1 listing + 1 keyword + 1 autocomplete job.
-      expect(await testDb.queue.count()).toBe(3);
+      // The missed daily scan ran: 1 listing + 1 keyword + 1 autocomplete + 1 review job.
+      expect(await testDb.queue.count()).toBe(4);
     });
 
     it('does not scan before the scheduled time, but arms the alarm for today', async () => {
@@ -452,9 +452,9 @@ describe('Scheduler', () => {
       const deps = createSchedulerDeps();
       await handleDailyScanAlarm(deps);
 
-      // Should have created 3 jobs: 1 listing_scan + 1 keyword_scan + 1 autocomplete_scan
+      // Should have created 4 jobs: 1 listing_scan + 1 keyword_scan + 1 autocomplete_scan + 1 review_scan
       const queueCount = await testDb.queue.count();
-      expect(queueCount).toBe(3);
+      expect(queueCount).toBe(4);
 
       // Should have created processQueue alarm
       const alarmCalls = getCalls('alarms.create');
@@ -504,12 +504,12 @@ describe('Scheduler', () => {
       // First trigger (e.g. onStartup catch-up) enqueues the day's jobs but does
       // NOT drain them, so lastDailyScanDate is not yet stamped.
       await handleDailyScanAlarm(deps);
-      expect(await testDb.queue.count()).toBe(3);
+      expect(await testDb.queue.count()).toBe(4);
 
       // Second trigger (the past-due dailyScan alarm firing on the same startup)
       // must NOT duplicate the day's jobs.
       await handleDailyScanAlarm(deps);
-      expect(await testDb.queue.count()).toBe(3);
+      expect(await testDb.queue.count()).toBe(4);
     });
 
     it('does not double-enqueue when two triggers fire concurrently (reentrancy lock)', async () => {
@@ -527,7 +527,7 @@ describe('Scheduler', () => {
         handleDailyScanAlarm(deps),
       ]);
 
-      expect(await testDb.queue.count()).toBe(3);
+      expect(await testDb.queue.count()).toBe(4);
     });
 
     it('skips enqueuing when a scan is already in flight (jobs pending)', async () => {
@@ -726,8 +726,8 @@ describe('Scheduler', () => {
       const jobs = await testDb.queue.toArray();
       const pendingJobs = jobs.filter((j) => j.status === 'pending');
 
-      // Should have 3 new jobs (1 listing + 1 keyword + 1 autocomplete)
-      expect(pendingJobs).toHaveLength(3);
+      // Should have 4 new jobs (1 listing + 1 keyword + 1 autocomplete + 1 review)
+      expect(pendingJobs).toHaveLength(4);
 
       // None should be the old job
       const oldJob = pendingJobs.find(

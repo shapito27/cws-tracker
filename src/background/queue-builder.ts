@@ -26,6 +26,9 @@ export const PRIORITY_KEYWORD_SCAN = 30;
 /** Priority for autocomplete scans (after keyword scans). */
 export const PRIORITY_AUTOCOMPLETE_SCAN = 40;
 
+/** Priority for review scans (after autocomplete scans). */
+export const PRIORITY_REVIEW_SCAN = 50;
+
 /** Default maximum retries for queue jobs. */
 const DEFAULT_MAX_RETRIES = 3;
 
@@ -92,6 +95,13 @@ export function buildDailyScanJobs(
     jobs.push(createAutocompleteScanJob(keyword, now));
   }
 
+  // --- Review scan jobs ---
+  // One job per unique tracked extension (own + competitors), deduplicated —
+  // reuse the set of extensions that already have a listing_scan.
+  for (const extensionId of seenExtensionIds) {
+    jobs.push(createReviewScanJob(extensionId, now));
+  }
+
   return jobs;
 }
 
@@ -113,6 +123,17 @@ export function buildKeywordScanJobs(keywords: Keyword[]): QueueJob[] {
 export function buildAutocompleteScanJobs(keywords: Keyword[]): QueueJob[] {
   const now = new Date();
   return keywords.map((k) => createAutocompleteScanJob(k, now));
+}
+
+/**
+ * Build only review_scan jobs for the given extension IDs.
+ * Used for section-scoped manual refresh ("refresh reviews for this project").
+ * Duplicate IDs are deduplicated.
+ */
+export function buildReviewScanJobs(extensionIds: string[]): QueueJob[] {
+  const now = new Date();
+  const unique = [...new Set(extensionIds.filter((id) => !!id))];
+  return unique.map((id) => createReviewScanJob(id, now));
 }
 
 // ---------------------------------------------------------------------------
@@ -165,6 +186,24 @@ function createAutocompleteScanJob(
     payload: { keywordId: keyword.id!, keyword: keyword.text },
     status: 'pending',
     priority: PRIORITY_AUTOCOMPLETE_SCAN,
+    retryCount: 0,
+    maxRetries: DEFAULT_MAX_RETRIES,
+    scheduledAt,
+    startedAt: null,
+    completedAt: null,
+    error: null,
+  };
+}
+
+function createReviewScanJob(
+  extensionId: string,
+  scheduledAt: Date
+): QueueJob {
+  return {
+    type: 'review_scan',
+    payload: { extensionId },
+    status: 'pending',
+    priority: PRIORITY_REVIEW_SCAN,
     retryCount: 0,
     maxRetries: DEFAULT_MAX_RETRIES,
     scheduledAt,

@@ -7,12 +7,14 @@ import {
   buildDailyScanJobs,
   buildKeywordScanJobs,
   buildAutocompleteScanJobs,
+  buildReviewScanJobs,
   PRIORITY_OWN_LISTING,
   PRIORITY_COMPETITOR_LISTING,
   PRIORITY_KEYWORD_SCAN,
   PRIORITY_AUTOCOMPLETE_SCAN,
+  PRIORITY_REVIEW_SCAN,
 } from '@/background/queue-builder';
-import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
+import type { Project, Extension, Keyword, QueueJob, ReviewScanPayload } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,7 +61,7 @@ const EXT_COMP4 = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 // ---------------------------------------------------------------------------
 
 describe('buildDailyScanJobs', () => {
-  it('single project, 1 extension, 2 keywords → 5 jobs (1 listing + 2 keyword + 2 autocomplete)', () => {
+  it('single project, 1 extension, 2 keywords → 6 jobs (1 listing + 2 keyword + 2 autocomplete + 1 review)', () => {
     const projects = [makeProject({ ownExtensionId: EXT_OWN, keywordIds: [1, 2] })];
     const extensions = [makeExtension(EXT_OWN)];
     const keywords = [
@@ -69,7 +71,7 @@ describe('buildDailyScanJobs', () => {
 
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
 
-    expect(jobs).toHaveLength(5);
+    expect(jobs).toHaveLength(6);
 
     // 1 listing scan
     const listingJobs = jobs.filter((j) => j.type === 'listing_scan');
@@ -83,9 +85,14 @@ describe('buildDailyScanJobs', () => {
     // 2 autocomplete scans
     const autocompleteJobs = jobs.filter((j) => j.type === 'autocomplete_scan');
     expect(autocompleteJobs).toHaveLength(2);
+
+    // 1 review scan (per tracked extension)
+    const reviewJobs = jobs.filter((j) => j.type === 'review_scan');
+    expect(reviewJobs).toHaveLength(1);
+    expect(reviewJobs[0].payload).toEqual({ extensionId: EXT_OWN });
   });
 
-  it('single project, 5 extensions (1 own + 4 competitors), 10 keywords → 25 jobs', () => {
+  it('single project, 5 extensions (1 own + 4 competitors), 10 keywords → 30 jobs', () => {
     const competitors = [EXT_COMP1, EXT_COMP2, EXT_COMP3, EXT_COMP4];
     const projects = [
       makeProject({
@@ -104,10 +111,11 @@ describe('buildDailyScanJobs', () => {
 
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
 
-    expect(jobs).toHaveLength(25);
+    expect(jobs).toHaveLength(30);
     expect(jobs.filter((j) => j.type === 'listing_scan')).toHaveLength(5);
     expect(jobs.filter((j) => j.type === 'keyword_scan')).toHaveLength(10);
     expect(jobs.filter((j) => j.type === 'autocomplete_scan')).toHaveLength(10);
+    expect(jobs.filter((j) => j.type === 'review_scan')).toHaveLength(5);
   });
 
   it('two projects sharing the same competitor → only 1 listing_scan for that extension', () => {
@@ -211,7 +219,7 @@ describe('buildDailyScanJobs', () => {
     expect(jobs).toHaveLength(0);
   });
 
-  it('project with extensions but no keywords → only listing_scan jobs', () => {
+  it('project with extensions but no keywords → listing_scan + review_scan jobs only (no keyword/autocomplete)', () => {
     const projects = [
       makeProject({
         ownExtensionId: EXT_OWN,
@@ -224,8 +232,11 @@ describe('buildDailyScanJobs', () => {
 
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
 
-    expect(jobs).toHaveLength(2);
-    expect(jobs.every((j) => j.type === 'listing_scan')).toBe(true);
+    // 2 listing + 2 review (one per tracked extension), no keyword/autocomplete jobs.
+    expect(jobs).toHaveLength(4);
+    expect(jobs.filter((j) => j.type === 'listing_scan')).toHaveLength(2);
+    expect(jobs.filter((j) => j.type === 'review_scan')).toHaveLength(2);
+    expect(jobs.some((j) => j.type === 'keyword_scan' || j.type === 'autocomplete_scan')).toBe(false);
   });
 
   it('all jobs have correct initial status, retryCount, and scheduledAt', () => {
@@ -341,5 +352,40 @@ describe('buildAutocompleteScanJobs', () => {
 
   it('empty input → empty output', () => {
     expect(buildAutocompleteScanJobs([])).toEqual([]);
+  });
+});
+
+describe('buildDailyScanJobs - review_scan jobs', () => {
+  it('creates one review_scan per unique tracked extension (own + competitors, deduped)', () => {
+    const projects = [
+      makeProject({ id: 1, ownExtensionId: EXT_OWN, competitorIds: [EXT_COMP1, EXT_COMP2] }),
+      // A second project sharing EXT_COMP1 should not double-count it.
+      makeProject({ id: 2, ownExtensionId: EXT_COMP3, competitorIds: [EXT_COMP1] }),
+    ];
+    const extensions = [EXT_OWN, EXT_COMP1, EXT_COMP2, EXT_COMP3].map((id) => makeExtension(id));
+
+    const jobs = buildDailyScanJobs(projects, extensions, []);
+    const reviewJobs = jobs.filter((j) => j.type === 'review_scan');
+
+    expect(reviewJobs).toHaveLength(4); // EXT_OWN, COMP1, COMP2, COMP3 — unique
+    const ids = reviewJobs.map((j) => (j.payload as ReviewScanPayload).extensionId).sort();
+    expect(ids).toEqual([EXT_OWN, EXT_COMP1, EXT_COMP2, EXT_COMP3].sort());
+    expect(reviewJobs.every((j) => j.priority === PRIORITY_REVIEW_SCAN)).toBe(true);
+    expect(reviewJobs.every((j) => j.maxRetries === 3)).toBe(true);
+    expect(reviewJobs.every((j) => j.status === 'pending')).toBe(true);
+  });
+});
+
+describe('buildReviewScanJobs', () => {
+  it('creates one review_scan per unique extension id', () => {
+    const jobs = buildReviewScanJobs([EXT_OWN, EXT_COMP1, EXT_OWN]);
+    expect(jobs).toHaveLength(2);
+    expect(jobs.every((j) => j.type === 'review_scan')).toBe(true);
+    expect(jobs.every((j) => j.priority === PRIORITY_REVIEW_SCAN)).toBe(true);
+    expect((jobs[0].payload as ReviewScanPayload).extensionId).toBe(EXT_OWN);
+  });
+
+  it('empty input → empty output', () => {
+    expect(buildReviewScanJobs([])).toEqual([]);
   });
 });

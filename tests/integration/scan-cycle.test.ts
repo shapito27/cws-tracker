@@ -335,8 +335,9 @@ describe('1.10.1 Full scan cycle', () => {
     const allKeywords = await testDb.keywords.toArray();
     const jobs = buildDailyScanJobs(allProjects, allExtensions, allKeywords);
 
-    // Expect 3 listing_scan + 1 keyword_scan + 1 autocomplete_scan = 5 jobs
-    expect(jobs).toHaveLength(5);
+    // Expect 3 listing_scan + 1 keyword_scan + 1 autocomplete_scan + 3 review_scan = 8 jobs
+    expect(jobs).toHaveLength(8);
+    expect(jobs.filter((j) => j.type === 'review_scan')).toHaveLength(3);
     const listingJobs = jobs.filter((j) => j.type === 'listing_scan');
     const keywordJobs = jobs.filter((j) => j.type === 'keyword_scan');
     const autocompleteJobs = jobs.filter((j) => j.type === 'autocomplete_scan');
@@ -421,7 +422,8 @@ describe('1.10.1 Full scan cycle', () => {
     // 9. Verify listing/keyword jobs completed, autocomplete retried (no proxy configured)
     const finalStats = await testDb.getQueueStats();
     expect(finalStats.completed).toBe(4); // 3 listing + 1 keyword
-    expect(finalStats.pending).toBe(1); // 1 autocomplete (retry pending)
+    // 1 autocomplete (retry pending) + 3 review_scan (priority 50, never dequeued in the 5-job loop)
+    expect(finalStats.pending).toBe(4);
     expect(finalStats.running).toBe(0);
     expect(finalStats.failed).toBe(0);
 
@@ -1100,7 +1102,8 @@ describe('1.10.7 Multiple projects with shared competitor', () => {
 
     expect(listingJobs).toHaveLength(3); // ext-aaa, ext-bbb, ext-ccc (only 1 for shared)
     expect(keywordJobs).toHaveLength(2);
-    expect(jobs).toHaveLength(7); // 3 listings + 2 keywords + 2 autocomplete
+    expect(jobs.filter((j) => j.type === 'review_scan')).toHaveLength(3); // one per unique extension
+    expect(jobs).toHaveLength(10); // 3 listings + 2 keywords + 2 autocomplete + 3 reviews
 
     // Verify shared competitor has only one listing_scan
     const sharedCompetitorJobs = listingJobs.filter((j) => {
@@ -1199,8 +1202,8 @@ describe('1.10.8 Manual refresh while scan running', () => {
 
     // Old pending jobs should be cleared, new jobs enqueued
     const pendingAfter = await testDb.getPendingCount();
-    // Should have new jobs: 3 listing_scans + 1 keyword_scan + 1 autocomplete_scan = 5
-    expect(pendingAfter).toBe(5);
+    // Should have new jobs: 3 listing_scans + 1 keyword_scan + 1 autocomplete_scan + 3 review_scans = 8
+    expect(pendingAfter).toBe(8);
 
     // Verify the queue has fresh jobs (retryCount = 0)
     const allJobs = await testDb.queue.where('status').equals('pending').toArray();
@@ -1251,8 +1254,8 @@ describe('1.10.8 Manual refresh while scan running', () => {
     await triggerManualRefresh(1, 'full', createSchedulerDeps());
 
     const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
-    // Should only have jobs for project 1: 1 listing_scan + 1 keyword_scan + 1 autocomplete_scan
-    expect(pendingJobs).toHaveLength(3);
+    // Should only have jobs for project 1: 1 listing_scan + 1 keyword_scan + 1 autocomplete_scan + 1 review_scan
+    expect(pendingJobs).toHaveLength(4);
 
     const listingJobs = pendingJobs.filter((j) => j.type === 'listing_scan');
     const keywordJobs = pendingJobs.filter((j) => j.type === 'keyword_scan');
