@@ -24,6 +24,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   queueJitterMs: 10_000,
   dailyScanTime: '03:00',
   dailyScanEnabled: false,
+  reviewFetchLimit: 50,
   lastDailyScanDate: null,
   scanCycleStartedAt: null,
   proxyUrl: '',
@@ -45,6 +46,9 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
 const MIN_QUEUE_DELAY_MS = 30_000;
 /** Minimum allowed value for dataRetentionDays. */
 const MIN_DATA_RETENTION_DAYS = 7;
+/** Allowed range for reviewFetchLimit. */
+const MIN_REVIEW_FETCH_LIMIT = 10;
+const MAX_REVIEW_FETCH_LIMIT = 500;
 /** Pattern for HH:MM 24-hour time. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Valid audit prompt variants. */
@@ -90,6 +94,19 @@ function validatePartial(partial: Partial<Settings>): void {
     if (typeof partial.dailyScanTime !== 'string' || !TIME_PATTERN.test(partial.dailyScanTime)) {
       throw new SettingsValidationError(
         `dailyScanTime must be HH:MM (24-hour), got "${partial.dailyScanTime}"`
+      );
+    }
+  }
+
+  if ('reviewFetchLimit' in partial) {
+    if (
+      typeof partial.reviewFetchLimit !== 'number' ||
+      !Number.isInteger(partial.reviewFetchLimit) ||
+      partial.reviewFetchLimit < MIN_REVIEW_FETCH_LIMIT ||
+      partial.reviewFetchLimit > MAX_REVIEW_FETCH_LIMIT
+    ) {
+      throw new SettingsValidationError(
+        `reviewFetchLimit must be an integer between ${MIN_REVIEW_FETCH_LIMIT} and ${MAX_REVIEW_FETCH_LIMIT}, got ${partial.reviewFetchLimit}`
       );
     }
   }

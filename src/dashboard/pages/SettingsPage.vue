@@ -40,6 +40,7 @@ const localQueueDelay = ref(60);
 const localQueueJitter = ref(10);
 const localDailyScanTime = ref('03:00');
 const localDailyScanEnabled = ref(false);
+const localReviewFetchLimit = ref(50);
 const localDataRetention = ref(365);
 const localProxyUrl = ref('');
 const localProxyApiKey = ref('');
@@ -122,6 +123,7 @@ const hasUnsavedChanges = computed(() => {
     localQueueJitter.value !== Math.round(settings.queueJitterMs / 1000) ||
     localDailyScanTime.value !== settings.dailyScanTime ||
     localDailyScanEnabled.value !== settings.dailyScanEnabled ||
+    localReviewFetchLimit.value !== settings.reviewFetchLimit ||
     localOpenAIKey.value !== (settings.openaiApiKey ?? '') ||
     localDataRetention.value !== settings.dataRetentionDays ||
     localProxyUrl.value !== settings.proxyUrl ||
@@ -145,6 +147,7 @@ function syncLocalState(): void {
   localQueueJitter.value = Math.round(settings.queueJitterMs / 1000);
   localDailyScanTime.value = settings.dailyScanTime;
   localDailyScanEnabled.value = settings.dailyScanEnabled;
+  localReviewFetchLimit.value = settings.reviewFetchLimit;
   localDataRetention.value = settings.dataRetentionDays;
   localProxyUrl.value = settings.proxyUrl;
   localProxyApiKey.value = settings.proxyApiKey ?? '';
@@ -178,6 +181,7 @@ async function saveScanSettings(): Promise<void> {
     queueJitterMs: localQueueJitter.value * 1000,
     dailyScanTime: localDailyScanTime.value,
     dailyScanEnabled: localDailyScanEnabled.value,
+    reviewFetchLimit: localReviewFetchLimit.value,
   });
   // Wake the service worker to re-arm the daily-scan alarm from the new time /
   // enabled flag. storage.onChanged is not a reliable wake signal for a
@@ -388,6 +392,26 @@ onUnmounted(() => {
               max="60"
               step="5"
               class="mt-1 w-full"
+            />
+          </div>
+
+          <!-- Review fetch limit -->
+          <div>
+            <label for="reviewFetchLimit" class="block text-sm font-medium text-gray-700">
+              Max reviews per extension per scan
+            </label>
+            <p class="text-xs text-gray-500">
+              How many reviews to capture for each extension on a review scan (10&ndash;500).
+              Higher values fetch deeper history but make more requests.
+            </p>
+            <input
+              id="reviewFetchLimit"
+              v-model.number="localReviewFetchLimit"
+              type="number"
+              min="10"
+              max="500"
+              step="10"
+              class="mt-1 block w-32 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
 

@@ -22,6 +22,12 @@ export interface Settings {
   dailyScanTime: string;
   /** Whether automatic daily scanning is enabled. */
   dailyScanEnabled: boolean;
+  /**
+   * Maximum number of reviews to fetch per extension per review scan.
+   * The first page (~10 newest) is always fetched; the rest are paginated
+   * up to this cap. Range: 10–500.
+   */
+  reviewFetchLimit: number;
   /** YYYY-MM-DD date of the last completed daily scan. `null` if never scanned. */
   lastDailyScanDate: string | null;
   /**
