@@ -27,6 +27,15 @@ export function today(): string {
 }
 
 /**
+ * Convert a Unix timestamp (seconds) to a YYYY-MM-DD string.
+ * Returns an empty string for non-positive/invalid input.
+ */
+export function epochToDateString(epochSeconds: number): string {
+  if (!epochSeconds || epochSeconds <= 0) return '';
+  return toDateString(new Date(epochSeconds * 1000));
+}
+
+/**
  * Returns the date `n` days ago as a YYYY-MM-DD string.
  *
  * `daysAgo(0)` is equivalent to `today()`.

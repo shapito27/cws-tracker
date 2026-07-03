@@ -31,7 +31,7 @@ export type { Settings, AuditPromptVariant } from './settings';
 // Enumerations (string literal unions)
 // ---------------------------------------------------------------------------
 
-/** Types of changes detected between listing snapshots. */
+/** Types of changes detected between listing snapshots (and review scans). */
 export type EventType =
   | 'title_change'
   | 'description_change'
@@ -43,7 +43,10 @@ export type EventType =
   | 'screenshot_change'
   | 'badge_change'
   | 'rank_change'
-  | 'size_change';
+  | 'size_change'
+  | 'review_new'
+  | 'review_edited'
+  | 'review_reply';
 
 /** Queue job variants. */
 export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan' | 'review_scan';
