@@ -97,6 +97,13 @@ export interface Extension {
   status: ExtensionStatus;
   /** Project IDs that reference this extension (for cleanup on delete). */
   projectRefs: number[];
+  /**
+   * Total number of reviews *with text* as reported by CWS on the last review
+   * scan (the reviews-page `ds:1` count). Used to compute the exact text-vs-empty
+   * split even when the captured corpus is capped by `reviewFetchLimit`.
+   * `undefined`/`null` until the first review scan.
+   */
+  reviewTextCount?: number | null;
 }
 
 /**

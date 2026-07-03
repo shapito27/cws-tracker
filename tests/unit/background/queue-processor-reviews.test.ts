@@ -57,6 +57,16 @@ describe('processReviewScan', () => {
     await db.reviews.clear();
     await db.queue.clear();
     await db.events.clear();
+    await db.extensions.clear();
+    await db.saveExtension({
+      id: EXT,
+      name: 'Website Broken Link Checker',
+      iconUrl: null,
+      addedAt: new Date(),
+      lastScannedAt: null,
+      status: 'active',
+      projectRefs: [1],
+    });
     await new SettingsManager().set('proxyUrl', 'https://proxy.test');
     await new SettingsManager().set('proxyApiKey', 'test-key');
   });
@@ -81,6 +91,10 @@ describe('processReviewScan', () => {
     expect(first.hasText).toBe(true);
     expect(first.devReplyAuthor).toBe('Ben');
     expect(first.postedDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    // The CWS-reported text-review count is persisted on the extension.
+    const ext = await db.getExtension(EXT);
+    expect(ext!.reviewTextCount).toBe(11);
   });
 
   it('emits a review_new event per review on the first scan', async () => {

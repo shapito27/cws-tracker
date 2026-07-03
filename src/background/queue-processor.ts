@@ -984,6 +984,19 @@ async function processReviewScan(
 
   const changes = await db.saveReviews(rows);
 
+  // Persist the CWS-reported text-review count so the UI can compute the exact
+  // text-vs-empty split even when the captured corpus is capped. Best-effort.
+  if (parsed.textReviewCount !== null) {
+    try {
+      const ext = await db.getExtension(extensionId);
+      if (ext) {
+        await db.saveExtension({ ...ext, reviewTextCount: parsed.textReviewCount });
+      }
+    } catch {
+      // Metadata update is supplementary — swallow.
+    }
+  }
+
   // Emit events for detected changes. Must never fail the scan pipeline.
   try {
     await emitReviewEvents(rows, changes, deps);
