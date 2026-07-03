@@ -957,13 +957,11 @@ async function fetchAutocompleteWithLogging(
 
 /**
  * Process a review_scan job:
- * 1. Fetch the extension's reviews via the proxy /reviews endpoint (page 1).
+ * 1. Fetch up to `reviewFetchLimit` newest reviews via the proxy /reviews endpoint.
+ *    CWS returns the whole page in a single RPC call, so no pagination loop is needed.
  * 2. Parse with the reviews parser.
  * 3. Upsert reviews (change-detecting) into the reviews table.
  * 4. Emit events for new / edited / newly-replied reviews.
- *
- * Pagination (fetching up to reviewFetchLimit) is layered on in a later phase;
- * this handler captures the newest page.
  */
 async function processReviewScan(
   job: QueueJob,
@@ -974,7 +972,7 @@ async function processReviewScan(
 
   const settings = await deps.settings.getWithDefaults();
 
-  const raw = await fetchReviewsWithLogging(extensionId, undefined, settings, deps.fetchPage, job);
+  const raw = await fetchReviewsWithLogging(extensionId, settings.reviewFetchLimit, settings, deps.fetchPage, job);
 
   const parser = getReviewsParser();
   const parsed = parser.parse(raw);
@@ -1093,7 +1091,7 @@ async function emitReviewEvents(
  */
 async function fetchReviewsWithLogging(
   extensionId: string,
-  token: string | undefined,
+  limit: number,
   settings: Settings,
   fetchPage: (url: string) => Promise<Response>,
   job: QueueJob
@@ -1104,7 +1102,7 @@ async function fetchReviewsWithLogging(
 
   const proxyUrl = new URL('/reviews', settings.proxyUrl);
   proxyUrl.searchParams.set('id', extensionId);
-  if (token) proxyUrl.searchParams.set('token', token);
+  proxyUrl.searchParams.set('limit', String(limit));
   if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
 
   // Redacted URL for logging.

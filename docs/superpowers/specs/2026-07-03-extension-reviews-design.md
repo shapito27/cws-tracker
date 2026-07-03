@@ -68,13 +68,27 @@ UI. To be confirmed empirically against an edited review during implementation.
 (`ListingSnapshot.ratingCount`). **Empty (rating-only) = ratingCount − textReviewCount.**
 Verified: 12 total − 11 text = 1 empty for the example extension.
 
-### 2.4 Pagination
+### 2.4 Pagination / fetching more than 10 (RESOLVED — spike complete 2026-07-03)
 
-Page 1 is inline (`ds:1`). Pages 2+ require the CWS `batchexecute` reviews RPC using
-`ds1[0][0]` as the continuation token. **The RPC method id must be reverse-engineered**
-(Phase 0 spike — the browser automation connects, so we capture the request from a live
-"load more" click and inspect `read_network_requests`). This mirrors how the
-`autocomplete-v1` `QcU9bc` RPC was originally discovered.
+The reviews-page HTML's `AF_dataServiceRequests` block maps `ds:1` to RPC method
+**`x1DgCd`** with request payload `["<extId>", [<pageSize>], 2, null, null, null, 0]`
+(`[0]`=extension id, `[1]`=`[pageSize]`, `[2]`=sort order). Verified directly against
+`chromewebstore.google.com/_/ChromeWebStoreConsumerFeUi/data/batchexecute`:
+
+- **Page size is slot `[1]`.** Requesting `[500]` returns 500 reviews **in a single
+  call** (200 → 200, 100 → 100, 50 → 50). The response payload has the identical
+  `[[token], [reviews…], textReviewCount]` shape as the inline `ds:1`, so `reviews-v1`
+  parses it unchanged.
+- **No build label, no session params, no CSRF token needed** — the RPC is public
+  read-only data (like `QcU9bc` autocomplete). Confirmed working with `bl` omitted.
+- **The continuation token does NOT advance** (tried slots [3]/[4]/[5] + offset [6];
+  all returned page 1 or empty). Pagination is therefore *not* token-based — you simply
+  request the page size you want.
+
+**Consequence:** "up to `reviewFetchLimit`" is a **single** batchexecute call with
+`[reviewFetchLimit]` as the page size (capped at 500, the setting's max). No SW
+pagination loop, no token handling. The proxy `/reviews` endpoint issues this RPC and
+returns the payload as `{ data }`; the page-1 inline-`ds:1` HTML path is unused.
 
 ---
 

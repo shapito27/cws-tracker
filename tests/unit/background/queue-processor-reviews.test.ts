@@ -78,10 +78,11 @@ describe('processReviewScan', () => {
 
     await processNextJob(makeDeps(fetchPage));
 
-    // One proxy call to /reviews with the extension id.
+    // One proxy call to /reviews with the extension id + the fetch limit.
     expect(fetchPage).toHaveBeenCalledTimes(1);
     expect(fetchPage.mock.calls[0][0]).toContain('/reviews');
     expect(fetchPage.mock.calls[0][0]).toContain(`id=${EXT}`);
+    expect(fetchPage.mock.calls[0][0]).toContain('limit=');
 
     const stored = await db.getReviews(EXT);
     expect(stored).toHaveLength(10);
