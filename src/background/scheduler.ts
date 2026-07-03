@@ -17,6 +17,7 @@ import {
   buildDailyScanJobs,
   buildKeywordScanJobs,
   buildAutocompleteScanJobs,
+  buildReviewScanJobs,
 } from '@/background/queue-builder';
 import { processNextJob, type ProcessorDeps } from '@/background/queue-processor';
 import type { ScanType, QueueJob } from '@/shared/types';
@@ -389,7 +390,7 @@ export async function handleProcessQueueAlarm(
  * Clears existing pending jobs, builds new ones, and starts processing.
  *
  * @param projectId  If provided, only scan this project. Otherwise scan all.
- * @param scanType   Job scope: 'full' (default), 'keywords' only, or 'autocomplete' only.
+ * @param scanType   Job scope: 'full' (default), 'keywords' only, 'autocomplete' only, or 'reviews' only.
  */
 export async function triggerManualRefresh(
   projectId?: number,
@@ -426,6 +427,10 @@ export async function triggerManualRefresh(
     jobs = buildKeywordScanJobs(relevantKeywords);
   } else if (scanType === 'autocomplete') {
     jobs = buildAutocompleteScanJobs(relevantKeywords);
+  } else if (scanType === 'reviews') {
+    // Tracked extensions (own + competitors) across the relevant projects.
+    const relevantExtensionIds = projects.flatMap((p) => [p.ownExtensionId, ...p.competitorIds]);
+    jobs = buildReviewScanJobs(relevantExtensionIds);
   } else {
     jobs = buildDailyScanJobs(projects, extensions, relevantKeywords);
   }

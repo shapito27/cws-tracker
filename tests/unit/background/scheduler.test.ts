@@ -801,6 +801,19 @@ describe('Scheduler', () => {
       expect(pendingJobs.every((j) => j.type === 'autocomplete_scan')).toBe(true);
     });
 
+    it('scanType="reviews" enqueues only review_scan jobs for the project\'s tracked extensions', async () => {
+      const { triggerManualRefresh } = await import('@/background/scheduler');
+
+      await seedProject();
+
+      const deps = createSchedulerDeps();
+      await triggerManualRefresh(1, 'reviews', deps);
+
+      const pendingJobs = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pendingJobs.length).toBeGreaterThan(0);
+      expect(pendingJobs.every((j) => j.type === 'review_scan')).toBe(true);
+    });
+
     it('scanType filters keywords by projectId so other projects are not scanned', async () => {
       const { triggerManualRefresh } = await import('@/background/scheduler');
 
