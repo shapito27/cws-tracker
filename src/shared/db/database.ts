@@ -25,8 +25,10 @@ import type {
   ScanLog,
   AutocompleteSnapshot,
   AutocompleteKeywordSuggestion,
+  Review,
 } from '../types';
 import type { CachedAuditResult } from '../utils/keyword-audit';
+import { contentHashForReview } from '../utils/review-hash';
 
 export class CWSDatabase extends Dexie {
   projects!: Table<Project, number>;
@@ -41,6 +43,7 @@ export class CWSDatabase extends Dexie {
   scan_logs!: Table<ScanLog, number>;
   autocomplete_snapshots!: Table<AutocompleteSnapshot, number>;
   autocomplete_keyword_suggestions!: Table<AutocompleteKeywordSuggestion, number>;
+  reviews!: Table<Review, number>;
 
   constructor(name = 'CWSTrackerDB') {
     super(name);
@@ -70,6 +73,12 @@ export class CWSDatabase extends Dexie {
     this.version(4).stores({
       autocomplete_snapshots: '++id, [keywordId+extensionId+date], [keywordId+date]',
       autocomplete_keyword_suggestions: '++id, [keywordId+date]',
+    });
+
+    // v5: Add reviews table (Phase 5.2). Reviews are entities keyed by their
+    // stable CWS UUID (unique index), upserted with change detection.
+    this.version(5).stores({
+      reviews: '++id, &reviewId, extensionId, [extensionId+postedDate], [extensionId+rating]',
     });
   }
 
@@ -545,15 +554,114 @@ export class CWSDatabase extends Dexie {
   }
 
   // ---------------------------------------------------------------------------
+  // Review methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Upsert reviews keyed by `reviewId`, detecting content changes.
+   *
+   * For each incoming review:
+   * - unseen `reviewId` → inserted (firstSeenAt/lastSeenAt = now), reported `new`.
+   * - seen with unchanged `contentHash` → only `lastSeenAt` refreshed.
+   * - seen with changed `contentHash` → updated in place (preserving `id` and
+   *   `firstSeenAt`), `lastChangedAt` set to now, reported `edited`; additionally
+   *   reported `replied` when a developer reply appeared where there was none.
+   *
+   * `contentHash` is (re)computed here so callers don't have to.
+   *
+   * @returns the reviewIds that were newly inserted / edited / newly-replied.
+   */
+  async saveReviews(
+    reviews: Review[]
+  ): Promise<{ new: string[]; edited: string[]; replied: string[] }> {
+    const result = { new: [] as string[], edited: [] as string[], replied: [] as string[] };
+
+    await this.transaction('rw', this.reviews, async () => {
+      for (const incoming of reviews) {
+        const contentHash = contentHashForReview({
+          rating: incoming.rating,
+          text: incoming.text,
+          helpfulCount: incoming.helpfulCount,
+          devReplyText: incoming.devReplyText,
+        });
+        const now = incoming.lastSeenAt ?? new Date();
+
+        const existing = await this.reviews
+          .where('reviewId')
+          .equals(incoming.reviewId)
+          .first();
+
+        if (!existing) {
+          await this.reviews.put({
+            ...incoming,
+            contentHash,
+            firstSeenAt: incoming.firstSeenAt ?? now,
+            lastSeenAt: now,
+            lastChangedAt: null,
+          });
+          result.new.push(incoming.reviewId);
+          continue;
+        }
+
+        if (existing.contentHash === contentHash) {
+          // No user-visible change — just refresh lastSeenAt.
+          await this.reviews.update(existing.id!, { lastSeenAt: now });
+          continue;
+        }
+
+        // Content changed — update in place, preserving id + firstSeenAt.
+        await this.reviews.put({
+          ...incoming,
+          id: existing.id,
+          contentHash,
+          firstSeenAt: existing.firstSeenAt,
+          lastSeenAt: now,
+          lastChangedAt: now,
+        });
+        result.edited.push(incoming.reviewId);
+        if (!existing.devReplyText && incoming.devReplyText) {
+          result.replied.push(incoming.reviewId);
+        }
+      }
+    });
+
+    return result;
+  }
+
+  async getReviews(extensionId: string): Promise<Review[]> {
+    return this.reviews.where('extensionId').equals(extensionId).toArray();
+  }
+
+  async getReviewsInRange(
+    extensionId: string,
+    startDate: string,
+    endDate: string
+  ): Promise<Review[]> {
+    return this.reviews
+      .where('[extensionId+postedDate]')
+      .between([extensionId, startDate], [extensionId, endDate], true, true)
+      .toArray();
+  }
+
+  async getStoredReviewIds(extensionId: string): Promise<Set<string>> {
+    const stored = await this.reviews
+      .where('extensionId')
+      .equals(extensionId)
+      .toArray();
+    return new Set(stored.map((r) => r.reviewId));
+  }
+
+  // ---------------------------------------------------------------------------
   // Bulk data management
   // ---------------------------------------------------------------------------
 
   async deleteExtensionData(extensionId: string): Promise<void> {
     await this.transaction(
       'rw',
-      [this.listing_snapshots, this.rank_snapshots, this.events, this.translation_snapshots, this.autocomplete_snapshots],
+      [this.listing_snapshots, this.rank_snapshots, this.events, this.translation_snapshots, this.autocomplete_snapshots, this.reviews],
       async () => {
         await this.listing_snapshots.where('extensionId').equals(extensionId).delete();
+        await this.reviews.where('extensionId').equals(extensionId).delete();
         await this.rank_snapshots.where('[extensionId+date]')
           .between([extensionId, Dexie.minKey], [extensionId, Dexie.maxKey])
           .delete();
@@ -577,8 +685,16 @@ export class CWSDatabase extends Dexie {
   async pruneOldSnapshots(beforeDate: string): Promise<void> {
     await this.transaction(
       'rw',
-      [this.listing_snapshots, this.rank_snapshots, this.translation_snapshots, this.autocomplete_snapshots, this.autocomplete_keyword_suggestions],
+      [this.listing_snapshots, this.rank_snapshots, this.translation_snapshots, this.autocomplete_snapshots, this.autocomplete_keyword_suggestions, this.reviews],
       async () => {
+        // For reviews: prune by postedDate
+        const oldReviews = await this.reviews
+          .filter((r) => r.postedDate < beforeDate)
+          .toArray();
+        if (oldReviews.length > 0) {
+          await this.reviews.bulkDelete(oldReviews.map((r) => r.id!));
+        }
+
         // For listing_snapshots: filter by date field
         const oldListings = await this.listing_snapshots
           .filter((s) => s.date < beforeDate)

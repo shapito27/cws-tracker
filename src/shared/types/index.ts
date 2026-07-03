@@ -483,3 +483,66 @@ export interface AutocompleteKeywordSuggestion {
   suggestions: string[];
   scannedAt: Date;
 }
+
+// ---------------------------------------------------------------------------
+// Extension reviews (Phase 5.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single stored user review for an extension. Unlike per-day snapshots,
+ * reviews are entities keyed by their stable CWS UUID and upserted on each
+ * scan, with content changes tracked over time.
+ *
+ * Dexie indexes: `++id`, `&reviewId` (unique), `extensionId`,
+ * `[extensionId+postedDate]`, `[extensionId+rating]`
+ */
+export interface Review {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  /** Stable CWS review UUID. Unique upsert key. */
+  reviewId: string;
+  extensionId: string;
+  reviewerName: string;
+  reviewerAvatar: string | null;
+  /** Star rating, 1-5. */
+  rating: number;
+  /** Review body text. Empty string when the review carries no text. */
+  text: string;
+  /** Posted date, YYYY-MM-DD (indexed). */
+  postedDate: string;
+  /** Updated/edited date, YYYY-MM-DD. */
+  updatedDate: string;
+  /** Posted timestamp (Unix seconds) for precise ordering. */
+  postedAtEpoch: number;
+  /** Updated timestamp (Unix seconds). */
+  updatedAtEpoch: number;
+  /** "People found helpful" count. */
+  helpfulCount: number;
+  /** Developer reply author, or null if no reply. */
+  devReplyAuthor: string | null;
+  /** Developer reply text, or null if no reply. */
+  devReplyText: string | null;
+  /** Developer reply date, YYYY-MM-DD, or null. */
+  devReplyDate: string | null;
+  /** Derived: `text.trim().length > 0`. */
+  hasText: boolean;
+  /** Extension version the review was left on, if present. */
+  versionReviewed: string | null;
+  /** Review language code (e.g. "en"). */
+  language: string | null;
+  /** Hash of rating|text|helpfulCount|devReplyText — the change signal. */
+  contentHash: string;
+  /** When this review was first captured. */
+  firstSeenAt: Date;
+  /** When this review was most recently seen in a scan. */
+  lastSeenAt: Date;
+  /** When a content change was last detected, or null if never changed. */
+  lastChangedAt: Date | null;
+  /** Reserved for deletion detection; always false in the current version. */
+  isDeleted: boolean;
+}
+
+/** Payload for a review_scan job. */
+export interface ReviewScanPayload {
+  extensionId: string;
+}
