@@ -161,6 +161,25 @@ describe('Validation', () => {
     expect(await settings.get('dataRetentionDays')).toBe(7);
   });
 
+  it('defaults reviewFetchLimit to 50', () => {
+    expect(DEFAULT_SETTINGS.reviewFetchLimit).toBe(50);
+  });
+
+  it('rejects reviewFetchLimit outside 10–500', async () => {
+    await expect(settings.set('reviewFetchLimit', 5)).rejects.toThrow(SettingsValidationError);
+    await expect(settings.set('reviewFetchLimit', 9999)).rejects.toThrow(
+      'reviewFetchLimit must be an integer between 10 and 500'
+    );
+    await expect(settings.set('reviewFetchLimit', 12.5)).rejects.toThrow(SettingsValidationError);
+  });
+
+  it('accepts reviewFetchLimit within range', async () => {
+    await expect(settings.set('reviewFetchLimit', 50)).resolves.toBeUndefined();
+    expect(await settings.get('reviewFetchLimit')).toBe(50);
+    await expect(settings.set('reviewFetchLimit', 10)).resolves.toBeUndefined();
+    await expect(settings.set('reviewFetchLimit', 500)).resolves.toBeUndefined();
+  });
+
   it('rejects negative queueJitterMs', async () => {
     await expect(settings.set('queueJitterMs', -1)).rejects.toThrow(
       SettingsValidationError

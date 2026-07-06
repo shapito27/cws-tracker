@@ -9,7 +9,8 @@
 import { listingParserV1 } from './listing-v1.js';
 import { searchParserV1 } from './search-v1.js';
 import { autocompleteParserV1 } from './autocomplete-v1.js';
-import type { ListingParser, SearchParser, AutocompleteParser } from './types.js';
+import { reviewsParserV1 } from './reviews-v1.js';
+import type { ListingParser, SearchParser, AutocompleteParser, ReviewsParser } from './types.js';
 
 const LISTING_PARSERS: Record<string, ListingParser> = {
   'listing-v1': listingParserV1,
@@ -21,6 +22,10 @@ const SEARCH_PARSERS: Record<string, SearchParser> = {
 
 const AUTOCOMPLETE_PARSERS: Record<string, AutocompleteParser> = {
   'autocomplete-v1': autocompleteParserV1,
+};
+
+const REVIEWS_PARSERS: Record<string, ReviewsParser> = {
+  'reviews-v1': reviewsParserV1,
 };
 
 /**
@@ -89,4 +94,24 @@ export function getAutocompleteParser(version?: string): AutocompleteParser {
 /** Get all available autocomplete parser versions. */
 export function getAvailableAutocompleteParsers(): string[] {
   return Object.keys(AUTOCOMPLETE_PARSERS);
+}
+
+/**
+ * Get a reviews parser by version string.
+ * Defaults to the latest version if no version is specified.
+ */
+export function getReviewsParser(version?: string): ReviewsParser {
+  const key = version ? `reviews-${version}` : 'reviews-v1';
+  const parser = REVIEWS_PARSERS[key];
+  if (!parser) {
+    throw new Error(
+      `Unknown reviews parser version: "${key}". Available: ${Object.keys(REVIEWS_PARSERS).join(', ')}`,
+    );
+  }
+  return parser;
+}
+
+/** Get all available reviews parser versions. */
+export function getAvailableReviewsParsers(): string[] {
+  return Object.keys(REVIEWS_PARSERS);
 }

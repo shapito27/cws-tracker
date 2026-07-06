@@ -31,7 +31,7 @@ export type { Settings, AuditPromptVariant } from './settings';
 // Enumerations (string literal unions)
 // ---------------------------------------------------------------------------
 
-/** Types of changes detected between listing snapshots. */
+/** Types of changes detected between listing snapshots (and review scans). */
 export type EventType =
   | 'title_change'
   | 'description_change'
@@ -43,10 +43,13 @@ export type EventType =
   | 'screenshot_change'
   | 'badge_change'
   | 'rank_change'
-  | 'size_change';
+  | 'size_change'
+  | 'review_new'
+  | 'review_edited'
+  | 'review_reply';
 
 /** Queue job variants. */
-export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan';
+export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan' | 'review_scan';
 
 /** Lifecycle states of a queue job. */
 export type QueueJobStatus = 'pending' | 'running' | 'completed' | 'failed';
@@ -94,6 +97,13 @@ export interface Extension {
   status: ExtensionStatus;
   /** Project IDs that reference this extension (for cleanup on delete). */
   projectRefs: number[];
+  /**
+   * Total number of reviews *with text* as reported by CWS on the last review
+   * scan (the reviews-page `ds:1` count). Used to compute the exact text-vs-empty
+   * split even when the captured corpus is capped by `reviewFetchLimit`.
+   * `undefined`/`null` until the first review scan.
+   */
+  reviewTextCount?: number | null;
 }
 
 /**
@@ -281,7 +291,8 @@ export type QueueJobPayload =
   | ListingScanPayload
   | KeywordScanPayload
   | TranslationAuditPayload
-  | AutocompleteScanPayload;
+  | AutocompleteScanPayload
+  | ReviewScanPayload;
 
 /**
  * A queued job in IndexedDB. Survives service worker restarts.
@@ -482,4 +493,67 @@ export interface AutocompleteKeywordSuggestion {
   /** Text suggestions returned by CWS autocomplete. */
   suggestions: string[];
   scannedAt: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Extension reviews (Phase 5.2)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single stored user review for an extension. Unlike per-day snapshots,
+ * reviews are entities keyed by their stable CWS UUID and upserted on each
+ * scan, with content changes tracked over time.
+ *
+ * Dexie indexes: `++id`, `&reviewId` (unique), `extensionId`,
+ * `[extensionId+postedDate]`, `[extensionId+rating]`
+ */
+export interface Review {
+  /** Auto-increment primary key. Omit when creating. */
+  id?: number;
+  /** Stable CWS review UUID. Unique upsert key. */
+  reviewId: string;
+  extensionId: string;
+  reviewerName: string;
+  reviewerAvatar: string | null;
+  /** Star rating, 1-5. */
+  rating: number;
+  /** Review body text. Empty string when the review carries no text. */
+  text: string;
+  /** Posted date, YYYY-MM-DD (indexed). */
+  postedDate: string;
+  /** Updated/edited date, YYYY-MM-DD. */
+  updatedDate: string;
+  /** Posted timestamp (Unix seconds) for precise ordering. */
+  postedAtEpoch: number;
+  /** Updated timestamp (Unix seconds). */
+  updatedAtEpoch: number;
+  /** "People found helpful" count. */
+  helpfulCount: number;
+  /** Developer reply author, or null if no reply. */
+  devReplyAuthor: string | null;
+  /** Developer reply text, or null if no reply. */
+  devReplyText: string | null;
+  /** Developer reply date, YYYY-MM-DD, or null. */
+  devReplyDate: string | null;
+  /** Derived: `text.trim().length > 0`. */
+  hasText: boolean;
+  /** Extension version the review was left on, if present. */
+  versionReviewed: string | null;
+  /** Review language code (e.g. "en"). */
+  language: string | null;
+  /** Hash of rating|text|helpfulCount|devReplyText — the change signal. */
+  contentHash: string;
+  /** When this review was first captured. */
+  firstSeenAt: Date;
+  /** When this review was most recently seen in a scan. */
+  lastSeenAt: Date;
+  /** When a content change was last detected, or null if never changed. */
+  lastChangedAt: Date | null;
+  /** Reserved for deletion detection; always false in the current version. */
+  isDeleted: boolean;
+}
+
+/** Payload for a review_scan job. */
+export interface ReviewScanPayload {
+  extensionId: string;
 }

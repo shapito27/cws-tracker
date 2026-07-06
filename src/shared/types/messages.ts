@@ -81,7 +81,7 @@ export type ServiceWorkerMessage =
 // ---------------------------------------------------------------------------
 
 /** Scope of jobs to enqueue for a manual refresh. */
-export type ScanType = 'full' | 'keywords' | 'autocomplete';
+export type ScanType = 'full' | 'keywords' | 'autocomplete' | 'reviews';
 
 /** Request to start a scan (optionally for a specific project and scan type). */
 export interface TriggerRefreshMessage {

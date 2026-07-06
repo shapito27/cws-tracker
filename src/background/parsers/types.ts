@@ -150,3 +150,47 @@ export interface AutocompleteParser {
   readonly version: string;
   parse(json: string): AutocompleteData;
 }
+
+// ---------------------------------------------------------------------------
+// Reviews
+// ---------------------------------------------------------------------------
+
+/** A single parsed review from a CWS extension `/reviews` page. */
+export interface ParsedReview {
+  /** Stable CWS review UUID — used as the upsert key and change-tracking id. */
+  reviewId: string;
+  extensionId: string;
+  reviewerName: string;
+  reviewerAvatar: string | null;
+  /** Star rating, 1–5. */
+  rating: number;
+  /** Review body text. Empty string when the review carries no text. */
+  text: string;
+  /** Posted timestamp (Unix seconds). */
+  postedAtEpoch: number;
+  /** Updated/edited timestamp (Unix seconds). */
+  updatedAtEpoch: number;
+  /** "People found helpful" count. */
+  helpfulCount: number;
+  /** Developer reply ("answer"), or null if none. */
+  devReply: { author: string; text: string; atEpoch: number } | null;
+  /** Extension version the review was left on, if present. */
+  versionReviewed: string | null;
+  /** Review language code (e.g. "en"). */
+  language: string | null;
+}
+
+/** Parsed data from a CWS reviews response (page 1 `ds:1` or a paginated RPC page). */
+export interface ReviewsData {
+  reviews: ParsedReview[];
+  /** Total number of reviews with text, when reported by CWS (page-1 envelope). */
+  textReviewCount: number | null;
+  /** Continuation token for the next page, or null when there are no more pages. */
+  nextToken: string | null;
+}
+
+/** Interface that all reviews parsers must implement. */
+export interface ReviewsParser {
+  readonly version: string;
+  parse(json: string): ReviewsData;
+}

@@ -21,21 +21,24 @@
 import { db } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
-import { today } from '@/shared/utils/dates';
+import { today, epochToDateString } from '@/shared/utils/dates';
 import { findEffectivePrevious, classifyDrop, RANK_NULL_LOOKBACK_DAYS } from '@/shared/utils/rank-history';
 import { detectChanges } from '@/background/event-detector';
-import { getListingParser, getSearchParser, getAutocompleteParser, ParserError } from '@/background/parsers/index';
-import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension } from '@/background/parsers/types';
+import { getListingParser, getSearchParser, getAutocompleteParser, getReviewsParser, ParserError } from '@/background/parsers/index';
+import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension, ParsedReview } from '@/background/parsers/types';
 import type {
   QueueJob,
   ListingScanPayload,
   KeywordScanPayload,
   AutocompleteScanPayload,
+  ReviewScanPayload,
   ListingSnapshot,
   RankSnapshot,
   AutocompleteSnapshot,
   AutocompleteKeywordSuggestion,
+  Review,
   EventRecord,
+  EventType,
   Extension,
   Keyword,
   Settings,
@@ -353,6 +356,9 @@ async function executeJob(
       break;
     case 'autocomplete_scan':
       await processAutocompleteScan(job, deps);
+      break;
+    case 'review_scan':
+      await processReviewScan(job, deps);
       break;
     default:
       throw new Error(`Unsupported job type: ${job.type}`);
@@ -949,6 +955,234 @@ async function fetchAutocompleteWithLogging(
   }
 }
 
+/**
+ * Process a review_scan job:
+ * 1. Fetch up to `reviewFetchLimit` newest reviews via the proxy /reviews endpoint.
+ *    CWS returns the whole page in a single RPC call, so no pagination loop is needed.
+ * 2. Parse with the reviews parser.
+ * 3. Upsert reviews (change-detecting) into the reviews table.
+ * 4. Emit events for new / edited / newly-replied reviews.
+ */
+async function processReviewScan(
+  job: QueueJob,
+  deps: ProcessorDeps
+): Promise<void> {
+  const payload = job.payload as ReviewScanPayload;
+  const { extensionId } = payload;
+
+  const settings = await deps.settings.getWithDefaults();
+
+  const raw = await fetchReviewsWithLogging(extensionId, settings.reviewFetchLimit, settings, deps.fetchPage, job);
+
+  const parser = getReviewsParser();
+  const parsed = parser.parse(raw);
+
+  const now = new Date();
+  const rows: Review[] = parsed.reviews.map((p) => mapParsedReviewToRow(p, extensionId, now));
+
+  const changes = await db.saveReviews(rows);
+
+  // Persist the CWS-reported text-review count so the UI can compute the exact
+  // text-vs-empty split even when the captured corpus is capped. Best-effort.
+  if (parsed.textReviewCount !== null) {
+    try {
+      const ext = await db.getExtension(extensionId);
+      if (ext) {
+        await db.saveExtension({ ...ext, reviewTextCount: parsed.textReviewCount });
+      }
+    } catch {
+      // Metadata update is supplementary — swallow.
+    }
+  }
+
+  // Emit events for detected changes. Must never fail the scan pipeline.
+  try {
+    await emitReviewEvents(rows, changes, deps);
+  } catch {
+    // Event creation is supplementary — swallow.
+  }
+}
+
+/**
+ * Map a parsed review to a stored Review row. `contentHash` is left blank here;
+ * `db.saveReviews` computes and sets it authoritatively.
+ */
+function mapParsedReviewToRow(p: ParsedReview, extensionId: string, now: Date): Review {
+  return {
+    reviewId: p.reviewId,
+    extensionId: p.extensionId || extensionId,
+    reviewerName: p.reviewerName,
+    reviewerAvatar: p.reviewerAvatar,
+    rating: p.rating,
+    text: p.text,
+    postedDate: epochToDateString(p.postedAtEpoch),
+    updatedDate: epochToDateString(p.updatedAtEpoch),
+    postedAtEpoch: p.postedAtEpoch,
+    updatedAtEpoch: p.updatedAtEpoch,
+    helpfulCount: p.helpfulCount,
+    devReplyAuthor: p.devReply?.author ?? null,
+    devReplyText: p.devReply?.text ?? null,
+    devReplyDate: p.devReply ? epochToDateString(p.devReply.atEpoch) : null,
+    hasText: p.text.trim().length > 0,
+    versionReviewed: p.versionReviewed,
+    language: p.language,
+    contentHash: '',
+    firstSeenAt: now,
+    lastSeenAt: now,
+    lastChangedAt: null,
+    isDeleted: false,
+  };
+}
+
+/** Build and persist EventRecords for new / edited / newly-replied reviews. */
+async function emitReviewEvents(
+  rows: Review[],
+  changes: { new: string[]; edited: string[]; replied: string[] },
+  deps: ProcessorDeps
+): Promise<void> {
+  const byId = new Map(rows.map((r) => [r.reviewId, r]));
+  const dateStr = today();
+  const excerpt = (t: string): string => {
+    const s = t.trim();
+    return s.length > 60 ? `${s.slice(0, 60)}…` : s;
+  };
+
+  const emit = async (reviewId: string, type: EventType, field: string, note: string): Promise<void> => {
+    const review = byId.get(reviewId);
+    if (!review) return;
+    const event: EventRecord = {
+      extensionId: review.extensionId,
+      date: dateStr,
+      type,
+      field,
+      oldValue: null,
+      newValue: reviewId,
+      note,
+      detectedAt: new Date(),
+    };
+    const savedId = await db.saveEvent(event);
+    deps.sendMessage({ type: 'NEW_EVENT', event: { ...event, id: savedId } });
+  };
+
+  for (const id of changes.new) {
+    const r = byId.get(id);
+    if (!r) continue;
+    const name = r.reviewerName || 'Anonymous';
+    const note = r.hasText
+      ? `New ★${r.rating} review from "${name}": "${excerpt(r.text)}"`
+      : `New ★${r.rating} rating from "${name}"`;
+    await emit(id, 'review_new', 'rating', note);
+  }
+  for (const id of changes.edited) {
+    const r = byId.get(id);
+    if (!r) continue;
+    await emit(id, 'review_edited', 'content', `Review from "${r.reviewerName || 'Anonymous'}" was edited (now ★${r.rating})`);
+  }
+  for (const id of changes.replied) {
+    const r = byId.get(id);
+    if (!r) continue;
+    await emit(id, 'review_reply', 'devReply', `Developer replied to ${r.reviewerName || 'a'}'s review`);
+  }
+}
+
+/**
+ * Fetch reviews from the proxy /reviews endpoint, with logging.
+ * Returns the raw `data` JSON string for the reviews parser.
+ */
+async function fetchReviewsWithLogging(
+  extensionId: string,
+  limit: number,
+  settings: Settings,
+  fetchPage: (url: string) => Promise<Response>,
+  job: QueueJob
+): Promise<string> {
+  if (!settings.proxyUrl) {
+    throw new Error('Review scan requires a proxy URL to be configured');
+  }
+
+  const proxyUrl = new URL('/reviews', settings.proxyUrl);
+  proxyUrl.searchParams.set('id', extensionId);
+  proxyUrl.searchParams.set('limit', String(limit));
+  if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
+
+  // Redacted URL for logging.
+  const logUrl = new URL(proxyUrl.toString());
+  if (settings.proxyApiKey) logUrl.searchParams.set('key', '[REDACTED]');
+  const requestUrl = logUrl.toString();
+  const jobDetail = await getJobDescription(job);
+  const start = Date.now();
+
+  try {
+    const response = await fetchPage(proxyUrl.toString());
+    const durationMs = Date.now() - start;
+
+    if (!response.ok) {
+      let errorDetail = response.statusText;
+      try {
+        const body = await response.json() as { error?: string };
+        if (body.error) errorDetail = body.error;
+      } catch {
+        // Body not JSON - use statusText
+      }
+
+      await writeScanLog({
+        timestamp: new Date().toISOString(),
+        jobId: job.id ?? null,
+        jobType: job.type,
+        level: 'error',
+        requestUrl,
+        responseStatus: response.status,
+        responsePreview: '',
+        durationMs,
+        jobDetail,
+        error: errorDetail,
+        httpMethod: 'GET',
+      });
+
+      throw new HttpError(response.status, errorDetail);
+    }
+
+    const responseData = await response.json() as { data: string };
+
+    await writeScanLog({
+      timestamp: new Date().toISOString(),
+      jobId: job.id ?? null,
+      jobType: job.type,
+      level: 'info',
+      requestUrl,
+      responseStatus: 200,
+      responsePreview: (responseData.data ?? '').slice(0, SCAN_LOG_PREVIEW_LENGTH),
+      durationMs,
+      jobDetail,
+      error: null,
+      httpMethod: 'GET',
+    });
+
+    return responseData.data;
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+
+    const durationMs = Date.now() - start;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    await writeScanLog({
+      timestamp: new Date().toISOString(),
+      jobId: job.id ?? null,
+      jobType: job.type,
+      level: 'error',
+      requestUrl,
+      responseStatus: null,
+      responsePreview: '',
+      durationMs,
+      jobDetail,
+      error: errorMessage,
+      httpMethod: 'GET',
+    });
+
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Error Handling
 // ---------------------------------------------------------------------------
@@ -1160,6 +1394,16 @@ async function getJobDescription(job: QueueJob): Promise<string> {
   if (job.type === 'autocomplete_scan') {
     const payload = job.payload as AutocompleteScanPayload;
     return `Autocomplete: "${payload.keyword}" (kw#${payload.keywordId})`;
+  }
+  if (job.type === 'review_scan') {
+    const payload = job.payload as ReviewScanPayload;
+    try {
+      const ext = await db.extensions.get(payload.extensionId);
+      if (ext?.name) return `Reviews: ${ext.name} (${payload.extensionId})`;
+    } catch {
+      // DB lookup failed — fall through to ID-only description
+    }
+    return `Reviews: ${payload.extensionId}`;
   }
   return `Processing ${job.type}`;
 }

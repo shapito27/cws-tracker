@@ -2,7 +2,19 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
-## [0.35.1] - 2026-06-25
+## [0.36.0] - 2026-07-03
+
+### Added
+- **Extension reviews: parsing, change tracking, and a Reviews tab.** Every scan now captures an extension's user reviews — reviewer name, star rating, message text, posted/updated dates, "found helpful" count, developer replies ("answers"), the reviewed version, and language — for your own extension **and** tracked competitors. Reviews are stored as entities keyed by their stable CWS review ID and upserted on each scan.
+  - **Change detection.** New reviews, edited reviews (detected via a content hash of rating/text/helpful/reply, robust to CWS's ambiguous timestamps), and new developer replies surface as events in the Events timeline (`review_new` / `review_edited` / `review_reply`) and in the Reviews tab.
+  - **Analytics.** The Reviews tab shows average rating, an exact **text-vs-empty** split (reviews with text vs. rating-only, using the CWS-reported text-review count against the total rating count), a rating distribution, and **keyword analysis** of review text filterable by positive (4–5★) / negative (1–2★) bands — plus a sortable review list (by date, rating, or helpfulness) with expandable developer replies and an extension selector to switch between your own extension and competitors.
+  - **Configurable depth.** A new **"Max reviews per extension per scan"** setting (`reviewFetchLimit`, default 50, range 10–500) controls how many reviews each scan captures. The proxy fetches up to that many in a single request.
+  - **Manual refresh.** A "Refresh reviews" button in the tab triggers an on-demand review scan (`reviews` scan type); review scans also run as part of the daily scan.
+
+### Notes
+- **Schema v5:** adds a `reviews` table (indexes: `&reviewId`, `extensionId`, `[extensionId+postedDate]`, `[extensionId+rating]`), threaded into `deleteExtensionData` and `pruneOldSnapshots`. The `Extension` record gains an optional `reviewTextCount`. New `review_scan` queue job type (priority after autocomplete, one per tracked extension).
+- **Parser:** new versioned `reviews-v1` parser for the CWS reviews `ds:1` / `x1DgCd` RPC payload, tested against a saved fixture.
+- **Proxy:** requires the companion proxy's new `GET /reviews?id=&limit=` endpoint (reviews `x1DgCd` batchexecute RPC — CWS returns up to the requested page size in one call, no token pagination). Deploy the updated proxy before using this feature.
 
 ### Fixed
 - **Reloading/updating the extension after the scheduled time now runs the missed scan.** 0.35.0 added catch-up on `chrome.runtime.onStartup`, but that event only fires on a real browser launch — **not** when you reload the extension at `chrome://extensions` or when it auto-updates. Those paths fire `onInstalled('update')`, which previously only re-armed the alarm for the *next* occurrence (tomorrow if the time had passed), so a reload at, say, 11:30 with an 11:00 scan time would silently wait until the next day. `onInstalled('update')` now runs the same catch-up as startup (`handleBrowserStartup`), so a missed scan kicks off within ~1 minute of the reload.

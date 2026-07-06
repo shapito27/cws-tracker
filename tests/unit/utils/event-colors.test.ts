@@ -80,8 +80,8 @@ describe('event-colors', () => {
   });
 
   describe('ALL_EVENT_TYPES', () => {
-    it('should contain all 11 event types', () => {
-      expect(ALL_EVENT_TYPES).toHaveLength(11);
+    it('should contain all 14 event types', () => {
+      expect(ALL_EVENT_TYPES).toHaveLength(14);
     });
 
     it('should include every type that has a color', () => {

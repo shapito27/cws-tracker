@@ -24,6 +24,9 @@ export const EVENT_TYPE_COLORS: Record<EventType, string> = {
   badge_change: '#6B7280',        // gray-500
   rank_change: '#7C3AED',        // violet-600
   size_change: '#6B7280',         // gray-500
+  review_new: '#16A34A',          // green-600 (a new review arrived)
+  review_edited: '#D97706',       // amber-600 (an existing review changed)
+  review_reply: '#2563EB',        // blue-600 (developer replied)
 };
 
 /** Human-readable label for each event type. */
@@ -39,6 +42,9 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   badge_change: 'Badge Change',
   rank_change: 'Rank Change',
   size_change: 'Size Change',
+  review_new: 'New Review',
+  review_edited: 'Review Edited',
+  review_reply: 'Developer Reply',
 };
 
 /** All event types in display order. */
@@ -54,6 +60,9 @@ export const ALL_EVENT_TYPES: EventType[] = [
   'translation_change',
   'badge_change',
   'size_change',
+  'review_new',
+  'review_edited',
+  'review_reply',
 ];
 
 /** Tailwind badge class mapping consistent with EVENT_TYPE_COLORS hex values. */
