@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.37.0] - 2026-07-07
+
+### Added
+- AI keyword audit now includes a compact "Review Signals" block (review velocity, recent rating trend, version-correlated rating, developer-reply rate, language spread, and keyword-in-reviews for both extensions). Injected into all prompt variants only when reviews have been captured, and framed as diagnostic + keyword-discovery context (a recent sample, not the full rating population; not a causal ranking factor).
+
 ## [0.36.0] - 2026-07-03
 
 ### Added
