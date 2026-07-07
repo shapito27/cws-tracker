@@ -33,7 +33,7 @@ import {
 import { OpenAIClient } from '../../../src/shared/utils/openai';
 import { CWSDatabase } from '../../../src/shared/db/database';
 import { daysAgo } from '../../../src/shared/utils/dates';
-import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '../../../src/shared/types';
+import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord, Review } from '../../../src/shared/types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -91,6 +91,34 @@ function makeCompetitorListing(): ListingSnapshot {
     listingQualityScore: 91,
     permissionRiskScore: 15,
   });
+}
+
+function makeReview(overrides: Partial<Review> = {}): Review {
+  return {
+    reviewId: 'rev-1',
+    extensionId: 'ext-own-id-12345678901234567890',
+    reviewerName: 'Alice',
+    reviewerAvatar: null,
+    rating: 4,
+    text: 'love this productivity tool',
+    postedDate: '2026-02-01',
+    updatedDate: '2026-02-01',
+    postedAtEpoch: Date.parse('2026-02-01T00:00:00') / 1000,
+    updatedAtEpoch: Date.parse('2026-02-01T00:00:00') / 1000,
+    helpfulCount: 0,
+    devReplyAuthor: null,
+    devReplyText: null,
+    devReplyDate: null,
+    hasText: true,
+    versionReviewed: '1.5.0',
+    language: 'en',
+    contentHash: 'h',
+    firstSeenAt: new Date(),
+    lastSeenAt: new Date(),
+    lastChangedAt: null,
+    isDeleted: false,
+    ...overrides,
+  };
 }
 
 const SAMPLE_INPUT: AuditInput = {
@@ -1220,5 +1248,32 @@ describe('countKeywordOccurrences() exact values from fixtures', () => {
     const values = buildPlaceholderValues(SAMPLE_INPUT);
     expect(values.ownKeywordInFullDesc).toBe('0');
     expect(values.compKeywordInFullDesc).toBe('1');
+  });
+});
+
+describe('review signals in audit prompt', () => {
+  it('injects a Review Signals block when reviews are provided', () => {
+    const input: AuditInput = {
+      ...SAMPLE_INPUT,
+      ownReviews: [makeReview({ text: 'great productivity extension' })],
+      compReviews: [makeReview({ reviewId: 'c1', rating: 5, text: 'best productivity app' })],
+      ownTextReviewCount: 60,
+      compTextReviewCount: 900,
+    };
+    const [, user] = buildAuditPrompt(input);
+    expect(user.content).toContain('Review Signals');
+    expect(user.content).toContain('Captured reviews');
+  });
+
+  it('omits the block (empty placeholder) when no reviews are provided', () => {
+    const [, user] = buildAuditPrompt(SAMPLE_INPUT);
+    expect(user.content).not.toContain('Review Signals');
+    expect(user.content).not.toContain('{{reviewSignals}}');
+  });
+
+  it('appends the hedged note to every system prompt', () => {
+    for (const v of ['default', 'cot', 'rubric'] as const) {
+      expect(getVariantSystemPrompt(v)).toContain('Interpreting the "Review Signals" block');
+    }
   });
 });

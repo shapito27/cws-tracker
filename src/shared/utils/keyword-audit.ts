@@ -6,9 +6,10 @@
  * the AI response into a structured audit result.
  */
 
-import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord, AuditPromptVariant } from '../types';
+import type { ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord, AuditPromptVariant, Review } from '../types';
 import { OpenAIClient } from './openai';
 import type { ChatMessage } from './openai';
+import { computeReviewSignals, renderReviewBlock } from './review-analysis';
 import { daysAgo } from './dates';
 import { calculateQualityScore } from './quality-score';
 
@@ -51,6 +52,14 @@ export interface AuditInput {
   history14d?: AuditHistoricalContext;
   /** Additional keywords with position context (non-primary). */
   additionalKeywords?: AdditionalKeywordContext[];
+  /** Captured reviews for the own extension (optional). */
+  ownReviews?: Review[];
+  /** Captured reviews for the competitor extension (optional). */
+  compReviews?: Review[];
+  /** CWS-reported text-review count for own extension, if known. */
+  ownTextReviewCount?: number | null;
+  /** CWS-reported text-review count for competitor extension, if known. */
+  compTextReviewCount?: number | null;
 }
 
 export interface AuditRecommendation {
@@ -95,6 +104,15 @@ export interface CustomAuditPrompts {
 // Default prompts
 // ---------------------------------------------------------------------------
 
+/** Shared, hedged guidance appended to every system prompt for the review block. */
+export const REVIEW_SIGNALS_NOTE = `
+
+## Interpreting the "Review Signals" block
+If a "Review Signals" section is present, treat it as supplementary CONTEXT, not a ranking scorecard:
+- Its numbers come from a recent sample of captured text reviews, NOT the full rating population — never present them as totals.
+- Reviews correlate with popularity and lag ranking. Do NOT claim reviews cause the rank gap. Use them to (a) surface the words users actually use (keyword-discovery input for title/description) and (b) flag recent rating, velocity, or version-linked trends worth investigating.
+- Do not invent numeric ranking weights for review signals.`;
+
 export const DEFAULT_AUDIT_SYSTEM_PROMPT = `You are a Chrome Web Store ASO (App Store Optimization) analyst specializing in keyword ranking diagnostics.
 
 ## Your Domain Knowledge
@@ -131,7 +149,7 @@ Respond with valid JSON only (no markdown fences, no commentary outside JSON):
   ]
 }
 
-Provide 3-6 recommendations sorted by priority (high first). Every suggestion must reference actual data from the input — never give advice that could apply to any extension generically.`;
+Provide 3-6 recommendations sorted by priority (high first). Every suggestion must reference actual data from the input — never give advice that could apply to any extension generically.` + REVIEW_SIGNALS_NOTE;
 
 export const DEFAULT_AUDIT_USER_PROMPT_TEMPLATE = `Analyze why the competitor extension ranks higher for the keyword "{{keyword}}".
 
@@ -177,7 +195,9 @@ Competitor autocomplete position: {{compAutocomplete14d}}
 
 ## Recent Changes & Events (last 14 days)
 Your extension: {{ownEvents14d}}
-Competitor: {{compEvents14d}}`;
+Competitor: {{compEvents14d}}
+
+{{reviewSignals}}`;
 
 // ---------------------------------------------------------------------------
 // Variant B: Chain-of-Thought + Few-Shot
@@ -232,7 +252,7 @@ Example output:
     {"area": "Screenshots", "suggestion": "Add 3 more screenshots showing key features", "priority": "medium", "impact": "Improves listing quality score and conversion rate"},
     {"area": "Localization", "suggestion": "Add at least 10 more locale translations (es, fr, de, ja, ko, zh_CN, pt_BR, ru, it, nl)", "priority": "low", "impact": "Broader locale coverage improves listing completeness signal"}
   ]
-}`;
+}` + REVIEW_SIGNALS_NOTE;
 
 export const VARIANT_COT_USER_PROMPT_TEMPLATE = `Analyze why the competitor extension ranks higher for the keyword "{{keyword}}".
 
@@ -275,7 +295,9 @@ Competitor: {{compEvents14d}}
 - **Full Description**:
 <full-description>
 {{compFullDescription}}
-</full-description>`;
+</full-description>
+
+{{reviewSignals}}`;
 
 // ---------------------------------------------------------------------------
 // Variant A: Rubric-Scored + Pre-Computed Deltas
@@ -353,7 +375,7 @@ Respond with valid JSON only (no markdown fences, no commentary outside JSON):
   ]
 }
 
-Provide 3-6 recommendations sorted by priority (high first). Focus on factors with the largest score gaps — those offer the biggest ranking improvement opportunity.`;
+Provide 3-6 recommendations sorted by priority (high first). Focus on factors with the largest score gaps — those offer the biggest ranking improvement opportunity.` + REVIEW_SIGNALS_NOTE;
 
 export const VARIANT_RUBRIC_USER_PROMPT_TEMPLATE = `Analyze why the competitor extension ranks higher for the keyword "{{keyword}}".
 
@@ -403,7 +425,9 @@ Competitor: {{compEvents14d}}
 - **Full Description**:
 <full-description>
 {{compFullDescription}}
-</full-description>`;
+</full-description>
+
+{{reviewSignals}}`;
 
 // ---------------------------------------------------------------------------
 // Variant configuration
@@ -455,6 +479,7 @@ export const AUDIT_PLACEHOLDERS: Record<string, string> = {
   // Multi-keyword context
   keywords: 'Comma-separated list of all analyzed keywords',
   keywordPositions: 'Markdown table of all keywords with positions for both extensions',
+  reviewSignals: 'Compact own-vs-competitor review-signals block (velocity, recent trend, dev-reply rate, keyword mentions, languages). Empty when no reviews were captured.',
 
   // Historical: Search rank history (selected keyword)
   ownRankHistory7d: 'Your search rank for selected keyword, last 7 days (date | position)',
@@ -748,6 +773,22 @@ export function buildPlaceholderValues(input: AuditInput): Record<string, string
   values.compKeywordInTitle = String(countKeywordOccurrences(competitorListing.title, keyword));
   values.compKeywordInShortDesc = String(countKeywordOccurrences(competitorListing.shortDescription, keyword));
   values.compKeywordInFullDesc = String(countKeywordOccurrences(competitorListing.fullDescription, keyword));
+
+  // Review signals block (empty string when no reviews captured on either side)
+  const reviewKeywords = [keyword, ...additional.map((a) => a.keyword)].filter((k) => k.length > 0);
+  const ownReviewSignals =
+    input.ownReviews && input.ownReviews.length > 0
+      ? computeReviewSignals(input.ownReviews, ownListing, reviewKeywords, {
+          textReviewCount: input.ownTextReviewCount ?? null,
+        })
+      : null;
+  const compReviewSignals =
+    input.compReviews && input.compReviews.length > 0
+      ? computeReviewSignals(input.compReviews, competitorListing, reviewKeywords, {
+          textReviewCount: input.compTextReviewCount ?? null,
+        })
+      : null;
+  values.reviewSignals = renderReviewBlock(ownReviewSignals, compReviewSignals);
 
   return values;
 }
