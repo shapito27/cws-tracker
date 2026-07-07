@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
-import type { Project, Extension, Keyword, ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord } from '@/shared/types';
+import type { Project, Extension, Keyword, ListingSnapshot, RankSnapshot, AutocompleteSnapshot, EventRecord, Review } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { useSettings } from '../../composables/useSettings';
@@ -39,6 +39,7 @@ const { settings, loadSettings } = useSettings();
 const extensions = ref<Extension[]>([]);
 const keywords = ref<Keyword[]>([]);
 const snapshots = ref<Map<string, ListingSnapshot>>(new Map());
+const reviewsByExt = ref<Map<string, Review[]>>(new Map());
 const latestRanks = ref<Map<string, Map<number, RankSnapshot>>>(new Map());
 const loading = ref(true);
 
@@ -147,6 +148,10 @@ const costEstimate = computed(() => {
     competitorListing: compSnap,
     ownPosition: ownRankMap?.get(primaryKeywordId.value!)?.position ?? null,
     competitorPosition: compRankMap?.get(primaryKeywordId.value!)?.position ?? null,
+    ownReviews: reviewsByExt.value.get(props.project.ownExtensionId),
+    compReviews: reviewsByExt.value.get(selectedCompetitorId.value),
+    ownTextReviewCount: extensions.value.find((e) => e.id === props.project.ownExtensionId)?.reviewTextCount ?? null,
+    compTextReviewCount: extensions.value.find((e) => e.id === selectedCompetitorId.value)?.reviewTextCount ?? null,
     additionalKeywords: additional.length > 0 ? additional : undefined,
   };
 
@@ -176,6 +181,10 @@ const previewMessages = computed(() => {
     competitorListing: compSnap,
     ownPosition: ownRankMap?.get(primaryKeywordId.value!)?.position ?? null,
     competitorPosition: compRankMap?.get(primaryKeywordId.value!)?.position ?? null,
+    ownReviews: reviewsByExt.value.get(props.project.ownExtensionId),
+    compReviews: reviewsByExt.value.get(selectedCompetitorId.value),
+    ownTextReviewCount: extensions.value.find((e) => e.id === props.project.ownExtensionId)?.reviewTextCount ?? null,
+    compTextReviewCount: extensions.value.find((e) => e.id === selectedCompetitorId.value)?.reviewTextCount ?? null,
     history7d: previewHistory7d.value,
     history14d: previewHistory14d.value,
     additionalKeywords: additional.length > 0 ? additional : undefined,
@@ -224,11 +233,13 @@ onMounted(async () => {
   // Load snapshots and ranks
   const newSnapshots = new Map<string, ListingSnapshot>();
   const newRanks = new Map<string, Map<number, RankSnapshot>>();
+  const newReviews = new Map<string, Review[]>();
 
   for (const ext of extensions.value) {
     const snap = await getLatestSnapshot(ext.id);
     if (snap) newSnapshots.set(ext.id, snap);
     newRanks.set(ext.id, new Map());
+    newReviews.set(ext.id, await db.getReviews(ext.id));
   }
 
   // Load latest ranks per keyword per extension
@@ -243,6 +254,7 @@ onMounted(async () => {
 
   snapshots.value = newSnapshots;
   latestRanks.value = newRanks;
+  reviewsByExt.value = newReviews;
 
   // Apply pre-selections
   if (props.preSelectedKeywordId) {
@@ -394,6 +406,10 @@ async function runAudit(): Promise<void> {
       competitorPosition: compRankMap?.get(primaryKeywordId.value)?.position ?? null,
       history7d,
       history14d,
+      ownReviews: reviewsByExt.value.get(ownExtId),
+      compReviews: reviewsByExt.value.get(compExtId),
+      ownTextReviewCount: extensions.value.find((e) => e.id === ownExtId)?.reviewTextCount ?? null,
+      compTextReviewCount: extensions.value.find((e) => e.id === compExtId)?.reviewTextCount ?? null,
       additionalKeywords: additional.length > 0 ? additional : undefined,
     };
 
