@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   computeReviewSignals,
   renderReviewBlock,
+  reviewSetFingerprint,
   type ReviewSignals,
 } from '../../../src/shared/utils/review-analysis';
 import type { Review, ListingSnapshot } from '../../../src/shared/types';
@@ -189,5 +190,38 @@ describe('renderReviewBlock()', () => {
     expect(block).toContain('sample'); // sample-labeling guardrail
     expect(block).toContain('No review scan yet'); // competitor side missing
     expect(block).toContain('vpn');
+  });
+});
+
+describe('recency guard + cell escaping + fingerprint', () => {
+  it('does not count a future-dated review as recent', () => {
+    const s = computeReviewSignals(
+      [makeReview({ postedDate: '2026-07-20' })], // after REF (2026-07-06)
+      null, [], { referenceDate: REF },
+    );
+    expect(s.recentCount).toBe(0);
+    expect(s.priorCount).toBe(0);
+  });
+
+  it('escapes pipe characters in rendered cells', () => {
+    const s = computeReviewSignals(
+      [makeReview({ text: 'a|b review', rating: 5 })],
+      null, ['a|b'], { referenceDate: REF },
+    );
+    const block = renderReviewBlock(s, null);
+    // the keyword "a|b" must appear escaped, never as a raw table delimiter
+    expect(block).toContain('a\\|b');
+    expect(block).not.toMatch(/\| a\|b:/);
+  });
+
+  it('fingerprints a review set by count and latest epoch; empty => 0', () => {
+    expect(reviewSetFingerprint(undefined)).toBe('0');
+    expect(reviewSetFingerprint([])).toBe('0');
+    const a = reviewSetFingerprint([makeReview({ postedDate: '2026-07-01' })]);
+    const b = reviewSetFingerprint([
+      makeReview({ postedDate: '2026-07-01' }),
+      makeReview({ postedDate: '2026-07-02' }),
+    ]);
+    expect(a).not.toBe(b); // different count => different fingerprint
   });
 });

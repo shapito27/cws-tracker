@@ -116,6 +116,9 @@ export function computeReviewSignals(
   let recentCount = 0;
   let priorCount = 0;
   for (const r of reviews) {
+    // Ignore future-dated reviews (clock skew / timezone) — daysBetween is
+    // absolute, so without this guard a future date would count as "recent".
+    if (r.postedDate > refDate) continue;
     const age = daysBetween(r.postedDate, refDate);
     if (age < windowDays) recentCount += 1;
     else if (age < windowDays * 2) priorCount += 1;
@@ -197,6 +200,11 @@ function keywordText(s: ReviewSignals): string {
   return s.keywordHits.map((k) => `${k.keyword}: ${k.fullWord}/${k.partial}`).join('; ');
 }
 
+/** Escape a value so it cannot break the markdown table (pipe / newline). */
+function sanitizeCell(value: string): string {
+  return value.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+}
+
 /**
  * Render the compact own-vs-competitor review block, or '' when neither side
  * has captured reviews. Numbers are explicitly labeled as a recent sample.
@@ -225,7 +233,19 @@ export function renderReviewBlock(own: ReviewSignals | null, comp: ReviewSignals
     '',
     '| Signal | Your Extension | Competitor |',
     '|--------|----------------|------------|',
-    ...rows.map(([label, fn]) => `| ${label} | ${cell(own, fn)} | ${cell(comp, fn)} |`),
+    ...rows.map(([label, fn]) => `| ${label} | ${sanitizeCell(cell(own, fn))} | ${sanitizeCell(cell(comp, fn))} |`),
   ];
   return lines.join('\n');
+}
+
+/**
+ * Compact fingerprint of a review set for audit-cache invalidation: it changes
+ * when reviews are added (count) or edited/re-seen (latest update epoch), so a
+ * same-day re-audit busts the cache once review data moves.
+ */
+export function reviewSetFingerprint(reviews: Review[] | undefined): string {
+  if (!reviews || reviews.length === 0) return '0';
+  let latest = 0;
+  for (const r of reviews) latest = Math.max(latest, r.updatedAtEpoch, r.postedAtEpoch);
+  return `${reviews.length}.${latest}`;
 }
