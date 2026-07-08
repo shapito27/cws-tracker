@@ -214,7 +214,7 @@ describe('recency guard + cell escaping + fingerprint', () => {
     expect(block).not.toMatch(/\| a\|b:/);
   });
 
-  it('fingerprints a review set by count and latest epoch; empty => 0', () => {
+  it('fingerprints a review set by count and content; empty => 0', () => {
     expect(reviewSetFingerprint(undefined)).toBe('0');
     expect(reviewSetFingerprint([])).toBe('0');
     const a = reviewSetFingerprint([makeReview({ postedDate: '2026-07-01' })]);
@@ -223,5 +223,22 @@ describe('recency guard + cell escaping + fingerprint', () => {
       makeReview({ postedDate: '2026-07-02' }),
     ]);
     expect(a).not.toBe(b); // different count => different fingerprint
+  });
+
+  it('fingerprint reacts to content changes and is order-independent', () => {
+    const a = reviewSetFingerprint([makeReview({ reviewId: 'x', contentHash: 'h1' })]);
+    const b = reviewSetFingerprint([makeReview({ reviewId: 'x', contentHash: 'h2' })]);
+    expect(a).not.toBe(b); // content change with same id/count still busts
+    const p = reviewSetFingerprint([makeReview({ reviewId: 'x' }), makeReview({ reviewId: 'y' })]);
+    const q = reviewSetFingerprint([makeReview({ reviewId: 'y' }), makeReview({ reviewId: 'x' })]);
+    expect(p).toBe(q); // order-independent
+  });
+
+  it('excludes a future-dated review from the recent-average sample', () => {
+    const s = computeReviewSignals(
+      [makeReview({ postedDate: '2026-07-20', rating: 1 }), makeReview({ postedDate: '2026-07-01', rating: 5 })],
+      null, [], { referenceDate: REF, recentSampleSize: 1 },
+    );
+    expect(s.recentAvgRating).toBe(5); // future 1★ excluded; newest valid is the 5★
   });
 });

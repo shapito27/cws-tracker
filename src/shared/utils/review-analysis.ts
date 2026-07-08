@@ -124,7 +124,10 @@ export function computeReviewSignals(
     else if (age < windowDays * 2) priorCount += 1;
   }
 
-  const byRecent = [...valid].sort((a, b) => b.postedAtEpoch - a.postedAtEpoch).slice(0, sampleSize);
+  const byRecent = [...valid]
+    .filter((r) => r.postedDate <= refDate) // consistency with the velocity future-date guard
+    .sort((a, b) => b.postedAtEpoch - a.postedAtEpoch)
+    .slice(0, sampleSize);
   const recentAvgRating =
     byRecent.length > 0 ? round1(byRecent.reduce((s, r) => s + r.rating, 0) / byRecent.length) : null;
 
@@ -245,7 +248,16 @@ export function renderReviewBlock(own: ReviewSignals | null, comp: ReviewSignals
  */
 export function reviewSetFingerprint(reviews: Review[] | undefined): string {
   if (!reviews || reviews.length === 0) return '0';
-  let latest = 0;
-  for (const r of reviews) latest = Math.max(latest, r.updatedAtEpoch, r.postedAtEpoch);
-  return `${reviews.length}.${latest}`;
+  // Fold each review's stable id + contentHash (the change signal covering
+  // rating/text/helpfulCount/devReply) into an order-independent sum, so ANY
+  // content change — a dev reply, an edit, a helpful-count bump — busts the
+  // audit cache even when the review's own updated-timestamp does not move.
+  let acc = 0;
+  for (const r of reviews) {
+    const s = `${r.reviewId}:${r.contentHash}`;
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
+    acc = (acc + (h >>> 0)) | 0;
+  }
+  return `${reviews.length}.${(acc >>> 0).toString(36)}`;
 }
