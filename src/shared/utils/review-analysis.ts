@@ -1,8 +1,9 @@
 /**
  * Review analysis for the AI keyword audit.
  *
- * Computes a compact set of "review signals" from CAPTURED reviews (a recent,
- * text-only sample capped by reviewFetchLimit — NOT the full rating population)
+ * Computes a compact set of "review signals" from CAPTURED reviews (a local
+ * sample accumulated across scans, may include rating-only reviews — NOT the
+ * full rating population)
  * and renders them into one markdown block for the audit prompt. Pure module:
  * no Vue/DOM/chrome imports.
  *
@@ -220,7 +221,7 @@ export function renderReviewBlock(own: ReviewSignals | null, comp: ReviewSignals
 
   const lines = [
     '## Review Signals',
-    '_Based on the most recent captured text reviews (a recent sample, NOT the full rating population). Use for diagnosis and keyword discovery; do not treat as a ranking score._',
+    '_Based on the reviews captured locally for each extension — a sample accumulated across scans (may include rating-only reviews), NOT the full rating population. Use for diagnosis and keyword discovery; do not treat as a ranking score._',
     '',
     '| Signal | Your Extension | Competitor |',
     '|--------|----------------|------------|',

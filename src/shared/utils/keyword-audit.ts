@@ -109,7 +109,7 @@ export const REVIEW_SIGNALS_NOTE = `
 
 ## Interpreting the "Review Signals" block
 If a "Review Signals" section is present, treat it as supplementary CONTEXT, not a ranking scorecard:
-- Its numbers come from a recent sample of captured text reviews, NOT the full rating population — never present them as totals.
+- Its numbers come from the reviews captured locally (a sample, NOT the full rating population) — never present them as totals.
 - Reviews correlate with popularity and lag ranking. Do NOT claim reviews cause the rank gap. Use them to (a) surface the words users actually use (keyword-discovery input for title/description) and (b) flag recent rating, velocity, or version-linked trends worth investigating.
 - Do not invent numeric ranking weights for review signals.`;
 
