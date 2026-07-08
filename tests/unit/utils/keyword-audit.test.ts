@@ -1277,3 +1277,35 @@ describe('review signals in audit prompt', () => {
     }
   });
 });
+
+describe('review guardrail + cache fingerprint', () => {
+  it('appends the review note to a custom system prompt when reviews are present', () => {
+    const [sys] = buildAuditPrompt(
+      { ...SAMPLE_INPUT, ownReviews: [makeReview()] },
+      { systemPrompt: 'CUSTOM SYSTEM PROMPT WITH NO NOTE', variant: 'default' },
+    );
+    expect(sys.content).toContain('CUSTOM SYSTEM PROMPT WITH NO NOTE');
+    expect(sys.content).toContain('Interpreting the "Review Signals" block');
+  });
+
+  it('does not append the note to a custom system prompt when no reviews', () => {
+    const [sys] = buildAuditPrompt(
+      SAMPLE_INPUT,
+      { systemPrompt: 'CUSTOM SYSTEM PROMPT WITH NO NOTE', variant: 'default' },
+    );
+    expect(sys.content).not.toContain('Interpreting the "Review Signals" block');
+  });
+
+  it('does not duplicate the note on default prompts with reviews', () => {
+    const [sys] = buildAuditPrompt({ ...SAMPLE_INPUT, ownReviews: [makeReview()] });
+    const occurrences = sys.content.split('Interpreting the "Review Signals" block').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('review fingerprint changes the cache key', () => {
+    const base = buildCacheKey(['k'], 'own', 'comp', '2026-07-06', 'default');
+    const withFp = buildCacheKey(['k'], 'own', 'comp', '2026-07-06', 'default', '3.123');
+    expect(withFp).not.toBe(base);
+    expect(buildCacheKey(['k'], 'own', 'comp', '2026-07-06', 'default', '3.123')).toBe(withFp);
+  });
+});

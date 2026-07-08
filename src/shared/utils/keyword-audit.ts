@@ -838,12 +838,19 @@ export function buildAuditPrompt(
   const placeholders = buildPlaceholderValues(input);
 
   const customSystem = customPrompts?.systemPrompt?.trim();
-  const systemContent = customSystem || getVariantSystemPrompt(variant);
+  let systemContent = customSystem || getVariantSystemPrompt(variant);
 
   const customUser = customPrompts?.userPromptTemplate?.trim();
   const userTemplate = customUser || getVariantUserPromptTemplate(variant);
 
   const userContent = fillTemplate(userTemplate, placeholders);
+
+  // If a review-signals block will be present, ensure the hedged note travels
+  // with it even when a custom system prompt replaced the default (which
+  // already contains the note). The includes() check prevents duplication.
+  if (placeholders.reviewSignals && !systemContent.includes('Interpreting the "Review Signals" block')) {
+    systemContent += REVIEW_SIGNALS_NOTE;
+  }
 
   return [
     { role: 'system', content: systemContent },
@@ -939,12 +946,14 @@ export function buildCacheKey(
   competitorExtensionId: string,
   date: string,
   variant: AuditPromptVariant = 'default',
+  reviewFingerprint = '',
 ): string {
   const keywordPart = Array.isArray(keywords)
     ? [...keywords].sort().join(',')
     : keywords;
   const variantSuffix = variant !== 'default' ? `:${variant}` : '';
-  return `audit:${keywordPart}:${ownExtensionId}:${competitorExtensionId}:${date}${variantSuffix}`;
+  const reviewSuffix = reviewFingerprint ? `:r=${reviewFingerprint}` : '';
+  return `audit:${keywordPart}:${ownExtensionId}:${competitorExtensionId}:${date}${variantSuffix}${reviewSuffix}`;
 }
 
 // ---------------------------------------------------------------------------
