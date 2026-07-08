@@ -11,6 +11,7 @@ import {
   estimateAuditTokens,
   parseAuditResponse,
   buildCacheKey,
+  shortHash,
   runKeywordAudit,
   formatRankHistory,
   formatAutocompleteHistory,
@@ -804,10 +805,13 @@ describe('buildCacheKey() multi-keyword', () => {
     expect(key1).toBe(key2);
   });
 
-  it('multi-keyword array is order-independent', () => {
+  it('reordering the primary keyword changes the key (#1 - primary keyword is significant)', () => {
+    // NOTE: pre-round-2 this asserted order-independence for the whole array,
+    // which was the bug in finding #1 (losing which keyword is primary). The
+    // first element is now the primary keyword and materially changes the key.
     const key1 = buildCacheKey(['alpha', 'beta'], 'ext1', 'ext2', '2026-02-05');
     const key2 = buildCacheKey(['beta', 'alpha'], 'ext1', 'ext2', '2026-02-05');
-    expect(key1).toBe(key2);
+    expect(key1).not.toBe(key2);
   });
 
   it('different keyword sets produce different keys', () => {
@@ -1103,14 +1107,14 @@ describe('estimateAuditTokens() with variants', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildCacheKey() format pinning', () => {
-  it('default variant key has exact format: audit:keyword:ext1:ext2:date', () => {
+  it('default variant key has exact format: audit:["primary",[rest]]:ext1:ext2:date', () => {
     const key = buildCacheKey('password manager', 'ext1', 'ext2', '2026-03-01');
-    expect(key).toBe('audit:password manager:ext1:ext2:2026-03-01');
+    expect(key).toBe('audit:["password manager",[]]:ext1:ext2:2026-03-01');
   });
 
   it('non-default variant key appends :variant suffix', () => {
     const key = buildCacheKey('password manager', 'ext1', 'ext2', '2026-03-01', 'rubric');
-    expect(key).toBe('audit:password manager:ext1:ext2:2026-03-01:rubric');
+    expect(key).toBe('audit:["password manager",[]]:ext1:ext2:2026-03-01:rubric');
   });
 
   it('backward compatibility: default variant key matches pre-variant format', () => {
@@ -1120,6 +1124,30 @@ describe('buildCacheKey() format pinning', () => {
     expect(keyOld).toBe(keyNew);
     // And it must NOT contain a variant suffix
     expect(keyOld).not.toMatch(/:default$/);
+  });
+});
+
+describe('buildCacheKey correctness (round-2)', () => {
+  const o = 'own', c = 'comp', d = '2026-07-06';
+  it('distinguishes primary keyword: same set, different primary => different key (#1)', () => {
+    expect(buildCacheKey(['a', 'b'], o, c, d)).not.toBe(buildCacheKey(['b', 'a'], o, c, d));
+  });
+  it('is order-independent for additional keywords when primary is unchanged', () => {
+    expect(buildCacheKey(['a', 'b', 'c'], o, c, d)).toBe(buildCacheKey(['a', 'c', 'b'], o, c, d));
+  });
+  it('does not collide for keywords containing separators (#6)', () => {
+    expect(buildCacheKey(['a,b'], o, c, d)).not.toBe(buildCacheKey(['a', 'b'], o, c, d));
+    expect(buildCacheKey(['a:b'], o, c, d)).not.toBe(buildCacheKey(['a', 'b'], o, c, d));
+  });
+  it('custom prompt fingerprint changes the key (#2)', () => {
+    const base = buildCacheKey(['k'], o, c, d, 'default', '', '');
+    expect(buildCacheKey(['k'], o, c, d, 'default', '', shortHash('customA'))).not.toBe(base);
+    expect(buildCacheKey(['k'], o, c, d, 'default', '', shortHash('customA')))
+      .toBe(buildCacheKey(['k'], o, c, d, 'default', '', shortHash('customA')));
+  });
+  it('shortHash is deterministic and input-sensitive', () => {
+    expect(shortHash('x')).toBe(shortHash('x'));
+    expect(shortHash('x')).not.toBe(shortHash('y'));
   });
 });
 

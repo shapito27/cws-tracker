@@ -940,6 +940,13 @@ export function parseAuditResponse(raw: string): {
 // Cache key generation
 // ---------------------------------------------------------------------------
 
+/** Small non-cryptographic hash (djb2) for cache-key fingerprints. */
+export function shortHash(input: string): string {
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) h = ((h << 5) + h + input.charCodeAt(i)) | 0;
+  return (h >>> 0).toString(36);
+}
+
 export function buildCacheKey(
   keywords: string | string[],
   ownExtensionId: string,
@@ -947,13 +954,19 @@ export function buildCacheKey(
   date: string,
   variant: AuditPromptVariant = 'default',
   reviewFingerprint = '',
+  promptFingerprint = '',
 ): string {
-  const keywordPart = Array.isArray(keywords)
-    ? [...keywords].sort().join(',')
-    : keywords;
+  const list = Array.isArray(keywords) ? keywords : [keywords];
+  // The FIRST keyword is the primary audit keyword and materially changes the
+  // result, so keep it distinct; additional keywords are order-independent, so
+  // sort only those. JSON encoding makes the key collision-proof for keywords
+  // that contain ',' or ':' (finding #6).
+  const [primary, ...rest] = list;
+  const keywordPart = JSON.stringify([primary ?? '', [...rest].sort()]);
   const variantSuffix = variant !== 'default' ? `:${variant}` : '';
   const reviewSuffix = reviewFingerprint ? `:r=${reviewFingerprint}` : '';
-  return `audit:${keywordPart}:${ownExtensionId}:${competitorExtensionId}:${date}${variantSuffix}${reviewSuffix}`;
+  const promptSuffix = promptFingerprint ? `:p=${promptFingerprint}` : '';
+  return `audit:${keywordPart}:${ownExtensionId}:${competitorExtensionId}:${date}${variantSuffix}${reviewSuffix}${promptSuffix}`;
 }
 
 // ---------------------------------------------------------------------------
