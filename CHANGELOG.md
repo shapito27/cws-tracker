@@ -6,6 +6,7 @@ All notable changes to CWS Tracker will be documented in this file.
 
 ### Added
 - AI keyword audit now includes a compact "Review Signals" block (review velocity, recent rating trend, version-correlated rating, developer-reply rate, language spread, and keyword-in-reviews for both extensions). Injected into all prompt variants only when reviews have been captured, and framed as diagnostic + keyword-discovery context (a recent sample, not the full rating population; not a causal ranking factor).
+- **Review-signals hardening (post-review fixes):** future-dated reviews (clock skew) no longer count as "recent"; markdown table cells are escaped so review text/keywords can't break the table; the hedged review-interpretation note is now attached even to custom system prompts; the audit cache key now incorporates a review-set fingerprint so a same-day re-audit picks up newly captured reviews instead of returning a stale cached result; and `AuditTool.vue` now lazy-loads reviews only for the own extension + selected competitor (not every tracked extension) on mount and on competitor change.
 
 ## [0.36.0] - 2026-07-03
 

@@ -18,6 +18,7 @@ import {
   type CachedAuditResult,
   type CustomAuditPrompts,
 } from '@/shared/utils/keyword-audit';
+import { reviewSetFingerprint } from '@/shared/utils/review-analysis';
 import { today, daysAgo } from '@/shared/utils/dates';
 
 const props = defineProps<{
@@ -104,6 +105,19 @@ async function loadPreviewHistoricalContext(): Promise<void> {
     ownEvents: ownEv14d,
     compEvents: compEv14d,
   };
+}
+
+// Load reviews only for the own extension + selected competitor (not every
+// project extension — reviews accumulate unbounded across scans).
+async function loadPairReviews(): Promise<void> {
+  const ownExtId = props.project.ownExtensionId;
+  const compExtId = selectedCompetitorId.value;
+  const next = new Map<string, Review[]>();
+  next.set(ownExtId, await db.getReviews(ownExtId));
+  if (compExtId && compExtId !== ownExtId) {
+    next.set(compExtId, await db.getReviews(compExtId));
+  }
+  reviewsByExt.value = next;
 }
 
 // Computed
@@ -220,6 +234,7 @@ const keywordDropdownLabel = computed(() => {
 // Load historical context when keyword/competitor selection changes
 watch([primaryKeywordId, selectedCompetitorId], () => {
   loadPreviewHistoricalContext();
+  loadPairReviews();
 });
 
 // Lifecycle
@@ -233,13 +248,11 @@ onMounted(async () => {
   // Load snapshots and ranks
   const newSnapshots = new Map<string, ListingSnapshot>();
   const newRanks = new Map<string, Map<number, RankSnapshot>>();
-  const newReviews = new Map<string, Review[]>();
 
   for (const ext of extensions.value) {
     const snap = await getLatestSnapshot(ext.id);
     if (snap) newSnapshots.set(ext.id, snap);
     newRanks.set(ext.id, new Map());
-    newReviews.set(ext.id, await db.getReviews(ext.id));
   }
 
   // Load latest ranks per keyword per extension
@@ -254,7 +267,6 @@ onMounted(async () => {
 
   snapshots.value = newSnapshots;
   latestRanks.value = newRanks;
-  reviewsByExt.value = newReviews;
 
   // Apply pre-selections
   if (props.preSelectedKeywordId) {
@@ -268,6 +280,8 @@ onMounted(async () => {
   } else if (competitors.value.length > 0) {
     selectedCompetitorId.value = competitors.value[0].id;
   }
+
+  await loadPairReviews();
 
   loading.value = false;
 });
@@ -309,12 +323,17 @@ async function runAudit(): Promise<void> {
     keywords.value.find((k) => k.id === kwId)?.text ?? ''
   );
 
+  const reviewFingerprint =
+    reviewSetFingerprint(reviewsByExt.value.get(props.project.ownExtensionId)) +
+    '-' +
+    reviewSetFingerprint(reviewsByExt.value.get(selectedCompetitorId.value));
   const cacheKey = buildCacheKey(
     allKeywordTexts,
     props.project.ownExtensionId,
     selectedCompetitorId.value,
     today(),
     settings.auditPromptVariant || 'default',
+    reviewFingerprint,
   );
 
   try {
