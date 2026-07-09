@@ -330,9 +330,10 @@ async function runAudit(): Promise<void> {
     reviewSetFingerprint(reviewsByExt.value.get(selectedCompetitorId.value));
   // Custom prompt text isn't captured by `variant`; fingerprint it so editing a
   // custom prompt and re-running the same day doesn't return a stale audit (#2).
+  // Join with NUL (illegal in prompt text) so no (system, user) pair collides.
   const promptFingerprint =
     settings.auditSystemPrompt || settings.auditUserPromptTemplate
-      ? shortHash(`${settings.auditSystemPrompt ?? ''} ${settings.auditUserPromptTemplate ?? ''}`)
+      ? shortHash(`${settings.auditSystemPrompt ?? ''}\u0000${settings.auditUserPromptTemplate ?? ''}`)
       : '';
   const cacheKey = buildCacheKey(
     allKeywordTexts,
