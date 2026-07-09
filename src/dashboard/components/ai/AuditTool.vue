@@ -8,6 +8,7 @@ import { OpenAIClient, OpenAIError } from '@/shared/utils/openai';
 import {
   buildAuditPrompt,
   buildCacheKey,
+  shortHash,
   estimateAuditTokens,
   runKeywordAudit,
   type AuditInput,
@@ -327,6 +328,12 @@ async function runAudit(): Promise<void> {
     reviewSetFingerprint(reviewsByExt.value.get(props.project.ownExtensionId)) +
     '-' +
     reviewSetFingerprint(reviewsByExt.value.get(selectedCompetitorId.value));
+  // Custom prompt text isn't captured by `variant`; fingerprint it so editing a
+  // custom prompt and re-running the same day doesn't return a stale audit (#2).
+  const promptFingerprint =
+    settings.auditSystemPrompt || settings.auditUserPromptTemplate
+      ? shortHash(`${settings.auditSystemPrompt ?? ''} ${settings.auditUserPromptTemplate ?? ''}`)
+      : '';
   const cacheKey = buildCacheKey(
     allKeywordTexts,
     props.project.ownExtensionId,
@@ -334,6 +341,7 @@ async function runAudit(): Promise<void> {
     today(),
     settings.auditPromptVariant || 'default',
     reviewFingerprint,
+    promptFingerprint,
   );
 
   try {
