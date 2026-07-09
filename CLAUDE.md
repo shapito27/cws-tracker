@@ -120,6 +120,8 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 
 **Build output:** `npm run build` builds to `dist/` AND copies to Windows desktop (`${CWS_DIST_DIR:?}/`). Use `npm run build:only` to build without copying. Chunk splitting: ApexCharts is in a separate `apexcharts` chunk.
 
+**`dist/` is committed to the repo**, so any verification `build:only` rewrites its content-hashed asset filenames and dirties the working tree — restore with `git checkout -- dist/ && git clean -fdq dist/` before committing source; stage `dist/` only for a deliberate release rebuild.
+
 ## Critical Rules
 
 **Queue system:**
