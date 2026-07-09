@@ -35,6 +35,7 @@ running locally in your browser, with your data never leaving the machine.
   - [Keyword & ranking analytics](#-keyword--ranking-analytics)
   - [Autocomplete / search-suggestion tracking](#-autocomplete--search-suggestion-tracking)
   - [Listing quality & optimization](#-listing-quality--optimization)
+  - [Reviews & reputation](#-reviews--reputation)
   - [AI-powered keyword audit](#-ai-powered-keyword-audit)
   - [Change detection & event timeline](#-change-detection--event-timeline)
   - [Your data stays yours](#-your-data-stays-yours)
@@ -195,6 +196,16 @@ actionable recommendation when it scores below par:
 Plus **Flesch reading-ease** readability scoring and per-keyword **density matrices** so
 you can tune copy, not guess at it.
 
+### ⭐ Reviews & reputation
+
+Capture each extension's reviews (star rating, text, developer reply, version reviewed,
+language) and keep them current as they change:
+
+- **Reviews tab** — rating distribution, text-vs-rating-only split, and a sortable,
+  filterable review list for your extension and any competitor.
+- **Voice-of-customer keywords** — the terms users actually use, mined from review text.
+- **Review events** — new/edited reviews and developer replies land on the event timeline.
+
 ### 🤖 AI-powered keyword audit
 
 For any keyword where a competitor outranks you, click **"Why higher?"** to run a
@@ -204,6 +215,9 @@ keyword audit through your own OpenAI key:
   risk into a structured prompt.
 - Returns a relevance analysis, a metric-by-metric comparison, and **prioritized
   (high/medium/low) recommendations**.
+- Folds in a **review-signals** block — rating trend, review velocity, developer-reply
+  rate, and keyword mentions in reviews — as *diagnostic* context (hedged: reviews track
+  ranking mostly via popularity, not causally).
 - **Cost shown before you run it**, results **cached per day** so re-opens are free, and
   prompt variants (default / chain-of-thought / rubric-scored) are switchable in
   Settings.
