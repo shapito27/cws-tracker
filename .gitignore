@@ -3,3 +3,4 @@ dist/.vite/
 .wrangler/
 *.tsbuildinfo
 skills-lock.json
+CLAUDE.local.md
