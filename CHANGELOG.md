@@ -2,6 +2,23 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.37.1] - 2026-08-22
+
+### Fixed
+- **A failed database read no longer looks like data loss.** `useProjects` caught IndexedDB errors into `error`, but `HomePage.vue` never rendered it — so any read failure showed the "No projects" empty state, indistinguishable from every project actually being gone. The dashboard now shows an explicit error with the message, a Retry button, and a warning not to import a backup before checking.
+- **Import no longer silently overwrites live settings.** Restoring a backup also restored its `settings` blob, writing the proxy URL, proxy API key, OpenAI key and scan schedule that were current *when the export was taken* over the working ones — breaking scans with stale credentials in a way that is hard to trace back to the import. Restoring settings is now an explicit opt-in checkbox, **off by default**; table data is restored either way.
+- **Exports were losing all reviews.** The `reviews` table (schema v5) was absent from `ExportTables`/`EXPORT_TABLE_NAMES`, so every backup silently dropped it. Reviews are now exported and imported, and `meta.schemaVersion` is corrected from `4` to `5`.
+- **Review timestamps would have round-tripped as strings.** `firstSeenAt`, `lastSeenAt` and `lastChangedAt` were missing from the import reviver's `DATE_FIELDS`. Added — deliberately *without* `postedDate`/`devReplyDate`, which are indexed `YYYY-MM-DD` strings that reviving into `Date` objects would have broken the `[extensionId+postedDate]` index. A round-trip test now asserts both halves.
+- **`importData`'s transaction scope is derived from the table list** instead of being a second hand-maintained array. Adding a table to the export while forgetting the scope array would have made `clear()` throw `NotFoundError` and abort every import.
+
+### Added
+- **`unlimitedStorage` permission.** Without it the extension's IndexedDB sits in Chrome's best-effort storage bucket, which Chrome may evict wholesale under disk pressure — destroying the database while `chrome.storage.local` (a separate store) survives, so settings look intact and all tracking data is gone. This was observed in the field: a user's `CWSTrackerDB` LevelDB was recreated from scratch on 2026-08-19 (fresh `MANIFEST-000001`, auto-increment generators reset to 1) while the settings store dated from 2026-02-06.
+- **Guard rails before a destructive import.** Import replaces all data wholesale; validation now warns when the file is more than 7 days old (reporting its exact age and export date) and when it contains **no projects** — the case that erases every project while reporting success. The export date is shown in the confirmation panel.
+- Backward compatibility for pre-v5 export files: a missing `reviews` table is a warning treated as empty, not a validation error.
+
+### Notes
+- **Known gap (unchanged):** `dataRetentionDays` is configurable in Settings but `pruneOldSnapshots` has no production caller, so snapshot retention is never enforced. Left as-is deliberately — wiring it up starts deleting data, which is not a change to make in a fix release.
+
 ## [0.37.0] - 2026-07-07
 
 ### Added

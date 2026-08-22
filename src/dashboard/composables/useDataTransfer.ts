@@ -103,7 +103,18 @@ export function useDataTransfer() {
     }
   }
 
-  async function confirmImport(): Promise<void> {
+  /**
+   * Replace all local data with the validated import file.
+   *
+   * `restoreSettings` defaults to **false**: an export carries the proxy URL,
+   * proxy API key and OpenAI key that were live when it was taken, and silently
+   * writing a stale key over a working one breaks scanning in a way that is
+   * hard to trace back to the import. Restoring settings is now a deliberate
+   * opt-in.
+   */
+  async function confirmImport(options: { restoreSettings?: boolean } = {}): Promise<void> {
+    const { restoreSettings = false } = options;
+
     if (!pendingImportData) {
       error.value = 'No validated data to import';
       return;
@@ -118,8 +129,12 @@ export function useDataTransfer() {
         importProgress.value = { ...progress };
       });
 
-      // Import settings (non-fatal on failure)
-      if (pendingImportData.settings && Object.keys(pendingImportData.settings).length > 0) {
+      // Import settings (opt-in, non-fatal on failure)
+      if (
+        restoreSettings &&
+        pendingImportData.settings &&
+        Object.keys(pendingImportData.settings).length > 0
+      ) {
         try {
           await settingsManager.setMultiple(pendingImportData.settings);
         } catch (e) {
@@ -132,7 +147,17 @@ export function useDataTransfer() {
         }
       }
 
-      successMessage.value = 'All data imported successfully';
+      // Say plainly that settings were skipped. Restoring onto a fresh profile
+      // otherwise reports success while proxyUrl stays empty, and every scan
+      // trigger silently stays disabled with nothing pointing back to the import.
+      const hadSettings =
+        !!pendingImportData.settings && Object.keys(pendingImportData.settings).length > 0;
+      successMessage.value =
+        !restoreSettings && hadSettings
+          ? 'All data imported successfully. Settings were not restored — your current proxy URL, ' +
+            'API keys and scan schedule are unchanged. Re-run the import with "Also restore ' +
+            'settings" ticked if you wanted them from the backup.'
+          : 'All data imported successfully';
       pendingImportData = null;
       validationResult.value = null;
       importProgress.value = null;
