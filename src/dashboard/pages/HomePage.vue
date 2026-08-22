@@ -12,7 +12,7 @@ import RecentRankChanges from '../components/RecentRankChanges.vue';
 import ProxyRequiredBanner from '../components/ProxyRequiredBanner.vue';
 
 const router = useRouter();
-const { projects, loading, loadProjects, createProject } = useProjects();
+const { projects, loading, error: loadError, loadProjects, createProject } = useProjects();
 const { scanStatus, requestRefresh } = useServiceWorker();
 const { settings, loadSettings } = useSettings();
 const { proxyConfigured, scanBlocked } = useProxyStatus();
@@ -196,9 +196,49 @@ function openCreateModal(): void {
       </div>
     </div>
 
+    <!--
+      A refresh failed but we still hold good data (loadProjects re-runs after
+      every scan). Warn without tearing down a populated grid — telling someone
+      their projects failed to load while those projects are on screen reads as
+      data loss that has not happened.
+    -->
+    <div
+      v-if="loadError && projects.length > 0"
+      class="mb-4 rounded-md border border-amber-200 bg-amber-50 p-3"
+    >
+      <p class="text-sm text-amber-800">
+        Could not refresh from the database; showing the last data loaded.
+        <button class="underline hover:no-underline" @click="loadProjects">Retry</button>
+      </p>
+      <p class="mt-1 font-mono text-xs text-amber-700 break-all">{{ loadError }}</p>
+    </div>
+
     <!-- Loading state -->
     <div v-if="loading" class="text-center py-12">
       <p class="text-sm text-gray-500">Loading projects...</p>
+    </div>
+
+    <!--
+      Database read failure with nothing loaded. Without this the catch in
+      useProjects leaves projects empty and the page renders the "No projects"
+      empty state, which is indistinguishable from genuine data loss.
+    -->
+    <div
+      v-else-if="loadError && projects.length === 0"
+      class="rounded-lg border border-red-200 bg-red-50 p-6"
+    >
+      <h3 class="text-sm font-semibold text-red-800">Could not load your projects</h3>
+      <p class="mt-1 text-sm text-red-700">
+        The local database could not be read. Your data has not necessarily been lost — do not
+        import a backup until you have checked.
+      </p>
+      <p class="mt-2 font-mono text-xs text-red-600 break-all">{{ loadError }}</p>
+      <button
+        class="mt-3 rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+        @click="loadProjects"
+      >
+        Retry
+      </button>
     </div>
 
     <!-- Empty state -->

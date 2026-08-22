@@ -50,6 +50,8 @@ const localAuditUserPromptTemplate = ref('');
 const localAuditPromptVariant = ref<AuditPromptVariant>('default');
 const showPlaceholderHelp = ref(false);
 const importFileInput = ref<HTMLInputElement | null>(null);
+/** Opt-in: an old backup carries old proxy/OpenAI keys that would overwrite working ones. */
+const restoreSettingsOnImport = ref(false);
 
 const {
   exporting: dataExporting,
@@ -72,10 +74,27 @@ function onFileSelected(event: Event): void {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (file) {
+    // Each file is a fresh decision — never carry a previous opt-in over.
+    restoreSettingsOnImport.value = false;
     validateFile(file);
   }
   // Reset so the same file can be re-selected
   input.value = '';
+}
+
+async function handleConfirmImport(): Promise<void> {
+  await confirmImport({ restoreSettings: restoreSettingsOnImport.value });
+  // Only clear on success. A failed import keeps its pending data so the user
+  // can press "Replace All Data" again — silently unticking their choice would
+  // make that retry drop settings with no indication it had changed.
+  if (!dataTransferError.value) {
+    restoreSettingsOnImport.value = false;
+  }
+}
+
+function handleCancelImport(): void {
+  restoreSettingsOnImport.value = false;
+  cancelImport();
 }
 
 const VARIANT_OPTIONS: Array<{ value: AuditPromptVariant; label: string; description: string }> = [
@@ -670,25 +689,35 @@ onUnmounted(() => {
               <p v-for="warn in validationResult.warnings" :key="warn" class="text-sm text-amber-700">{{ warn }}</p>
             </div>
             <div v-if="validationResult.valid" class="space-y-1">
+              <p v-if="validationResult.exportedAt" class="text-sm text-gray-700">
+                Backup taken <strong>{{ validationResult.exportedAt.slice(0, 10) }}</strong>
+              </p>
               <p class="text-sm font-medium text-gray-900">Records to import:</p>
               <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-600">
                 <span v-for="(count, table) in validationResult.counts" :key="table">
                   {{ table }}: {{ count }}
                 </span>
               </div>
+              <label class="flex items-start gap-2 pt-2 text-xs text-gray-600">
+                <input v-model="restoreSettingsOnImport" type="checkbox" class="mt-0.5" />
+                <span>
+                  Also restore settings from this file (proxy URL, API keys, scan schedule).
+                  Leave unchecked to keep your current settings — an old backup carries old keys.
+                </span>
+              </label>
             </div>
             <div class="flex items-center gap-3 mt-3">
               <button
                 v-if="validationResult.valid"
                 class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                 :disabled="dataImporting"
-                @click="confirmImport"
+                @click="handleConfirmImport"
               >
                 Replace All Data
               </button>
               <button
                 class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                @click="cancelImport"
+                @click="handleCancelImport"
               >
                 Cancel
               </button>
