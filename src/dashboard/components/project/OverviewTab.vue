@@ -50,6 +50,8 @@ const ownSnapshot = ref<ListingSnapshot | undefined>(undefined);
 const snapshotHistory = ref<ListingSnapshot[]>([]);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
+/** Distinct scan slots that produced data for the own extension today. */
+const scanSlotsToday = ref<number[]>([]);
 
 onMounted(async () => {
   if (!props.project.id) {
@@ -93,12 +95,32 @@ onMounted(async () => {
       ownAcSeries.value = acSeries;
     }
 
-    await Promise.all([loadProjectRankChanges(), loadProjectEvents()]);
+    await Promise.all([loadProjectRankChanges(), loadProjectEvents(), loadScansToday()]);
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
   } finally {
     loading.value = false;
   }
+});
+
+async function loadScansToday(): Promise<void> {
+  try {
+    scanSlotsToday.value = await db.getScanSlotsForDate(props.project.ownExtensionId, today());
+  } catch {
+    scanSlotsToday.value = [];
+  }
+}
+
+/**
+ * "2 of 4" — how many of today's scheduled scans have actually produced data.
+ *
+ * The number of samples behind a day is otherwise invisible, since the charts
+ * deliberately show one point per day regardless. This is what makes a schedule
+ * that has silently stopped firing noticeable.
+ */
+const scansToday = computed<string>(() => {
+  if (!settings.dailyScanEnabled) return '--';
+  return `${scanSlotsToday.value.length} of ${settings.scansPerDay}`;
 });
 
 async function loadProjectRankChanges(): Promise<void> {
@@ -159,7 +181,7 @@ watch(
   () => scanStatus.value.isRunning,
   async (isRunning, wasRunning) => {
     if (wasRunning && !isRunning) {
-      await Promise.all([loadProjectRankChanges(), loadProjectEvents()]);
+      await Promise.all([loadProjectRankChanges(), loadProjectEvents(), loadScansToday()]);
     }
   }
 );
@@ -264,6 +286,18 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
       <div class="rounded-lg border border-gray-200 bg-white px-4 py-3" :title="getLastScannedTooltip()">
         <p class="text-xs text-gray-500">Last Scan</p>
         <p class="text-lg font-semibold text-gray-900">{{ lastScanned }}</p>
+      </div>
+      <div
+        class="rounded-lg border border-gray-200 bg-white px-4 py-3"
+        :title="settings.scansPerDay > 1
+          ? 'Scans that produced data today, out of the number scheduled. A slot that fired but failed is not counted.'
+          : 'Scans that produced data today.'"
+      >
+        <p class="text-xs text-gray-500">Scans Today</p>
+        <p
+          class="text-lg font-semibold"
+          :class="settings.dailyScanEnabled ? 'text-gray-900' : 'text-gray-400'"
+        >{{ scansToday }}</p>
       </div>
       <div class="rounded-lg border border-gray-200 bg-white px-4 py-3">
         <p class="text-xs text-gray-500">Next Scan</p>

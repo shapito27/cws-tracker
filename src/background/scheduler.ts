@@ -38,7 +38,7 @@ import {
   buildReviewScanJobs,
 } from '@/background/queue-builder';
 import { processNextJob, type ProcessorDeps } from '@/background/queue-processor';
-import type { ScanType, QueueJob } from '@/shared/types';
+import type { ScanType, QueueJob, ScanLogLevel } from '@/shared/types';
 import type { Settings } from '@/shared/types/settings';
 import type { ScanErrorMessage } from '@/shared/types/messages';
 
@@ -66,6 +66,15 @@ const FAILED_RETENTION_DAYS = 30;
  * is 6 hours).
  */
 const SLOT_JITTER_MINUTES = 20;
+
+/**
+ * How close the next slot has to be before a missed one is left alone.
+ *
+ * Catching up a slot 5 minutes before the next is due is worse than skipping
+ * it: the catch-up cycle is still draining when that slot fires, so the
+ * in-flight guard skips it and the day ends up with fewer scans, not more.
+ */
+const CATCH_UP_MIN_LEAD_MS = 30 * 60_000;
 
 // ---------------------------------------------------------------------------
 // Dependencies (injectable for testing)
@@ -162,6 +171,65 @@ export async function scheduleNextDailyScan(
 }
 
 /**
+ * Write a scheduling note to the scan log.
+ *
+ * Whether a slot ran is otherwise invisible: charts show one point per day by
+ * design, and `lastDailyScanDate` is a date. Without these entries a schedule
+ * that has quietly collapsed to one scan a day looks identical to one that is
+ * working.
+ */
+async function logSlotEvent(
+  level: ScanLogLevel,
+  detail: string
+): Promise<void> {
+  try {
+    await db.saveScanLog({
+      timestamp: new Date().toISOString(),
+      jobId: null,
+      jobType: 'listing_scan',
+      level,
+      requestUrl: '',
+      responseStatus: null,
+      responsePreview: '',
+      durationMs: 0,
+      jobDetail: detail,
+      error: null,
+      httpMethod: 'GET',
+      pageNumber: null,
+      kind: 'summary',
+    });
+  } catch {
+    // Diagnostics must never break scheduling.
+  }
+}
+
+/**
+ * Convert pre-0.38 scan state into slot form, once.
+ *
+ * Before slots there was only `lastDailyScanDate`. The scan it records was the
+ * single daily scan, which is slot 0 of that date — so write that down and the
+ * bookkeeping is unambiguous from then on.
+ *
+ * This replaces a guard that inferred "legacy install" from
+ * `lastScanSlotKey === null` at scan time. That inference was wrong: the key is
+ * written only when a *scheduled* cycle drains, so it stayed null indefinitely,
+ * and any drain that set `lastDailyScanDate` to today — a manual refresh
+ * included — then suppressed every remaining slot of that day. Migrating the
+ * state removes the ambiguity instead of re-deriving it on every run.
+ *
+ * Idempotent: a no-op once the key exists, and on a fresh install with no scan
+ * history.
+ */
+export async function migrateLegacyScanState(
+  settings: SettingsManager = defaultSettings
+): Promise<void> {
+  const s = await settings.getWithDefaults();
+  if (s.lastScanSlotKey !== null) return;
+  if (s.lastDailyScanDate === null) return;
+  await settings.set('lastScanSlotKey', slotKey(s.lastDailyScanDate, 0));
+}
+
+/**
  * Set up chrome.alarms on extension install or update. Arms the dailyScan
  * alarm for the next configured scan time (or clears it when auto-scan is off).
  */
@@ -201,9 +269,11 @@ export async function isDailyScanDue(
 
   if (s.lastScanSlotKey === slotKey(slotDate, slot)) return false;
 
-  // Legacy state: a pre-slots install has lastDailyScanDate but no slot key.
-  // Treat today's scan as already done so upgrading doesn't trigger a rescan.
-  if (s.lastScanSlotKey === null && s.lastDailyScanDate === toDateString(now)) return false;
+  // Don't run a missed slot when the next one is about to fire anyway. The
+  // catch-up cycle would still be draining when that slot arrives, and the
+  // in-flight guard would skip it — costing a scan instead of adding one.
+  const next = nextSlotOccurrence(s.dailyScanTime, s.scansPerDay, now);
+  if (next.when - now.getTime() < CATCH_UP_MIN_LEAD_MS) return false;
 
   return true;
 }
@@ -217,6 +287,12 @@ export async function handleBrowserStartup(
   deps: SchedulerDeps = { settings: defaultSettings },
   now: Date = new Date()
 ): Promise<void> {
+  // Convert pre-0.38 scan state before any scheduling decision reads it. Placed
+  // here rather than in the two lifecycle listeners because both of them (update
+  // and browser startup) funnel through this function — there is no path into
+  // scheduling that can skip it.
+  await migrateLegacyScanState(deps.settings);
+
   // Resume an interrupted scan first: if jobs are still queued from a cycle that
   // did not finish (browser closed or extension reloaded mid-scan), kick the
   // processor to continue it and do NOT start a second cycle on top — that
@@ -281,7 +357,8 @@ export async function handleSettingsChange(
  * its own.
  */
 export async function handleDailyScanAlarm(
-  deps: SchedulerDeps = { settings: defaultSettings }
+  deps: SchedulerDeps = { settings: defaultSettings },
+  now: Date = new Date()
 ): Promise<void> {
   const { settings } = deps;
 
@@ -297,10 +374,10 @@ export async function handleDailyScanAlarm(
   dailyScanRunning = true;
 
   try {
-    await runDailyScanCycle(settings);
+    await runDailyScanCycle(settings, now);
   } finally {
     dailyScanRunning = false;
-    await scheduleNextDailyScan(deps);
+    await scheduleNextDailyScan(deps, now);
   }
 }
 
@@ -327,11 +404,10 @@ async function runDailyScanCycle(
   const cycleDate = slotDateFor(s.dailyScanTime, s.scansPerDay, now);
   const key = slotKey(cycleDate, slot);
 
-  // Check if this slot already ran.
+  // Check if this slot already ran. `lastScanSlotKey` is the only authority:
+  // legacy state is converted up front by migrateLegacyScanState, so there is
+  // no second, inferred condition here to get wrong.
   if (s.lastScanSlotKey === key) return;
-  // Legacy state: a pre-slots install has no slot key but does have a date.
-  // Don't re-run today's scan just because the key is missing.
-  if (s.lastScanSlotKey === null && s.lastDailyScanDate === toDateString(now)) return;
 
   // Idempotency guard: never start a new cycle while a scan is already in
   // flight. This catches (a) the second of two near-simultaneous startup
@@ -349,26 +425,12 @@ async function runDailyScanCycle(
     // A slot can be skipped because the previous slot's cycle is still draining
     // — likely when scansPerDay is raised past what a cycle can finish in
     // 24/N hours. Log it, or the missing sample looks like a bug.
-    await db.saveScanLog({
-      timestamp: new Date().toISOString(),
-      jobId: null,
-      jobType: 'listing_scan',
-      level: 'warn',
-      requestUrl: '',
-      responseStatus: null,
-      responsePreview: '',
-      durationMs: 0,
-      jobDetail:
-        `Scan slot ${key} skipped: the previous cycle is still running ` +
+    await logSlotEvent(
+      'warn',
+      `Scan slot ${key} skipped: the previous cycle is still running ` +
         `(${pendingCount} pending, ${runningJobs.length} in flight). ` +
-        `Lower scansPerDay or queueDelayMs if this recurs.`,
-      error: null,
-      httpMethod: 'GET',
-      pageNumber: null,
-      kind: 'summary',
-    }).catch(() => {
-      // Diagnostics must never break scheduling.
-    });
+        `Lower scansPerDay or queueDelayMs if this recurs.`
+    );
     return;
   }
 
@@ -409,6 +471,8 @@ async function runDailyScanCycle(
 
   // Enqueue jobs
   await db.enqueueJobs(jobs);
+
+  await logSlotEvent('info', `Scan slot ${key} started: ${jobs.length} jobs queued.`);
 
   // Schedule first processQueue alarm
   chrome.alarms.create(ALARM_PROCESS_QUEUE, {

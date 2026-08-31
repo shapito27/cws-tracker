@@ -216,3 +216,32 @@ describe('the day still reads as one value', () => {
     expect(rolled[0].count).toBe(3);
   });
 });
+
+describe('counting the day\'s scans', () => {
+  it('reports the distinct slots that produced data', async () => {
+    await db.saveListingSnapshot(listing({ slot: 0, scannedAt: new Date('2026-08-20T03:00:00') }));
+    await db.saveListingSnapshot(listing({ slot: 2, scannedAt: new Date('2026-08-20T15:00:00') }));
+
+    expect(await db.getScanSlotsForDate(EXT, '2026-08-20')).toEqual([0, 2]);
+  });
+
+  it('counts a pre-upgrade untagged snapshot as slot 0', async () => {
+    await db.listing_snapshots.put(listing());
+
+    expect(await db.getScanSlotsForDate(EXT, '2026-08-20')).toEqual([0]);
+  });
+
+  it('does not count another day or another extension', async () => {
+    await db.saveListingSnapshot(listing({ slot: 0 }));
+    await db.saveListingSnapshot(listing({ slot: 1, date: '2026-08-19' }));
+    await db.saveListingSnapshot(
+      listing({ slot: 3, extensionId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' })
+    );
+
+    expect(await db.getScanSlotsForDate(EXT, '2026-08-20')).toEqual([0]);
+  });
+
+  it('is empty when nothing was scanned that day', async () => {
+    expect(await db.getScanSlotsForDate(EXT, '2026-08-20')).toEqual([]);
+  });
+});

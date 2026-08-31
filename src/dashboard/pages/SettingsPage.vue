@@ -11,6 +11,7 @@ import {
 } from '@/shared/utils/keyword-audit';
 import type { AuditPromptVariant } from '@/shared/types/settings';
 import { db } from '@/shared/db/database';
+import { nextSlotOccurrence, slotScanTime } from '@/shared/utils/scan-slots';
 
 const {
   settings,
@@ -231,6 +232,29 @@ const scanBudget = computed(() => {
   };
 });
 
+/**
+ * The actual times scans will run, and which is next.
+ *
+ * Without this the schedule is unobservable: charts show one point per day by
+ * design and `lastDailyScanDate` carries no time, so a schedule that has
+ * silently collapsed to one scan looks exactly like a working one. This is the
+ * surface that makes "is it doing what I set?" answerable at a glance.
+ */
+const schedulePreview = computed(() => {
+  if (!localDailyScanEnabled.value) return null;
+  const now = new Date();
+  const next = nextSlotOccurrence(localDailyScanTime.value, localScansPerDay.value, now);
+  const times = Array.from({ length: localScansPerDay.value }, (_, slot) =>
+    slotScanTime(localDailyScanTime.value, slot, localScansPerDay.value)
+  );
+  const nextDate = new Date(next.when);
+  const nextLabel =
+    nextDate.toDateString() === now.toDateString()
+      ? `today ${times[next.slot]}`
+      : `tomorrow ${times[next.slot]}`;
+  return { times, nextSlot: next.slot, nextLabel };
+});
+
 const queueDelayDisplay = computed(() => {
   const secs = localQueueDelay.value;
   if (secs >= 60) {
@@ -449,6 +473,17 @@ onUnmounted(() => {
               step="1"
               class="mt-1 block w-32 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
+            <p v-if="schedulePreview" class="mt-1 text-xs text-gray-600">
+              Scans at
+              <template v-for="(t, i) in schedulePreview.times" :key="t">
+                <span :class="i === schedulePreview.nextSlot ? 'font-semibold text-gray-900' : ''">{{ t }}</span
+                ><span v-if="i < schedulePreview.times.length - 1">, </span>
+              </template>
+              &mdash; each within 20 minutes of that time. Next: {{ schedulePreview.nextLabel }}.
+            </p>
+            <p v-else class="mt-1 text-xs text-amber-700">
+              Daily Auto-Scan is off, so this setting has no effect yet.
+            </p>
             <p v-if="scanBudget" class="mt-1 text-xs" :class="scanBudget.overruns ? 'text-amber-700' : 'text-gray-500'">
               About {{ scanBudget.requests }} requests/day, roughly
               {{ scanBudget.totalHours }}h of scanning.
