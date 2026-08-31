@@ -297,6 +297,24 @@ export interface EventRecord {
    * See `lastSeenOldAt`. Not indexed. Absent on legacy records.
    */
   firstSeenNewAt?: Date;
+  /**
+   * Which scan slot of the day detected this. Not indexed; absent on legacy
+   * records, which are treated as slot 0.
+   *
+   * With more than one scan a day, several real transitions can occur on one
+   * date, so `(extensionId, date)` no longer identifies an event. This is what
+   * lets a re-run of one slot replace its own events without deleting those of
+   * the other slots.
+   */
+  slot?: number;
+  /**
+   * For `rank_change` events, which keyword the position was for.
+   *
+   * Previously recoverable only by substring-matching the human-readable
+   * `note`, which broke the moment that wording changed. Not indexed; absent on
+   * legacy records and on event types that are not keyword-scoped.
+   */
+  keywordId?: number;
 }
 
 // ---------------------------------------------------------------------------

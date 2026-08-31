@@ -6,6 +6,8 @@ import { loadKeywordPositionTable } from '../../composables/useRankings';
 import { useServiceWorker } from '../../composables/useServiceWorker';
 import { useProxyStatus } from '../../composables/useProxyStatus';
 import { daysAgo } from '@/shared/utils/dates';
+import { formatPositionCell, formatSampleList } from '@/shared/utils/daily-rollup';
+import { useSettings } from '../../composables/useSettings';
 
 type DateRange = 7 | 14 | 30;
 
@@ -38,6 +40,14 @@ async function rescanKeyword(keywordId: number): Promise<void> {
 const rows = ref<KeywordPositionRow[]>([]);
 const loading = ref(false);
 const dateRange = ref<DateRange>(7);
+
+const { settings, loadSettings, saveSetting } = useSettings();
+/** Persisted so the choice survives a reload — it is a standing preference. */
+const intradayView = computed<boolean>(() => settings.intradayView);
+
+async function toggleIntraday(): Promise<void> {
+  await saveSetting('intradayView', !settings.intradayView);
+}
 
 const rangeOptions: { label: string; value: DateRange }[] = [
   { label: '7d', value: 7 },
@@ -72,7 +82,9 @@ async function setRange(range: DateRange): Promise<void> {
   await load();
 }
 
-onMounted(load);
+onMounted(async () => {
+  await Promise.all([loadSettings(), load()]);
+});
 watch(() => props.keywords, load);
 
 // Reload table data when a scan completes so fresh ranks appear
@@ -85,6 +97,49 @@ watch(
 
 function getCell(row: KeywordPositionRow, date: string): KeywordDayCell | null {
   return row.days.get(date) ?? null;
+}
+
+/**
+ * Whether any visible day actually holds more than one sample.
+ *
+ * Gates the intraday toggle so it never appears when there is nothing to
+ * expand — which is every case at `scansPerDay: 1`.
+ */
+const hasMultiSampleDays = computed<boolean>(() =>
+  rows.value.some((row) =>
+    dateColumns.value.some((date) => (row.days.get(date)?.stats?.count ?? 1) > 1)
+  )
+);
+
+/** True when this cell's samples disagreed — the only case worth marking. */
+function cellVaried(cell: KeywordDayCell | null): boolean {
+  return cell?.stats?.varied === true;
+}
+
+/** Cell text: the day's value, or its range when showing intraday detail. */
+function cellText(cell: KeywordDayCell): string {
+  if (intradayView.value && cell.stats) {
+    return formatPositionCell(cell.stats);
+  }
+  return formatPosition(cell.position);
+}
+
+/** Per-sample breakdown for the cell's hover text. */
+function cellTitle(cell: KeywordDayCell): string | undefined {
+  if (!cell.samples || cell.samples.length < 2) {
+    return cell.unstable
+      ? 'Unstable: off-list this scan but ranked recently (CWS volatility)'
+      : undefined;
+  }
+  const stats = cell.stats;
+  const spread = stats?.spread !== null && stats?.spread !== undefined
+    ? ` · spread ${stats.spread}`
+    : '';
+  return (
+    `${cell.samples.length} samples${spread}\n` +
+    `${formatSampleList(cell.samples)}\n` +
+    `Day value shown is the last sample.`
+  );
 }
 
 function formatPosition(position: number | null): string {
@@ -146,6 +201,22 @@ function formatDateHeader(dateStr: string): string {
           {{ scanStatus.isRunning ? 'Scanning...' : 'Scan' }}
         </button>
       </div>
+      <div class="flex items-center gap-2">
+        <button
+          v-if="hasMultiSampleDays"
+          type="button"
+          class="rounded-md border px-2.5 py-1 text-xs font-medium transition-colors"
+          :class="intradayView
+            ? 'border-blue-600 bg-blue-600 text-white'
+            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'"
+          :aria-pressed="intradayView"
+          :title="intradayView
+            ? 'Showing each day\'s range across its samples. Click to show one value per day.'
+            : 'Some days have several scans. Click to show their range instead of the day\'s last value.'"
+          @click="toggleIntraday"
+        >
+          Intraday
+        </button>
       <div class="flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-0.5">
         <button
           v-for="opt in rangeOptions"
@@ -160,6 +231,7 @@ function formatDateHeader(dateStr: string): string {
         >
           {{ opt.label }}
         </button>
+      </div>
       </div>
     </div>
 
@@ -244,9 +316,12 @@ function formatDateHeader(dateStr: string): string {
                 <div
                   class="text-xs font-semibold"
                   :class="getCell(row, date)!.unstable ? 'text-amber-600' : positionColorClass(getCell(row, date)!.position)"
-                  :title="getCell(row, date)!.unstable ? 'Unstable: off-list this scan but ranked recently (CWS volatility)' : undefined"
+                  :title="cellTitle(getCell(row, date)!)"
                 >
-                  {{ formatPosition(getCell(row, date)!.position) }}<span v-if="getCell(row, date)!.unstable" aria-hidden="true"> ⚠</span>
+                  {{ cellText(getCell(row, date)!) }}<span v-if="getCell(row, date)!.unstable" aria-hidden="true"> ⚠</span><sup
+                    v-if="!intradayView && cellVaried(getCell(row, date))"
+                    class="ml-0.5 text-[9px] font-normal text-gray-400"
+                  >{{ getCell(row, date)!.stats!.count }}</sup>
                 </div>
                 <div
                   v-if="getCell(row, date)!.delta !== null && getCell(row, date)!.delta !== 0"

@@ -2,6 +2,34 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.38.0] - 2026-08-31
+
+### Fixed
+- **The change log was manufacturing a causal signal.** Every scan cycle enqueued all listing (metadata) jobs before any keyword (rank) job, and the processor runs roughly one job a minute — so metadata was sampled a near-constant interval before rank, in the same direction, every day, for every tracked extension. Rendering each change at a single timestamp turned that scheduling artifact into what looked like a tight, consistent latency between a listing edit and a ranking response. Nobody publishes how fast CWS reacts to a listing change, which makes a plausible-looking number here especially easy to believe. Two changes address it: changes are now recorded and displayed as intervals, and job order within a cycle is randomized.
+- **A same-day re-scan no longer destroys the earlier scan's data.** `saveListingSnapshot`, `saveRankSnapshots` and both autocomplete upserts deleted every row for the date before inserting. That was correct when a day held one scan; it silently discarded the first sample of any day that held two. They now replace only the matching scan slot.
+- **The AI audit was shown an arbitrary sample.** `formatRankHistory` and `formatAutocompleteHistory` collapsed snapshots to one per day with a plain last-write-wins map and no `scannedAt` tiebreak, so with several samples the number fed to the model was whatever IndexedDB happened to return last. Both now use the shared rollup. The audit cache key also gains a sample fingerprint — keyed on the date alone, a re-audit after the day's second scan returned the result built from the first.
+- **A cycle running past local midnight no longer splits across two dates.** Each job called `today()` when it executed, so a long cycle wrote its early snapshots under one date and its later ones under the next. The cycle's date is now fixed when its jobs are built.
+- **Rank-change events were deduplicated by matching the note text** (`note.includes('for "<keyword>"')`), which broke if that wording ever changed. Events now carry `keywordId` and `slot` and are keyed on those.
+- **Three lists could render duplicate Vue keys** once a day could hold more than one change for the same extension/keyword pair (`RecentRankChanges`, `OverviewTab`, `CompetitorExtensionPage` keyed on the date). They now key on the scan timestamp, matching `RankChangesPage`.
+- Window widths under an hour were computed from an already-rounded hour value, so 45 minutes displayed as 48.
+
+### Added
+- **Changes are recorded as intervals.** `EventRecord` gains `lastSeenOldAt` and `firstSeenNewAt` — the last observation where the old value still held, and the first carrying the new one. A change found by polling is never observed happening; all that is known is that it had not happened at one scan and had at the next. The log now shows that window and its width ("Jul 10 11:47 → Jul 13 14:49, somewhere in ~75h"), and rank-chart event annotations are shaded bands spanning the window rather than a line at midnight. Records written before this have no window and fall back to the old single timestamp, explicitly marked as imprecise rather than silently rendered as if bounded.
+- **`scansPerDay` setting (1–4, default 1).** Slot 0 fires at `dailyScanTime` and each later slot follows 24/N hours after, with up to 20 minutes of jitter so the sampling times are not themselves perfectly regular. More samples narrow the interval above — three scans a day bound a change to about 8 hours instead of 24. Settings shows the resulting per-day request estimate and warns when a round cannot finish before the next slot is due.
+- **Intraday view.** Charts and tables still show **one point per day: the day's last sample**, which is identical to previous behaviour and keeps multi-sample days comparable with existing history. Where a day's samples disagreed, the chart adds a faint best/worst marker pair, the tooltip lists each sample with its time, and table cells carry a sample-count superscript. An "Intraday" toggle switches cells to the day's range; it appears only when the visible range actually contains a multi-sample day, and days whose samples agreed render exactly like single-sample days.
+- New `daily-rollup` module holding the "day's value" rule and per-day statistics, replacing five drifted copies of the same logic across the dashboard, popup, charts and audit.
+
+### Changed
+- **Job order within a scan cycle is randomized** (Fisher–Yates), so the metadata-to-rank offset varies in both size and sign across days instead of being fixed. The per-type `PRIORITY_*` constants still order the single-type scoped builders. Accepted cost: the own extension is no longer guaranteed to be scanned first, so an interrupted cycle may not have covered it — snapshots record when they were taken, so partial cycles stay interpretable.
+- **Review scans run only on the day's first slot.** They are the most expensive job type and are already tracked as entities with their own first/last-seen timestamps, so intraday resolution adds nothing.
+- Rank comparisons now use the previous *sample*, so an intraday move is reported when it happens. The drop debounce deliberately does **not** follow: "two consecutive nulls confirm an Out" still means two consecutive *days*. Keying it on samples would make `scansPerDay: 4` confirm a drop four times as fast, redefining what an "Out" means as a side effect of an unrelated setting.
+- Scan slot arithmetic lives in `shared/utils/scan-slots.ts` so the dashboard's "next scan" estimate uses the same logic as the scheduler.
+
+### Notes
+- **No database schema version bump** — every new field (`slot`, `cycleDate`, `lastSeenOldAt`, `firstSeenNewAt`, `keywordId`) is non-indexed, so Dexie needs no migration and existing records keep their meaning. `slot` is deliberately kept **out** of the compound indexes: IndexedDB omits records missing an indexed key, so indexing it would have hidden every pre-existing row and forced a backfill of the entire snapshot history. It is matched in JS instead, where a day holds at most four rows per key.
+- Slot times are computed as local wall-clock times rather than by adding milliseconds, so they stay put across DST boundaries. Capping `scansPerDay` at 4 keeps `24/N` a whole number of hours.
+- A slot skipped because the previous cycle is still draining now writes a scan-log entry naming the cause, rather than silently producing no sample.
+
 ## [0.37.1] - 2026-08-22
 
 ### Fixed

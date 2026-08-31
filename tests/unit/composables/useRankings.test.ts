@@ -224,8 +224,16 @@ describe('loadRankHistory', () => {
 
     // Should have 2 points (one per day), not 3
     expect(series[0].data).toHaveLength(2);
-    expect(series[0].data[0]).toEqual({ x: '2026-01-01', y: 5 }); // latest scan
-    expect(series[0].data[1]).toEqual({ x: '2026-01-02', y: 3 });
+    expect(series[0].data[0]).toMatchObject({ x: '2026-01-01', y: 5 }); // latest scan
+    expect(series[0].data[1]).toMatchObject({ x: '2026-01-02', y: 3 });
+
+    // The line still plots one point a day, but the discarded samples are
+    // carried alongside so the chart can show the intraday spread instead of
+    // implying the day held a single reading.
+    expect(series[0].data[0].sampleCount).toBe(2);
+    expect(series[0].data[0].band).toEqual({ best: 5, worst: 10 });
+    expect(series[0].data[1].sampleCount).toBeUndefined();
+    expect(series[0].data[1].band).toBeUndefined();
   });
 });
 
@@ -661,7 +669,8 @@ describe('loadExtensionRankHistory', () => {
     );
 
     expect(series[0].data).toHaveLength(1);
-    expect(series[0].data[0]).toEqual({ x: '2026-01-01', y: 5 });
+    expect(series[0].data[0]).toMatchObject({ x: '2026-01-01', y: 5 });
+    expect(series[0].data[0].band).toEqual({ best: 5, worst: 10 });
   });
 });
 

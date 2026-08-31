@@ -133,6 +133,7 @@ const chartOptions = computed(() => ({
   },
   annotations: {
     xaxis: eventAnnotations.value,
+    points: intradayBands.value,
   },
   stroke: {
     curve: 'smooth' as const,
@@ -145,9 +146,16 @@ const chartOptions = computed(() => ({
   tooltip: {
     shared: true,
     y: {
-      formatter: (val: number | null) => {
-        if (val === null || val > 30) return '30+ (not in top 30)';
-        return `#${val}`;
+      formatter: (val: number | null, opts?: { seriesIndex: number; dataPointIndex: number }) => {
+        const base = val === null || val > 30 ? '30+ (not in top 30)' : `#${val}`;
+        // Name what the single plotted point is standing in for, rather than
+        // letting it read as the only reading taken that day.
+        const point =
+          opts && props.series[opts.seriesIndex]?.data[opts.dataPointIndex];
+        if (point && point.sampleCount && point.sampleCount > 1) {
+          return `${base} · ${point.sampleCount} samples: ${point.sampleList}`;
+        }
+        return base;
       },
     },
   },
@@ -163,6 +171,36 @@ const chartOptions = computed(() => ({
     style: { fontSize: '14px', color: '#6b7280' },
   },
 }));
+
+/**
+ * A faint marker at each day's best and worst sample, when they disagreed.
+ *
+ * The line still plots one point per day (the last sample), so the trend reads
+ * exactly as it did with one scan a day. These show how far the position moved
+ * within a day that the single point necessarily hides.
+ */
+const intradayBands = computed(() => {
+  const points: Array<Record<string, unknown>> = [];
+  for (const s of props.series) {
+    for (const d of s.data) {
+      if (!d.band) continue;
+      const x = new Date(d.x + 'T00:00:00Z').getTime();
+      for (const y of [d.band.best, d.band.worst]) {
+        points.push({
+          x,
+          y,
+          marker: {
+            size: 3,
+            fillColor: 'transparent',
+            strokeColor: '#9ca3af',
+            strokeWidth: 1,
+          },
+        });
+      }
+    }
+  }
+  return points;
+});
 
 const chartSeries = computed(() =>
   props.series.map((s) => ({

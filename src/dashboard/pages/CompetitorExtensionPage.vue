@@ -196,7 +196,11 @@ function getDisplayName(): string {
 function getUnifiedEventKey(item: UnifiedEvent): string {
   if (item.kind === 'rank_change') {
     const rc = item.data as RankChange;
-    return `rc-${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.date}`;
+    // Keyed on the scan timestamp, not the date: with more than one scan a day
+    // the same pair can change twice on one date, and a duplicate key makes Vue
+    // drop or misorder rows.
+    const at = rc.scannedAt instanceof Date ? rc.scannedAt : new Date(rc.scannedAt);
+    return `rc-${rc.type}-${rc.extensionId}-${rc.keywordId}-${at.getTime()}`;
   }
   const ev = item.data as EventRecord;
   return `ev-${ev.id ?? `${ev.extensionId}-${ev.field}-${ev.date}`}`;

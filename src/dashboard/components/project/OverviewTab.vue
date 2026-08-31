@@ -16,6 +16,7 @@ import { useProxyStatus } from '../../composables/useProxyStatus';
 import { loadExtensionRankHistory } from '../../composables/useRankings';
 import { loadExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
 import { daysAgo, formatRelativeDateTime, today } from '@/shared/utils/dates';
+import { nextSlotOccurrence } from '@/shared/utils/scan-slots';
 import ListingEventItem from '../ListingEventItem.vue';
 import RankChangeItem from '../RankChangeItem.vue';
 import RankChart from '../charts/RankChart.vue';
@@ -187,16 +188,12 @@ function getNextScan(): string {
   if (scanStatus.value.isRunning) return 'Scanning...';
   if (!settings.dailyScanEnabled) return 'Auto-scan off';
 
-  const [hours, minutes] = settings.dailyScanTime.split(':').map(Number);
+  // Uses the same slot arithmetic as the scheduler, so this stays correct when
+  // scansPerDay > 1 — the next scan is often later the same day, not tomorrow.
   const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-
-  const nextDate = new Date();
-  nextDate.setHours(hours, minutes, 0, 0);
-
-  if (settings.lastDailyScanDate === todayStr || nextDate.getTime() <= now.getTime()) {
-    nextDate.setDate(nextDate.getDate() + 1);
-  }
+  const nextDate = new Date(
+    nextSlotOccurrence(settings.dailyScanTime, settings.scansPerDay, now).when
+  );
 
   const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -223,7 +220,11 @@ function isOwnExtension(extensionId: string): boolean {
 function getUnifiedEventKey(item: UnifiedEvent): string {
   if (item.kind === 'rank_change') {
     const rc = item.data as RankChange;
-    return `rc-${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.date}`;
+    // Keyed on the scan timestamp, not the date: with more than one scan a day
+    // the same pair can change twice on one date, and a duplicate key makes Vue
+    // drop or misorder rows.
+    const at = rc.scannedAt instanceof Date ? rc.scannedAt : new Date(rc.scannedAt);
+    return `rc-${rc.type}-${rc.extensionId}-${rc.keywordId}-${at.getTime()}`;
   }
   const ev = item.data as EventRecord;
   return `ev-${ev.id ?? `${ev.extensionId}-${ev.field}-${ev.date}`}`;
