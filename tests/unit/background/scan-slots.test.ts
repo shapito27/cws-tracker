@@ -129,6 +129,30 @@ describe('nextSlotOccurrence', () => {
   });
 });
 
+describe('malformed scansPerDay', () => {
+  // Settings validation rejects anything outside an integer 1-4 on every write,
+  // but getWithDefaults merges stored values without re-validating. A 0 or NaN
+  // reaching the arithmetic would make 24/N infinite or NaN, propagate through
+  // setHours, and yield an alarm time of NaN — scanning would stop permanently
+  // and silently. These pin the clamp that makes that impossible.
+  for (const bad of [0, -3, NaN, Infinity, 2.7, 99]) {
+    it(`produces a usable schedule for scansPerDay=${bad}`, () => {
+      const now = new Date(2026, 7, 20, 9, 0);
+
+      const time = slotScanTime('03:00', 0, bad as number);
+      expect(time).toMatch(/^\d{2}:\d{2}$/);
+
+      const slot = currentSlot('03:00', bad as number, now);
+      expect(Number.isInteger(slot)).toBe(true);
+      expect(slot).toBeGreaterThanOrEqual(0);
+
+      const next = nextSlotOccurrence('03:00', bad as number, now);
+      expect(Number.isFinite(next.when)).toBe(true);
+      expect(next.when).toBeGreaterThan(now.getTime());
+    });
+  }
+});
+
 describe('slotKey', () => {
   it('identifies one slot on one day', () => {
     expect(slotKey('2026-08-28', 1)).toBe('2026-08-28#1');

@@ -246,9 +246,17 @@ export async function handleBrowserStartup(
 }
 
 /**
- * React to a chrome.storage.local settings change. When the scan time or the
- * enabled flag changes, re-arm (or clear) the dailyScan alarm so the edit
- * takes effect immediately instead of waiting for the next browser restart.
+ * React to a chrome.storage.local settings change. When anything that
+ * determines *when* a scan fires changes, re-arm (or clear) the dailyScan alarm
+ * so the edit takes effect immediately instead of waiting for the next browser
+ * restart.
+ *
+ * `scansPerDay` counts: raising it adds slots later today that the currently
+ * armed alarm knows nothing about, so without re-arming the new cadence would
+ * not start until tomorrow. The Settings page also sends an explicit
+ * RESCHEDULE_DAILY_SCAN message, since storage.onChanged is not a reliable wake
+ * signal for a terminated worker — this is the fallback for every other path
+ * that writes settings, such as restoring a backup.
  */
 export async function handleSettingsChange(
   oldSettings: Partial<Settings>,
@@ -258,7 +266,8 @@ export async function handleSettingsChange(
   const timeChanged = oldSettings.dailyScanTime !== newSettings.dailyScanTime;
   const enabledChanged =
     oldSettings.dailyScanEnabled !== newSettings.dailyScanEnabled;
-  if (!timeChanged && !enabledChanged) return;
+  const cadenceChanged = oldSettings.scansPerDay !== newSettings.scansPerDay;
+  if (!timeChanged && !enabledChanged && !cadenceChanged) return;
   await scheduleNextDailyScan(deps);
 }
 
@@ -518,17 +527,30 @@ export async function triggerManualRefresh(
     const relevantExtensionIds = projects.flatMap((p) => [p.ownExtensionId, ...p.competitorIds]);
     jobs = buildReviewScanJobs(relevantExtensionIds, cycle);
   } else {
-    // A manual full refresh always includes review scans, even off slot 0:
-    // the user explicitly asked for a refresh of everything.
-    jobs = buildDailyScanJobs(projects, extensions, relevantKeywords, { ...cycle, slot: 0 })
-      .map((job) => ({ ...job, slot: cycle.slot }));
+    // A manual full refresh includes review scans even off slot 0: the user
+    // explicitly asked to refresh everything.
+    jobs = buildDailyScanJobs(projects, extensions, relevantKeywords, {
+      ...cycle,
+      includeReviews: true,
+    });
   }
 
   if (jobs.length === 0) return;
 
   // Record the scan cycle start so progress counts only include jobs from
   // this cycle (prior completed jobs are retained in the queue table for 7d).
-  await deps.settings.set('scanCycleStartedAt', new Date().toISOString());
+  //
+  // `scanCycleSlotKey` is explicitly cleared. The drain handler stamps whatever
+  // it finds there into `lastScanSlotKey`; leaving a previous scheduled cycle's
+  // key would make this manual refresh mark that slot complete and suppress its
+  // scheduled scan — badly wrong for a scoped refresh, which only touched one
+  // job type. A manual refresh never satisfies a scheduled slot. The cost is at
+  // most one redundant scheduled scan, which overwrites the same slot with
+  // fresher data.
+  await deps.settings.setMultiple({
+    scanCycleStartedAt: new Date().toISOString(),
+    scanCycleSlotKey: null,
+  });
 
   await db.enqueueJobs(jobs);
 

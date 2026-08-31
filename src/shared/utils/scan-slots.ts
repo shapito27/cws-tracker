@@ -13,6 +13,21 @@
 import { toDateString } from './dates';
 
 /**
+ * Coerce `scansPerDay` to a usable slot count.
+ *
+ * Settings validation already restricts this to an integer 1-4 on every write,
+ * but `getWithDefaults` merges whatever is in `chrome.storage.local` without
+ * re-validating. A value of 0 or NaN slipping through would make `24/N`
+ * infinite or NaN, which propagates into `setHours` and yields an alarm time of
+ * NaN — scanning would stop permanently and silently. Clamping here costs
+ * nothing and keeps that failure mode impossible.
+ */
+function slotCount(scansPerDay: number): number {
+  if (!Number.isFinite(scansPerDay)) return 1;
+  return Math.min(4, Math.max(1, Math.floor(scansPerDay)));
+}
+
+/**
  * Compute the absolute timestamp (epoch ms) of the next occurrence of the
  * given `HH:MM` scan time relative to `now`, using local calendar fields.
  *
@@ -42,7 +57,7 @@ export function nextDailyScanTimestamp(scanTime: string, now: Date): number {
  */
 export function slotScanTime(baseScanTime: string, slot: number, scansPerDay: number): string {
   const [hours, minutes] = baseScanTime.split(':').map(Number);
-  const spacingHours = 24 / scansPerDay;
+  const spacingHours = 24 / slotCount(scansPerDay);
   const slotHour = (hours + slot * spacingHours) % 24;
   return `${String(slotHour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
@@ -57,7 +72,7 @@ export function slotScanTime(baseScanTime: string, slot: number, scansPerDay: nu
  */
 export function currentSlot(baseScanTime: string, scansPerDay: number, now: Date): number {
   const [hours, minutes] = baseScanTime.split(':').map(Number);
-  const spacingHours = 24 / scansPerDay;
+  const spacingHours = 24 / slotCount(scansPerDay);
 
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const minutesBase = hours * 60 + minutes;
@@ -83,7 +98,7 @@ export function nextSlotOccurrence(
 
   // Check today's and tomorrow's occurrence of every slot; keep the earliest
   // that is still in the future.
-  for (let slot = 0; slot < scansPerDay; slot++) {
+  for (let slot = 0; slot < slotCount(scansPerDay); slot++) {
     const [h, m] = slotScanTime(baseScanTime, slot, scansPerDay).split(':').map(Number);
     for (const dayOffset of [0, 1]) {
       const candidate = new Date(now);

@@ -65,6 +65,14 @@ export interface ScanCycleContext {
   slot: number;
   /** YYYY-MM-DD the cycle is being run for. */
   cycleDate: string;
+  /**
+   * Whether to include review scans. Defaults to "only on the day's first
+   * slot".
+   *
+   * Set explicitly by a manual full refresh, which the user asked for and which
+   * should therefore refresh everything regardless of which slot it lands in.
+   */
+  includeReviews?: boolean;
 }
 
 /**
@@ -137,7 +145,8 @@ export function buildDailyScanJobs(
   // with their own first/last-seen timestamps rather than as daily snapshots,
   // so re-fetching them 4x a day would multiply request volume for no new
   // information.
-  if (!cycle || cycle.slot === 0) {
+  const includeReviews = cycle?.includeReviews ?? (!cycle || cycle.slot === 0);
+  if (includeReviews) {
     for (const extensionId of seenExtensionIds) {
       jobs.push(createReviewScanJob(extensionId, now));
     }

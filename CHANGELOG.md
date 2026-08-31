@@ -11,6 +11,8 @@ All notable changes to CWS Tracker will be documented in this file.
 - **A cycle running past local midnight no longer splits across two dates.** Each job called `today()` when it executed, so a long cycle wrote its early snapshots under one date and its later ones under the next. The cycle's date is now fixed when its jobs are built.
 - **Rank-change events were deduplicated by matching the note text** (`note.includes('for "<keyword>"')`), which broke if that wording ever changed. Events now carry `keywordId` and `slot` and are keyed on those.
 - **Three lists could render duplicate Vue keys** once a day could hold more than one change for the same extension/keyword pair (`RecentRankChanges`, `OverviewTab`, `CompetitorExtensionPage` keyed on the date). They now key on the scan timestamp, matching `RankChangesPage`.
+- **A manual refresh could mark a scheduled scan slot as already done.** The drain handler stamps whichever slot key the in-flight cycle marker holds; a manual refresh set the cycle marker without clearing that key, so it inherited the previous scheduled cycle's — suppressing that slot's real scan. Worst with a scoped refresh, which only touched one job type. A manual refresh now explicitly claims no slot, and a cancelled scan clears the key it left behind.
+- **Changing `scansPerDay` did not move the armed alarm.** `handleSettingsChange` re-armed only on `dailyScanTime` / `dailyScanEnabled`, so raising the cadence would not take effect until the next day. The Settings page's explicit reschedule message covered the UI path; this fixes every other one, such as restoring a backup.
 - Window widths under an hour were computed from an already-rounded hour value, so 45 minutes displayed as 48.
 
 ### Added
@@ -27,6 +29,8 @@ All notable changes to CWS Tracker will be documented in this file.
 
 ### Notes
 - **No database schema version bump** — every new field (`slot`, `cycleDate`, `lastSeenOldAt`, `firstSeenNewAt`, `keywordId`) is non-indexed, so Dexie needs no migration and existing records keep their meaning. `slot` is deliberately kept **out** of the compound indexes: IndexedDB omits records missing an indexed key, so indexing it would have hidden every pre-existing row and forced a backfill of the entire snapshot history. It is matched in JS instead, where a day holds at most four rows per key.
+- **Data safety on upgrade is covered by tests**, since the upsert change is the part that could silently destroy history: a slot-0 scan replaces an untagged pre-upgrade snapshot rather than duplicating it, a later slot leaves it alone, lowering `scansPerDay` does not delete the extra samples already recorded, and re-running one slot leaves the others — and other extensions and keywords — untouched.
+- A malformed `scansPerDay` (0, `NaN`, a non-integer) reaching the slot arithmetic is clamped rather than producing an alarm time of `NaN`, which would have stopped scanning permanently and silently. Validation already rejects such values on write; this covers the path where `getWithDefaults` merges stored values without re-validating.
 - Slot times are computed as local wall-clock times rather than by adding milliseconds, so they stay put across DST boundaries. Capping `scansPerDay` at 4 keeps `24/N` a whole number of hours.
 - A slot skipped because the previous cycle is still draining now writes a scan-log entry naming the cause, rather than silently producing no sample.
 
