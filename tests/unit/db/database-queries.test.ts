@@ -358,7 +358,9 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
       expect(snap).toBeDefined();
     });
 
-    it('saveListingSnapshot overwrites existing snapshot for same extension+date', async () => {
+    it('saveListingSnapshot overwrites the same slot on the same date', async () => {
+      // Untagged snapshots are slot 0, so this is also the behaviour every
+      // record written before multi-sampling relies on.
       await db.saveListingSnapshot(makeListingSnapshot({
         extensionId: EXT_ID_A,
         date: '2026-01-15',
@@ -378,6 +380,51 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
       expect(await db.listing_snapshots.count()).toBe(1);
       const all = await db.listing_snapshots.toArray();
       expect(all[0].title).toBe('Evening scan');
+    });
+
+    it('saveListingSnapshot keeps a different slot on the same date', async () => {
+      await db.saveListingSnapshot(makeListingSnapshot({
+        extensionId: EXT_ID_A,
+        date: '2026-01-15',
+        title: 'Morning scan',
+        slot: 0,
+        scannedAt: new Date('2026-01-15T09:00:00Z'),
+      }));
+      await db.saveListingSnapshot(makeListingSnapshot({
+        extensionId: EXT_ID_A,
+        date: '2026-01-15',
+        title: 'Evening scan',
+        slot: 1,
+        scannedAt: new Date('2026-01-15T17:00:00Z'),
+      }));
+
+      // Both survive: two samples of one day, not a duplicate.
+      expect(await db.listing_snapshots.count()).toBe(2);
+      const titles = (await db.listing_snapshots.toArray()).map((s) => s.title).sort();
+      expect(titles).toEqual(['Evening scan', 'Morning scan']);
+    });
+
+    it('saveListingSnapshot replaces a legacy untagged snapshot when re-running slot 0', async () => {
+      // A record written before `slot` existed must not become a phantom extra
+      // sample the first time slot 0 runs again.
+      await db.listing_snapshots.put(makeListingSnapshot({
+        extensionId: EXT_ID_A,
+        date: '2026-01-15',
+        title: 'Legacy scan',
+        scannedAt: new Date('2026-01-15T09:00:00Z'),
+      }));
+
+      await db.saveListingSnapshot(makeListingSnapshot({
+        extensionId: EXT_ID_A,
+        date: '2026-01-15',
+        title: 'Slot 0 rerun',
+        slot: 0,
+        scannedAt: new Date('2026-01-15T09:05:00Z'),
+      }));
+
+      expect(await db.listing_snapshots.count()).toBe(1);
+      const all = await db.listing_snapshots.toArray();
+      expect(all[0].title).toBe('Slot 0 rerun');
     });
 
     it('saveListingSnapshot preserves snapshots for different dates', async () => {
@@ -457,7 +504,36 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
       expect(await db.getLatestRankForKeyword(999)).toEqual([]);
     });
 
-    it('saveRankSnapshots overwrites existing snapshots for same keyword+extension+date', async () => {
+    it('saveRankSnapshots keeps a different slot on the same date', async () => {
+      await db.saveRankSnapshots([
+        makeRankSnapshot({
+          keywordId: 1, extensionId: EXT_ID_A, date: '2026-01-15', position: 5, slot: 0,
+          scannedAt: new Date('2026-01-15T03:00:00Z'),
+        }),
+      ]);
+      await db.saveRankSnapshots([
+        makeRankSnapshot({
+          keywordId: 1, extensionId: EXT_ID_A, date: '2026-01-15', position: 9, slot: 1,
+          scannedAt: new Date('2026-01-15T11:00:00Z'),
+        }),
+      ]);
+      await db.saveRankSnapshots([
+        makeRankSnapshot({
+          keywordId: 1, extensionId: EXT_ID_A, date: '2026-01-15', position: 7, slot: 2,
+          scannedAt: new Date('2026-01-15T19:00:00Z'),
+        }),
+      ]);
+
+      // Three samples of one day, all retained — this is what makes an
+      // intraday view possible at all.
+      expect(await db.rank_snapshots.count()).toBe(3);
+      const positions = (await db.rank_snapshots.toArray())
+        .sort((a, b) => a.scannedAt.getTime() - b.scannedAt.getTime())
+        .map((s) => s.position);
+      expect(positions).toEqual([5, 9, 7]);
+    });
+
+    it('saveRankSnapshots overwrites existing snapshots for same keyword+extension+date+slot', async () => {
       // First scan
       await db.saveRankSnapshots([
         makeRankSnapshot({

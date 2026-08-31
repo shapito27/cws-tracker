@@ -11,6 +11,7 @@ import { OpenAIClient } from './openai';
 import type { ChatMessage } from './openai';
 import { computeReviewSignals, renderReviewBlock } from './review-analysis';
 import { daysAgo } from './dates';
+import { deduplicateByDate } from './snapshot-dedup';
 import { calculateQualityScore } from './quality-score';
 
 // ---------------------------------------------------------------------------
@@ -530,8 +531,12 @@ const NO_DATA = 'No data available.';
 /** Format rank snapshots into a compact date|position line. */
 export function formatRankHistory(keyword: string, snapshots: RankSnapshot[], days: number): string {
   if (snapshots.length === 0) return NO_RANK_DATA;
-  const byDate = new Map<string, RankSnapshot>();
-  for (const s of snapshots) byDate.set(s.date, s);
+  // Latest sample per day. A plain last-write-wins map would pick whichever row
+  // IndexedDB happened to return last, which under multi-sampling means the
+  // number shown to the model is arbitrary.
+  const byDate = new Map<string, RankSnapshot>(
+    deduplicateByDate(snapshots).map((s) => [s.date, s])
+  );
   const parts: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const dateStr = daysAgo(i);
@@ -549,8 +554,10 @@ export function formatRankHistory(keyword: string, snapshots: RankSnapshot[], da
 /** Format autocomplete snapshots into a compact date|position line. */
 export function formatAutocompleteHistory(keyword: string, snapshots: AutocompleteSnapshot[], days: number): string {
   if (snapshots.length === 0) return NO_AUTOCOMPLETE_DATA;
-  const byDate = new Map<string, AutocompleteSnapshot>();
-  for (const s of snapshots) byDate.set(s.date, s);
+  // Latest sample per day — see the note in formatRankHistory.
+  const byDate = new Map<string, AutocompleteSnapshot>(
+    deduplicateByDate(snapshots).map((s) => [s.date, s])
+  );
   const parts: string[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const dateStr = daysAgo(i);
@@ -955,6 +962,7 @@ export function buildCacheKey(
   variant: AuditPromptVariant = 'default',
   reviewFingerprint = '',
   promptFingerprint = '',
+  sampleFingerprint = '',
 ): string {
   const list = Array.isArray(keywords) ? keywords : [keywords];
   // The FIRST keyword is the primary audit keyword and materially changes the
@@ -966,7 +974,31 @@ export function buildCacheKey(
   const variantSuffix = variant !== 'default' ? `:${variant}` : '';
   const reviewSuffix = reviewFingerprint ? `:r=${reviewFingerprint}` : '';
   const promptSuffix = promptFingerprint ? `:p=${promptFingerprint}` : '';
-  return `audit:${keywordPart}:${ownExtensionId}:${competitorExtensionId}:${date}${variantSuffix}${reviewSuffix}${promptSuffix}`;
+  const sampleSuffix = sampleFingerprint ? `:s=${sampleFingerprint}` : '';
+  return `audit:${keywordPart}:${ownExtensionId}:${competitorExtensionId}:${date}${variantSuffix}${reviewSuffix}${promptSuffix}${sampleSuffix}`;
+}
+
+/**
+ * Fingerprint the rank/autocomplete samples an audit was built from.
+ *
+ * `date` alone stopped being a sufficient cache key once a day can hold several
+ * samples: a re-audit after the day's second scan would otherwise return the
+ * result computed from the first. Keys on the latest `scannedAt` per day and
+ * the sample count, which is what changes when a new sample lands.
+ */
+export function buildSampleFingerprint(
+  ranks: readonly { date: string; scannedAt: Date }[],
+  autocomplete: readonly { date: string; scannedAt: Date }[] = [],
+): string {
+  const stamp = (rows: readonly { date: string; scannedAt: Date }[]): string => {
+    if (rows.length === 0) return '0';
+    const newest = rows.reduce(
+      (max, r) => (r.scannedAt.getTime() > max ? r.scannedAt.getTime() : max),
+      0
+    );
+    return `${rows.length}@${newest}`;
+  };
+  return shortHash(`${stamp(ranks)}|${stamp(autocomplete)}`);
 }
 
 // ---------------------------------------------------------------------------

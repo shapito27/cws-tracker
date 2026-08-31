@@ -170,7 +170,11 @@ describe('buildDailyScanJobs', () => {
     expect(autocompleteJobs).toHaveLength(2);
   });
 
-  it('priority ordering: own listing < competitor listing < keyword scan < autocomplete scan', () => {
+  it('assigns a total order with no duplicate or gapped priorities', () => {
+    // Order within a cycle is randomized (see buildDailyScanJobs), so no job
+    // type has a fixed priority any more. What must hold is that priorities
+    // still form a strict total order — dequeueNext picks the lowest, so a tie
+    // or a gap would make execution order ambiguous.
     const projects = [
       makeProject({
         ownExtensionId: EXT_OWN,
@@ -183,28 +187,88 @@ describe('buildDailyScanJobs', () => {
 
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
 
-    const ownListing = jobs.find(
-      (j) =>
-        j.type === 'listing_scan' &&
-        (j.payload as { extensionId: string }).extensionId === EXT_OWN
-    );
-    const compListing = jobs.find(
-      (j) =>
-        j.type === 'listing_scan' &&
-        (j.payload as { extensionId: string }).extensionId === EXT_COMP1
-    );
-    const kwScan = jobs.find((j) => j.type === 'keyword_scan');
-    const acScan = jobs.find((j) => j.type === 'autocomplete_scan');
+    const priorities = jobs.map((j) => j.priority).sort((a, b) => a - b);
+    expect(priorities).toEqual(jobs.map((_, i) => i));
+  });
 
-    expect(ownListing!.priority).toBe(PRIORITY_OWN_LISTING);
-    expect(compListing!.priority).toBe(PRIORITY_COMPETITOR_LISTING);
-    expect(kwScan!.priority).toBe(PRIORITY_KEYWORD_SCAN);
-    expect(acScan!.priority).toBe(PRIORITY_AUTOCOMPLETE_SCAN);
+  it('emits every expected job exactly once regardless of order', () => {
+    const projects = [
+      makeProject({
+        ownExtensionId: EXT_OWN,
+        competitorIds: [EXT_COMP1],
+        keywordIds: [1],
+      }),
+    ];
+    const extensions = [makeExtension(EXT_OWN), makeExtension(EXT_COMP1)];
+    const keywords = [makeKeyword(1, 'ad blocker', 1)];
 
-    // Verify ordering: own < competitor < keyword < autocomplete
-    expect(ownListing!.priority).toBeLessThan(compListing!.priority);
-    expect(compListing!.priority).toBeLessThan(kwScan!.priority);
-    expect(kwScan!.priority).toBeLessThan(acScan!.priority);
+    const jobs = buildDailyScanJobs(projects, extensions, keywords);
+
+    const counts = jobs.reduce<Record<string, number>>((acc, j) => {
+      acc[j.type] = (acc[j.type] ?? 0) + 1;
+      return acc;
+    }, {});
+    expect(counts).toEqual({
+      listing_scan: 2,
+      keyword_scan: 1,
+      autocomplete_scan: 1,
+      review_scan: 2,
+    });
+  });
+
+  it('does not always emit jobs in the same order', () => {
+    // The whole point of the shuffle: a fixed metadata→rank offset every day is
+    // what made the change log imply a causal latency it could not support.
+    // Enough jobs that the odds of N identical shuffles are negligible.
+    const projects = [
+      makeProject({
+        ownExtensionId: EXT_OWN,
+        competitorIds: [EXT_COMP1, EXT_COMP2, EXT_COMP3],
+        keywordIds: [1, 2, 3],
+      }),
+    ];
+    const extensions = [
+      makeExtension(EXT_OWN),
+      makeExtension(EXT_COMP1),
+      makeExtension(EXT_COMP2),
+      makeExtension(EXT_COMP3),
+    ];
+    const keywords = [
+      makeKeyword(1, 'ad blocker', 1),
+      makeKeyword(2, 'vpn', 1),
+      makeKeyword(3, 'password manager', 1),
+    ];
+
+    const signature = (): string =>
+      buildDailyScanJobs(projects, extensions, keywords)
+        .map((j) => `${j.type}:${JSON.stringify(j.payload)}`)
+        .join('|');
+
+    const signatures = new Set([signature(), signature(), signature(), signature()]);
+    expect(signatures.size).toBeGreaterThan(1);
+  });
+
+  it('places an extension\'s listing scan before its keyword scan only sometimes', () => {
+    // Sign of the offset must vary, not just its magnitude — otherwise metadata
+    // still always precedes rank and the directional bias survives.
+    const projects = [
+      makeProject({ ownExtensionId: EXT_OWN, competitorIds: [], keywordIds: [1] }),
+    ];
+    const extensions = [makeExtension(EXT_OWN)];
+    const keywords = [makeKeyword(1, 'ad blocker', 1)];
+
+    let listingFirst = 0;
+    let keywordFirst = 0;
+    for (let i = 0; i < 200; i++) {
+      const jobs = buildDailyScanJobs(projects, extensions, keywords);
+      const listing = jobs.find((j) => j.type === 'listing_scan')!;
+      const keyword = jobs.find((j) => j.type === 'keyword_scan')!;
+      if (listing.priority < keyword.priority) listingFirst++;
+      else keywordFirst++;
+    }
+
+    expect(listingFirst).toBeGreaterThan(0);
+    expect(keywordFirst).toBeGreaterThan(0);
   });
 
   it('empty project (no extensions, no keywords) → 0 jobs', () => {
@@ -271,7 +335,7 @@ describe('buildDailyScanJobs', () => {
     expect(jobs).toHaveLength(0);
   });
 
-  it('competitor that is own extension in another project gets own priority', () => {
+  it('an extension that is own in one project and a competitor in another gets one listing scan', () => {
     const projects = [
       makeProject({
         id: 1,
@@ -290,11 +354,14 @@ describe('buildDailyScanJobs', () => {
     const jobs = buildDailyScanJobs(projects, extensions, keywords);
     const listingJobs = jobs.filter((j) => j.type === 'listing_scan');
 
-    // Both EXT_OWN and EXT_COMP1 are "own" in at least one project
+    // Both EXT_OWN and EXT_COMP1 are "own" in at least one project, and each is
+    // scanned once rather than once per project it appears in. Priority no
+    // longer encodes ownership — order within a cycle is randomized.
     expect(listingJobs).toHaveLength(2);
-    for (const job of listingJobs) {
-      expect(job.priority).toBe(PRIORITY_OWN_LISTING);
-    }
+    const scannedIds = listingJobs
+      .map((j) => (j.payload as { extensionId: string }).extensionId)
+      .sort();
+    expect(scannedIds).toEqual([EXT_OWN, EXT_COMP1].sort());
   });
 });
 
@@ -370,7 +437,7 @@ describe('buildDailyScanJobs - review_scan jobs', () => {
     expect(reviewJobs).toHaveLength(4); // EXT_OWN, COMP1, COMP2, COMP3 — unique
     const ids = reviewJobs.map((j) => (j.payload as ReviewScanPayload).extensionId).sort();
     expect(ids).toEqual([EXT_OWN, EXT_COMP1, EXT_COMP2, EXT_COMP3].sort());
-    expect(reviewJobs.every((j) => j.priority === PRIORITY_REVIEW_SCAN)).toBe(true);
+    // Priority is a randomized position within the cycle, not a per-type constant.
     expect(reviewJobs.every((j) => j.maxRetries === 3)).toBe(true);
     expect(reviewJobs.every((j) => j.status === 'pending')).toBe(true);
   });

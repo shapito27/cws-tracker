@@ -17,6 +17,28 @@ const props = withDefaults(defineProps<{
 });
 
 /** Build ApexCharts xaxis annotations from visible events. */
+/**
+ * Union of the observation windows of the events on a day, as epoch millis.
+ *
+ * Returns `null` when no event in the group carries a window (records written
+ * before windows existed), so those keep the original single-line annotation
+ * rather than being drawn as a band spanning nothing.
+ */
+function observationBounds(events: EventRecord[]): { from: number; to: number } | null {
+  let from: number | null = null;
+  let to: number | null = null;
+  for (const e of events) {
+    const start = e.lastSeenOldAt;
+    const end = e.firstSeenNewAt;
+    if (!(start instanceof Date) || !(end instanceof Date)) continue;
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) continue;
+    from = from === null ? start.getTime() : Math.min(from, start.getTime());
+    to = to === null ? end.getTime() : Math.max(to, end.getTime());
+  }
+  if (from === null || to === null || to <= from) return null;
+  return { from, to };
+}
+
 const eventAnnotations = computed(() => {
   if (props.events.length === 0 || props.visibleEventTypes.size === 0) {
     return [];
@@ -46,8 +68,16 @@ const eventAnnotations = computed(() => {
     const markerText = events.length > 1
       ? String(events.length)
       : EVENT_TYPE_LABELS[primary.type].charAt(0);
+
+    // Render the change as the interval it was actually observed in, not as a
+    // line at midnight. A single line asserts a moment nobody watched: all that
+    // was seen is the old value at one scan and the new value at the next. When
+    // several events share a day, span the union of their windows.
+    const bounds = observationBounds(events);
+
     return {
-      x: new Date(date + 'T00:00:00Z').getTime(),
+      x: bounds ? bounds.from : new Date(date + 'T00:00:00Z').getTime(),
+      ...(bounds ? { x2: bounds.to, fillColor: EVENT_TYPE_COLORS[primary.type], opacity: 0.12 } : {}),
       borderColor: EVENT_TYPE_COLORS[primary.type],
       strokeDashArray: 2,
       label: {
@@ -103,6 +133,7 @@ const chartOptions = computed(() => ({
   },
   annotations: {
     xaxis: eventAnnotations.value,
+    points: intradayBands.value,
   },
   stroke: {
     curve: 'smooth' as const,
@@ -115,9 +146,16 @@ const chartOptions = computed(() => ({
   tooltip: {
     shared: true,
     y: {
-      formatter: (val: number | null) => {
-        if (val === null || val > 30) return '30+ (not in top 30)';
-        return `#${val}`;
+      formatter: (val: number | null, opts?: { seriesIndex: number; dataPointIndex: number }) => {
+        const base = val === null || val > 30 ? '30+ (not in top 30)' : `#${val}`;
+        // Name what the single plotted point is standing in for, rather than
+        // letting it read as the only reading taken that day.
+        const point =
+          opts && props.series[opts.seriesIndex]?.data[opts.dataPointIndex];
+        if (point && point.sampleCount && point.sampleCount > 1) {
+          return `${base} · ${point.sampleCount} samples: ${point.sampleList}`;
+        }
+        return base;
       },
     },
   },
@@ -133,6 +171,36 @@ const chartOptions = computed(() => ({
     style: { fontSize: '14px', color: '#6b7280' },
   },
 }));
+
+/**
+ * A faint marker at each day's best and worst sample, when they disagreed.
+ *
+ * The line still plots one point per day (the last sample), so the trend reads
+ * exactly as it did with one scan a day. These show how far the position moved
+ * within a day that the single point necessarily hides.
+ */
+const intradayBands = computed(() => {
+  const points: Array<Record<string, unknown>> = [];
+  for (const s of props.series) {
+    for (const d of s.data) {
+      if (!d.band) continue;
+      const x = new Date(d.x + 'T00:00:00Z').getTime();
+      for (const y of [d.band.best, d.band.worst]) {
+        points.push({
+          x,
+          y,
+          marker: {
+            size: 3,
+            fillColor: 'transparent',
+            strokeColor: '#9ca3af',
+            strokeWidth: 1,
+          },
+        });
+      }
+    }
+  }
+  return points;
+});
 
 const chartSeries = computed(() =>
   props.series.map((s) => ({

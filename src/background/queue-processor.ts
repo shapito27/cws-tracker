@@ -366,6 +366,25 @@ async function executeJob(
 }
 
 /**
+ * The scan slot a job belongs to. Jobs queued before slots existed have none,
+ * and the single daily scan they came from is slot 0.
+ */
+function jobSlot(job: QueueJob): number {
+  return job.slot ?? 0;
+}
+
+/**
+ * The date a job's snapshots should be recorded under.
+ *
+ * Prefers the date the cycle was built for, so a long cycle that runs past
+ * local midnight still writes all its snapshots against one day instead of
+ * splitting across two. Falls back to the execution-time date for legacy jobs.
+ */
+function jobDate(job: QueueJob): string {
+  return job.cycleDate ?? today();
+}
+
+/**
  * Process a listing_scan job:
  * 1. Fetch CWS detail page
  * 2. Parse with listing parser
@@ -406,15 +425,16 @@ async function processListingScan(
   );
 
   // Build snapshot
-  const dateStr = today();
-  const snapshot: ListingSnapshot = mapListingDataToSnapshot(
-    listingData,
-    extensionId,
-    dateStr,
-    permissionRiskScore
-  );
+  const dateStr = jobDate(job);
+  const snapshot: ListingSnapshot = {
+    ...mapListingDataToSnapshot(listingData, extensionId, dateStr, permissionRiskScore),
+    slot: jobSlot(job),
+  };
 
-  // Get previous snapshot for event detection
+  // Get previous snapshot for event detection. Read before saving, since
+  // saveListingSnapshot replaces this slot's row. getLatestListingSnapshot
+  // already breaks same-date ties by scannedAt, so with several scans a day
+  // this is the previous *sample*, which is what narrows the window.
   const previousSnapshot = await db.getLatestListingSnapshot(extensionId);
 
   // Save snapshot
@@ -423,10 +443,11 @@ async function processListingScan(
   // Detect and save events
   const events = detectChanges(previousSnapshot ?? null, snapshot);
   for (const event of events) {
-    const savedId = await db.saveEvent(event);
+    const stamped: EventRecord = { ...event, slot: snapshot.slot ?? 0 };
+    const savedId = await db.saveEvent(stamped);
     deps.sendMessage({
       type: 'NEW_EVENT',
-      event: { ...event, id: savedId },
+      event: { ...stamped, id: savedId },
     });
   }
 
@@ -469,7 +490,8 @@ async function processKeywordScan(
 
   // All tracked extension IDs for this project
   const trackedExtIds = [project.ownExtensionId, ...project.competitorIds];
-  const dateStr = today();
+  const dateStr = jobDate(job);
+  const slot = jobSlot(job);
 
   // Fetch search results with pagination (up to MAX_SEARCH_PAGES pages).
   // Page 1 must succeed (errors propagate). Pages 2+ are best-effort:
@@ -626,6 +648,7 @@ async function processKeywordScan(
       keywordId,
       extensionId,
       date: dateStr,
+      slot,
       position: searchEntry ? searchEntry.position : null,
       totalResults: totalCount,
       scannedAt: new Date(),
@@ -647,15 +670,19 @@ async function processKeywordScan(
  * Compare new rank snapshots with previous ones and create rank_change events
  * for any position changes.
  */
-async function detectRankChanges(
+export async function detectRankChanges(
   snapshots: RankSnapshot[],
   keyword: string,
   ownExtensionId: string,
   deps: ProcessorDeps
 ): Promise<void> {
   // Delete any existing rank_change events for these extensions on today's date
-  // to prevent duplicates on same-day re-scans (mirrors saveRankSnapshots dedup)
+  // to prevent duplicates when the same slot is re-run. Scoped by slot and
+  // keyword id rather than by matching the note text: with several scans a day
+  // a date can legitimately hold several rank changes for one keyword, and only
+  // the ones this slot wrote should be replaced.
   const dateStr = snapshots[0]?.date;
+  const slot = snapshots[0]?.slot ?? 0;
   if (dateStr) {
     for (const snap of snapshots) {
       const existingEvents = await db.events
@@ -663,7 +690,16 @@ async function detectRankChanges(
         .equals([snap.extensionId, dateStr])
         .toArray();
       const rankEventIds = existingEvents
-        .filter((e) => e.type === 'rank_change' && e.note.includes(`for "${keyword}"`))
+        .filter(
+          (e) =>
+            e.type === 'rank_change' &&
+            (e.slot ?? 0) === slot &&
+            // Legacy events predate keywordId; fall back to the note match so
+            // an upgrade still cleans up what it wrote before.
+            (e.keywordId !== undefined
+              ? e.keywordId === snap.keywordId
+              : e.note.includes(`for "${keyword}"`))
+        )
         .map((e) => e.id)
         .filter((id): id is number => id !== undefined);
       if (rankEventIds.length > 0) {
@@ -673,8 +709,12 @@ async function detectRankChanges(
   }
 
   for (const snap of snapshots) {
-    // Find the immediately-prior snapshot (any age) for this pair.
-    const immediatePrev = await db.rank_snapshots
+    // The last snapshot on an EARLIER DATE. This is what the drop debounce keys
+    // on, deliberately: "two consecutive nulls confirm a drop" has to keep
+    // meaning two consecutive days. Keying it on samples instead would make
+    // scansPerDay: 4 confirm a drop four times as fast, silently changing what
+    // an "Out" means whenever the user changes an unrelated setting.
+    const prevDay = await db.rank_snapshots
       .where('[keywordId+extensionId+date]')
       .between(
         [snap.keywordId, snap.extensionId, ''],
@@ -684,8 +724,26 @@ async function detectRankChanges(
       )
       .last();
 
+    // Earlier samples from today, if any. Only non-empty when scanning more
+    // than once a day. `snap` itself is already saved, so exclude it by time.
+    const sameDayEarlier = (
+      await db.rank_snapshots
+        .where('[keywordId+extensionId+date]')
+        .equals([snap.keywordId, snap.extensionId, snap.date])
+        .toArray()
+    )
+      .filter((r) => r.scannedAt.getTime() < snap.scannedAt.getTime())
+      .sort((a, b) => a.scannedAt.getTime() - b.scannedAt.getTime());
+
+    // The immediately preceding *sample*: today's previous scan if there was
+    // one, otherwise the previous day's. This is what the position is compared
+    // against, so an intraday move is reported when it happens rather than
+    // being invisible until tomorrow.
+    const immediatePrev: RankSnapshot | undefined =
+      sameDayEarlier.length > 0 ? sameDayEarlier[sameDayEarlier.length - 1] : prevDay;
+
     // If the immediate prev is `position: null` (extension was scanned but
-    // not found yesterday — typical for partial-scan gap days), look further
+    // not found — typical for partial-scan gap days), look further
     // back through the past lookback window for a non-null position. This
     // suppresses spurious "entered top 30" events when the same ext was
     // ranked just two days ago.
@@ -702,15 +760,21 @@ async function detectRankChanges(
           [snap.keywordId, snap.extensionId, lowerBoundDate],
           [snap.keywordId, snap.extensionId, snap.date],
           true,
-          false
+          true // include today, so earlier same-day samples are visible
         )
         .toArray();
-      lookbackWindow.sort((a, b) => a.date.localeCompare(b.date));
+      // Date first, then time within the date — otherwise same-day samples land
+      // in insertion order and the reverse scan picks an arbitrary one.
+      lookbackWindow.sort(
+        (a, b) =>
+          a.date.localeCompare(b.date) || a.scannedAt.getTime() - b.scannedAt.getTime()
+      );
       previous = findEffectivePrevious(
         lookbackWindow,
         immediatePrev,
         snap.date,
-        RANK_NULL_LOOKBACK_DAYS
+        RANK_NULL_LOOKBACK_DAYS,
+        snap.scannedAt
       );
     }
 
@@ -725,7 +789,7 @@ async function detectRankChanges(
     // confirms the drop (mirrors the entering-side lookback). The provisional
     // null is still recorded as a snapshot and surfaces as an "unstable" hint
     // in the UI loaders.
-    if (classifyDrop(snap.position, immediatePrev?.position, previous.position) === 'provisional') {
+    if (classifyDrop(snap.position, prevDay?.position, previous.position) === 'provisional') {
       continue;
     }
 
@@ -756,6 +820,14 @@ async function detectRankChanges(
       newValue: String(snap.position ?? 'null'),
       note,
       detectedAt: new Date(),
+      slot: snap.slot ?? 0,
+      keywordId: snap.keywordId,
+      // Bound the change by the two observations it was derived from. Uses the
+      // *effective* previous, not immediatePrev: when the comparison reached
+      // back across gap days the window is genuinely that wide, and saying so
+      // is the point.
+      lastSeenOldAt: previous.scannedAt,
+      firstSeenNewAt: snap.scannedAt,
     };
 
     try {
@@ -799,7 +871,8 @@ async function processAutocompleteScan(
   }
 
   const trackedExtIds = new Set([project.ownExtensionId, ...project.competitorIds]);
-  const dateStr = today();
+  const dateStr = jobDate(job);
+  const slot = jobSlot(job);
 
   // Fetch autocomplete data
   const data = await fetchAutocompleteWithLogging(
@@ -822,6 +895,7 @@ async function processAutocompleteScan(
         keywordId,
         extensionId: suggestion.extensionId,
         date: dateStr,
+        slot,
         position: suggestion.position,
         suggestedName: suggestion.name,
         scannedAt: new Date(),
@@ -839,6 +913,7 @@ async function processAutocompleteScan(
         keywordId,
         extensionId: extId,
         date: dateStr,
+        slot,
         position: null,
         suggestedName: null,
         scannedAt: new Date(),
@@ -854,6 +929,7 @@ async function processAutocompleteScan(
     await db.saveAutocompleteSuggestions({
       keywordId,
       date: dateStr,
+      slot,
       suggestions: textSuggestions,
       scannedAt: new Date(),
     });
@@ -980,6 +1056,10 @@ async function processReviewScan(
   const now = new Date();
   const rows: Review[] = parsed.reviews.map((p) => mapParsedReviewToRow(p, extensionId, now));
 
+  // Read before saveReviews — it refreshes lastSeenAt on every row it sees.
+  // This is the lower bound of the window for any event emitted below.
+  const previousScanAt = await db.getLastReviewScanAt(extensionId);
+
   const changes = await db.saveReviews(rows);
 
   // Persist the CWS-reported text-review count so the UI can compute the exact
@@ -997,7 +1077,7 @@ async function processReviewScan(
 
   // Emit events for detected changes. Must never fail the scan pipeline.
   try {
-    await emitReviewEvents(rows, changes, deps);
+    await emitReviewEvents(rows, changes, deps, job, previousScanAt);
   } catch {
     // Event creation is supplementary — swallow.
   }
@@ -1038,10 +1118,13 @@ function mapParsedReviewToRow(p: ParsedReview, extensionId: string, now: Date): 
 async function emitReviewEvents(
   rows: Review[],
   changes: { new: string[]; edited: string[]; replied: string[] },
-  deps: ProcessorDeps
+  deps: ProcessorDeps,
+  job: QueueJob,
+  previousScanAt?: Date
 ): Promise<void> {
   const byId = new Map(rows.map((r) => [r.reviewId, r]));
-  const dateStr = today();
+  const dateStr = jobDate(job);
+  const slot = jobSlot(job);
   const excerpt = (t: string): string => {
     const s = t.trim();
     return s.length > 60 ? `${s.slice(0, 60)}…` : s;
@@ -1059,6 +1142,14 @@ async function emitReviewEvents(
       newValue: reviewId,
       note,
       detectedAt: new Date(),
+      slot,
+      // The review was absent (or carried different content) at the previous
+      // review scan and is present now, so it appeared somewhere in between.
+      // Omitted on the first-ever scan of this extension, where there is no
+      // lower bound to claim.
+      ...(previousScanAt
+        ? { lastSeenOldAt: previousScanAt, firstSeenNewAt: review.lastSeenAt }
+        : {}),
     };
     const savedId = await db.saveEvent(event);
     deps.sendMessage({ type: 'NEW_EVENT', event: { ...event, id: savedId } });

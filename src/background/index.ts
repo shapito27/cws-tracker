@@ -188,8 +188,12 @@ async function cancelScan(): Promise<void> {
   // Stop the processQueue alarm
   await chrome.alarms.clear(ALARM_PROCESS_QUEUE);
 
-  // Clear the in-progress cycle marker so a cancelled scan doesn't block the
+  // Clear the in-progress cycle markers so a cancelled scan doesn't block the
   // next scheduled daily scan's idempotency guard (which skips when a cycle is
   // already marked as started today).
-  await settings.set('scanCycleStartedAt', null);
+  //
+  // The slot key must go too: a cancelled cycle did not complete its slot, and
+  // leaving the key behind would let the next drain — a manual refresh, say —
+  // stamp that slot as done and suppress its scheduled scan.
+  await settings.setMultiple({ scanCycleStartedAt: null, scanCycleSlotKey: null });
 }

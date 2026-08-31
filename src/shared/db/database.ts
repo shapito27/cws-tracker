@@ -30,6 +30,21 @@ import type {
 import type { CachedAuditResult } from '../utils/keyword-audit';
 import { contentHashForReview } from '../utils/review-hash';
 
+// ---------------------------------------------------------------------------
+// Slot helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * The slot a snapshot belongs to, treating a missing `slot` as 0.
+ *
+ * Every record written before multi-sampling existed lacks the field, and the
+ * single daily scan those records came from is slot 0, so this is the identity
+ * mapping for existing data.
+ */
+function slotOf(snapshot: { slot?: number }): number {
+  return snapshot.slot ?? 0;
+}
+
 export class CWSDatabase extends Dexie {
   projects!: Table<Project, number>;
   extensions!: Table<Extension, string>;
@@ -178,14 +193,18 @@ export class CWSDatabase extends Dexie {
 
   async saveListingSnapshot(snapshot: ListingSnapshot): Promise<number> {
     return this.transaction('rw', this.listing_snapshots, async () => {
-      // Delete existing snapshots for the same extensionId+date
-      // to prevent duplicate data when scanning multiple times per day.
+      // Replace only the same slot of the same day. Re-running a slot (a retry
+      // or a manual refresh) overwrites it; a different slot of the same day is
+      // an additional sample and must survive. Slot is matched in JS rather
+      // than added to the compound index: IndexedDB omits records missing an
+      // indexed key, so indexing it would hide every pre-existing row.
       const existing = await this.listing_snapshots
         .where('[extensionId+date]')
         .equals([snapshot.extensionId, snapshot.date])
         .toArray();
-      if (existing.length > 0) {
-        await this.listing_snapshots.bulkDelete(existing.map((e) => e.id!));
+      const sameSlot = existing.filter((e) => slotOf(e) === slotOf(snapshot));
+      if (sameSlot.length > 0) {
+        await this.listing_snapshots.bulkDelete(sameSlot.map((e) => e.id!));
       }
       return this.listing_snapshots.put(snapshot);
     });
@@ -249,8 +268,9 @@ export class CWSDatabase extends Dexie {
 
   async saveRankSnapshots(snapshots: RankSnapshot[]): Promise<void> {
     await this.transaction('rw', this.rank_snapshots, async () => {
-      // Delete existing snapshots for the same keywordId+extensionId+date combos
-      // to prevent duplicate data when scanning multiple times per day.
+      // Replace only the same slot of the same day - a different slot is an
+      // additional sample of that day, not a duplicate. See saveListingSnapshot
+      // for why slot is matched in JS rather than indexed.
       // Collect all IDs to delete first, then batch-delete in one operation.
       const idsToDelete: number[] = [];
       for (const snap of snapshots) {
@@ -258,7 +278,9 @@ export class CWSDatabase extends Dexie {
           .where('[keywordId+extensionId+date]')
           .equals([snap.keywordId, snap.extensionId, snap.date])
           .toArray();
-        idsToDelete.push(...existing.map((e) => e.id!));
+        idsToDelete.push(
+          ...existing.filter((e) => slotOf(e) === slotOf(snap)).map((e) => e.id!)
+        );
       }
       if (idsToDelete.length > 0) {
         await this.rank_snapshots.bulkDelete(idsToDelete);
@@ -504,14 +526,16 @@ export class CWSDatabase extends Dexie {
 
   async saveAutocompleteSnapshots(snapshots: AutocompleteSnapshot[]): Promise<void> {
     await this.transaction('rw', this.autocomplete_snapshots, async () => {
-      // Delete existing snapshots for the same keywordId+extensionId+date combos
+      // Replace only the same slot of the same day (see saveListingSnapshot).
       const idsToDelete: number[] = [];
       for (const snap of snapshots) {
         const existing = await this.autocomplete_snapshots
           .where('[keywordId+extensionId+date]')
           .equals([snap.keywordId, snap.extensionId, snap.date])
           .toArray();
-        idsToDelete.push(...existing.map((e) => e.id!));
+        idsToDelete.push(
+          ...existing.filter((e) => slotOf(e) === slotOf(snap)).map((e) => e.id!)
+        );
       }
       if (idsToDelete.length > 0) {
         await this.autocomplete_snapshots.bulkDelete(idsToDelete);
@@ -527,14 +551,15 @@ export class CWSDatabase extends Dexie {
       'rw',
       this.autocomplete_keyword_suggestions,
       async () => {
-        // Delete existing suggestions for the same keywordId+date
+        // Replace only the same slot of the same day (see saveListingSnapshot).
         const existing = await this.autocomplete_keyword_suggestions
           .where('[keywordId+date]')
           .equals([suggestion.keywordId, suggestion.date])
           .toArray();
-        if (existing.length > 0) {
+        const sameSlot = existing.filter((e) => slotOf(e) === slotOf(suggestion));
+        if (sameSlot.length > 0) {
           await this.autocomplete_keyword_suggestions.bulkDelete(
-            existing.map((e) => e.id!)
+            sameSlot.map((e) => e.id!)
           );
         }
         return this.autocomplete_keyword_suggestions.put(suggestion);
@@ -556,6 +581,27 @@ export class CWSDatabase extends Dexie {
   // ---------------------------------------------------------------------------
   // Review methods
   // ---------------------------------------------------------------------------
+
+  /**
+   * When this extension's reviews were last scanned, as the newest `lastSeenAt`
+   * across its stored rows — or `undefined` if it has never been scanned.
+   *
+   * Must be read *before* `saveReviews`, which refreshes `lastSeenAt` to now on
+   * every row it sees. Used to bound review events: a review reported as new
+   * was demonstrably absent at that earlier scan, which makes it the lower edge
+   * of the window in which it actually appeared.
+   */
+  async getLastReviewScanAt(extensionId: string): Promise<Date | undefined> {
+    const rows = await this.reviews
+      .where('extensionId')
+      .equals(extensionId)
+      .toArray();
+    let latest: Date | undefined;
+    for (const row of rows) {
+      if (!latest || row.lastSeenAt > latest) latest = row.lastSeenAt;
+    }
+    return latest;
+  }
 
   /**
    * Upsert reviews keyed by `reviewId`, detecting content changes.

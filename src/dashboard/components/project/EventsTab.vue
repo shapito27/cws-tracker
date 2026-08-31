@@ -4,6 +4,7 @@ import type { Project, Extension, EventRecord, EventType } from '@/shared/types'
 import { db } from '@/shared/db/database';
 import { useExtensions } from '../../composables/useExtensions';
 import { ALL_EVENT_TYPES, EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
+import { describeEventWindow, type EventWindowDisplay } from '@/shared/utils/event-window';
 import DiffView from '../comparison/DiffView.vue';
 import PermissionsDiff from '../comparison/PermissionsDiff.vue';
 import ExtensionIcon from '../ExtensionIcon.vue';
@@ -119,13 +120,8 @@ function getSmartBadgeClass(event: EventRecord): string {
   return getEventTypeBadgeClass(event.type);
 }
 
-function formatEventDateTime(event: EventRecord): string {
-  if (!event.detectedAt) return event.date;
-  const d = event.detectedAt;
-  if (isNaN(d.getTime())) return event.date;
-  const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-  const timeStr = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return `${dateStr}, ${timeStr}`;
+function eventWindow(event: EventRecord): EventWindowDisplay {
+  return describeEventWindow(event);
 }
 
 </script>
@@ -215,7 +211,21 @@ function formatEventDateTime(event: EventRecord): string {
               </span>
             </div>
           </div>
-          <span class="shrink-0 text-xs text-gray-500">{{ formatEventDateTime(event) }}</span>
+          <span
+            class="shrink-0 text-right text-xs text-gray-500"
+            :title="eventWindow(event).title"
+          >
+            <template v-if="eventWindow(event).bounded">
+              <span class="block">{{ eventWindow(event).label }}</span>
+              <span class="block text-[11px] text-gray-400">
+                somewhere in {{ eventWindow(event).width }}
+              </span>
+            </template>
+            <template v-else>
+              <span class="block">{{ eventWindow(event).label }}</span>
+              <span class="block text-[11px] text-gray-400">detected, exact timing unknown</span>
+            </template>
+          </span>
         </div>
 
         <!-- Expanded diff detail -->

@@ -4,8 +4,8 @@
  * Builds the initial set of QueueJob entries for a daily scan cycle.
  * - Creates `listing_scan` jobs: 1 per unique extension across all projects.
  * - Creates `keyword_scan` jobs: 1 per keyword (NOT deduplicated across projects).
- * - Assigns priorities: listing scans before keyword scans; own extensions before competitors.
  * - Deduplicates: if the same extension appears in multiple projects, only one listing_scan.
+ * - Randomizes execution order within the cycle (see `buildDailyScanJobs`).
  */
 
 import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
@@ -13,6 +13,10 @@ import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
 // ---------------------------------------------------------------------------
 // Priority constants (lower number = higher priority)
 // ---------------------------------------------------------------------------
+//
+// These still order the *scoped* builders below, each of which emits a single
+// job type. They no longer order a full daily cycle: `buildDailyScanJobs`
+// overwrites priority with a randomized sequence. See the note there.
 
 /** Priority for listing scans of the user's own extension. */
 export const PRIORITY_OWN_LISTING = 10;
@@ -32,9 +36,44 @@ export const PRIORITY_REVIEW_SCAN = 50;
 /** Default maximum retries for queue jobs. */
 const DEFAULT_MAX_RETRIES = 3;
 
+/**
+ * Fisher-Yates shuffle. Returns a new array; does not mutate the input.
+ */
+function shuffle<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/**
+ * Identifies the scan cycle a set of jobs belongs to.
+ *
+ * Stamped onto every job so the snapshots it writes land in the right slot and
+ * on the right date even if the cycle outlives midnight or a service-worker
+ * restart. Omitted by callers that predate slots, which behave as slot 0 with
+ * the execution-time date.
+ */
+export interface ScanCycleContext {
+  /** 0-based scan slot within the day. */
+  slot: number;
+  /** YYYY-MM-DD the cycle is being run for. */
+  cycleDate: string;
+  /**
+   * Whether to include review scans. Defaults to "only on the day's first
+   * slot".
+   *
+   * Set explicitly by a manual full refresh, which the user asked for and which
+   * should therefore refresh everything regardless of which slot it lands in.
+   */
+  includeReviews?: boolean;
+}
 
 /**
  * Build the list of queue jobs for a daily scan (or manual refresh).
@@ -42,12 +81,14 @@ const DEFAULT_MAX_RETRIES = 3;
  * @param projects  All projects to scan.
  * @param extensions  All known extensions (needed to look up metadata).
  * @param keywords  All keywords across all projects.
+ * @param cycle  Which scan slot/date these jobs belong to.
  * @returns Array of QueueJob entries ready to enqueue (without `id` set).
  */
 export function buildDailyScanJobs(
   projects: Project[],
   extensions: Extension[],
-  keywords: Keyword[]
+  keywords: Keyword[],
+  cycle?: ScanCycleContext
 ): QueueJob[] {
   const now = new Date();
   const jobs: QueueJob[] = [];
@@ -98,11 +139,41 @@ export function buildDailyScanJobs(
   // --- Review scan jobs ---
   // One job per unique tracked extension (own + competitors), deduplicated —
   // reuse the set of extensions that already have a listing_scan.
-  for (const extensionId of seenExtensionIds) {
-    jobs.push(createReviewScanJob(extensionId, now));
+  //
+  // Only on the day's first slot. Reviews are the most expensive job type and
+  // gain nothing from intraday resolution: they are already tracked as entities
+  // with their own first/last-seen timestamps rather than as daily snapshots,
+  // so re-fetching them 4x a day would multiply request volume for no new
+  // information.
+  const includeReviews = cycle?.includeReviews ?? (!cycle || cycle.slot === 0);
+  if (includeReviews) {
+    for (const extensionId of seenExtensionIds) {
+      jobs.push(createReviewScanJob(extensionId, now));
+    }
   }
 
-  return jobs;
+  // --- Randomize execution order -------------------------------------------
+  //
+  // Jobs used to run strictly by type: every listing scan, then every keyword
+  // scan. At roughly one job a minute that put a fixed interval between an
+  // extension's metadata sample and its rank sample — the same interval, in the
+  // same direction, every day, for every extension.
+  //
+  // That is a confound, not a cosmetic detail. It makes the change log show a
+  // metadata change consistently preceding a rank change by a near-constant lag,
+  // which reads as a causal latency that the data does not contain. Shuffling
+  // removes the pattern: across days the offset varies in both size and sign, so
+  // any apparent lead-lag has to come from the store rather than from our
+  // scan order.
+  //
+  // Cost, accepted deliberately: the own extension is no longer guaranteed to be
+  // scanned first, so an interrupted cycle may not have covered it. Snapshots
+  // record when they were taken, so partial cycles stay interpretable.
+  return shuffle(jobs).map((job, index) => ({
+    ...job,
+    priority: index,
+    ...(cycle ? { slot: cycle.slot, cycleDate: cycle.cycleDate } : {}),
+  }));
 }
 
 /**
@@ -110,9 +181,12 @@ export function buildDailyScanJobs(
  * Used for section-scoped manual refresh (e.g. "rescan keyword positions
  * for this project").
  */
-export function buildKeywordScanJobs(keywords: Keyword[]): QueueJob[] {
+export function buildKeywordScanJobs(
+  keywords: Keyword[],
+  cycle?: ScanCycleContext
+): QueueJob[] {
   const now = new Date();
-  return keywords.map((k) => createKeywordScanJob(k, now));
+  return keywords.map((k) => withCycle(createKeywordScanJob(k, now), cycle));
 }
 
 /**
@@ -120,9 +194,12 @@ export function buildKeywordScanJobs(keywords: Keyword[]): QueueJob[] {
  * Used for section-scoped manual refresh (e.g. "rescan AC positions
  * for this project").
  */
-export function buildAutocompleteScanJobs(keywords: Keyword[]): QueueJob[] {
+export function buildAutocompleteScanJobs(
+  keywords: Keyword[],
+  cycle?: ScanCycleContext
+): QueueJob[] {
   const now = new Date();
-  return keywords.map((k) => createAutocompleteScanJob(k, now));
+  return keywords.map((k) => withCycle(createAutocompleteScanJob(k, now), cycle));
 }
 
 /**
@@ -130,10 +207,19 @@ export function buildAutocompleteScanJobs(keywords: Keyword[]): QueueJob[] {
  * Used for section-scoped manual refresh ("refresh reviews for this project").
  * Duplicate IDs are deduplicated.
  */
-export function buildReviewScanJobs(extensionIds: string[]): QueueJob[] {
+export function buildReviewScanJobs(
+  extensionIds: string[],
+  cycle?: ScanCycleContext
+): QueueJob[] {
   const now = new Date();
   const unique = [...new Set(extensionIds.filter((id) => !!id))];
-  return unique.map((id) => createReviewScanJob(id, now));
+  return unique.map((id) => withCycle(createReviewScanJob(id, now), cycle));
+}
+
+/** Stamp a job with its scan cycle, if one was supplied. */
+function withCycle(job: QueueJob, cycle?: ScanCycleContext): QueueJob {
+  if (!cycle) return job;
+  return { ...job, slot: cycle.slot, cycleDate: cycle.cycleDate };
 }
 
 // ---------------------------------------------------------------------------

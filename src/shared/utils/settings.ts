@@ -24,9 +24,12 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   queueJitterMs: 10_000,
   dailyScanTime: '03:00',
   dailyScanEnabled: false,
+  scansPerDay: 1,
   reviewFetchLimit: 50,
   lastDailyScanDate: null,
+  lastScanSlotKey: null,
   scanCycleStartedAt: null,
+  scanCycleSlotKey: null,
   proxyUrl: '',
   proxyApiKey: null,
   dataRetentionDays: 365,
@@ -36,6 +39,7 @@ export const DEFAULT_SETTINGS: Readonly<Settings> = {
   auditUserPromptTemplate: '',
   auditPromptVariant: 'default',
   onboardingCompleted: false,
+  intradayView: false,
 };
 
 // ---------------------------------------------------------------------------
@@ -49,6 +53,15 @@ const MIN_DATA_RETENTION_DAYS = 7;
 /** Allowed range for reviewFetchLimit. */
 const MIN_REVIEW_FETCH_LIMIT = 10;
 const MAX_REVIEW_FETCH_LIMIT = 500;
+/**
+ * Allowed range for scansPerDay.
+ *
+ * Capped at 4 for two reasons: each scan is a full cycle of CWS requests, and
+ * 24/N stays a whole number of hours for every allowed value (24/12/8/6), so
+ * slot times never land on a fractional hour.
+ */
+export const MIN_SCANS_PER_DAY = 1;
+export const MAX_SCANS_PER_DAY = 4;
 /** Pattern for HH:MM 24-hour time. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Valid audit prompt variants. */
@@ -107,6 +120,19 @@ function validatePartial(partial: Partial<Settings>): void {
     ) {
       throw new SettingsValidationError(
         `reviewFetchLimit must be an integer between ${MIN_REVIEW_FETCH_LIMIT} and ${MAX_REVIEW_FETCH_LIMIT}, got ${partial.reviewFetchLimit}`
+      );
+    }
+  }
+
+  if ('scansPerDay' in partial) {
+    if (
+      typeof partial.scansPerDay !== 'number' ||
+      !Number.isInteger(partial.scansPerDay) ||
+      partial.scansPerDay < MIN_SCANS_PER_DAY ||
+      partial.scansPerDay > MAX_SCANS_PER_DAY
+    ) {
+      throw new SettingsValidationError(
+        `scansPerDay must be an integer between ${MIN_SCANS_PER_DAY} and ${MAX_SCANS_PER_DAY}, got ${partial.scansPerDay}`
       );
     }
   }

@@ -196,6 +196,26 @@ function createProcessorDeps(overrides: Partial<ProcessorDeps> = {}): ProcessorD
   };
 }
 
+/**
+ * Process every job that is currently due, until the queue reports no more.
+ *
+ * Order within a cycle is randomized (see `buildDailyScanJobs`), so a test can
+ * no longer process "the first N jobs" and know which ones it got. Jobs that
+ * fail are rescheduled into the future and so drop out of this loop rather than
+ * spinning. `maxIterations` is a runaway guard, not an expected bound.
+ */
+async function drainQueue(
+  processNextJob: (deps: ProcessorDeps) => Promise<{ hasMore: boolean }>,
+  deps: ProcessorDeps,
+  maxIterations = 50
+): Promise<void> {
+  for (let i = 0; i < maxIterations; i++) {
+    const { hasMore } = await processNextJob(deps);
+    if (!hasMore) return;
+  }
+  throw new Error(`drainQueue did not settle within ${maxIterations} iterations`);
+}
+
 function createSchedulerDeps(processorDeps?: ProcessorDeps): SchedulerDeps {
   return {
     settings: new SettingsManager(),
@@ -366,14 +386,13 @@ describe('1.10.1 Full scan cycle', () => {
     const sendMessage = vi.fn();
     const deps = createProcessorDeps({ fetchPage, sendMessage });
 
-    // 5. Process all 5 jobs one at a time (3 listing + 1 keyword + 1 autocomplete)
-    // autocomplete_scan will fail because no proxyUrl is configured - that's OK,
-    // it will be retried and eventually fail permanently
-    for (let i = 0; i < 5; i++) {
-      await processNextJob(deps);
-    }
+    // 5. Drain the queue. autocomplete_scan and review_scan both fail because no
+    // proxyUrl is configured - that's OK, they're retried and eventually fail
+    // permanently.
+    await drainQueue(processNextJob, deps);
 
-    // Verify exactly 4 fetch calls were made (autocomplete doesn't fetch without proxy)
+    // Verify exactly 4 fetch calls were made: 3 listing + 1 search.
+    // Autocomplete and reviews bail before fetching when no proxy is set.
     expect(fetchPage.mock.calls.length).toBe(4);
 
     // 6. Verify listing_snapshots saved (1 per extension)
@@ -462,9 +481,7 @@ describe('1.10.2 Second scan cycle', () => {
     const deps = createProcessorDeps({ fetchPage, sendMessage });
 
     // Process all first-scan jobs
-    for (let i = 0; i < 4; i++) {
-      await processNextJob(deps);
-    }
+    await drainQueue(processNextJob, deps);
 
     const firstSnapshots = await testDb.listing_snapshots.toArray();
     expect(firstSnapshots).toHaveLength(3);
@@ -550,9 +567,7 @@ describe('1.10.2 Second scan cycle', () => {
     await testDb.enqueueJobs(jobs2);
 
     // Process all second-scan jobs
-    for (let i = 0; i < 4; i++) {
-      await processNextJob(deps);
-    }
+    await drainQueue(processNextJob, deps);
 
     // Verify listing snapshots (3 total: same-day scans overwrite previous)
     const allListingSnapshots = await testDb.listing_snapshots.toArray();
@@ -1123,9 +1138,7 @@ describe('1.10.7 Multiple projects with shared competitor', () => {
     });
     const deps = createProcessorDeps({ fetchPage });
 
-    for (let i = 0; i < 5; i++) {
-      await processNextJob(deps);
-    }
+    await drainQueue(processNextJob, deps);
 
     // Verify only 1 listing snapshot for shared competitor
     const sharedSnapshots = await testDb.listing_snapshots
@@ -2033,5 +2046,105 @@ describe('keyword_scan pagination', () => {
     for (const snap of rankSnapshots) {
       expect(snap.totalResults).toBe(342);
     }
+  });
+});
+
+// ===========================================================================
+// Multi-slot scanning end to end
+// ===========================================================================
+
+describe('scanning several times a day', () => {
+  it('accumulates a sample per slot and still reads as one value per day', async () => {
+    const { buildDailyScanJobs } = await import('@/background/queue-builder');
+    const { processNextJob } = await import('@/background/queue-processor');
+    const { rollupByDate } = await import('@/shared/utils/daily-rollup');
+
+    await seedSingleProject();
+    const projects = await testDb.getAllProjects();
+    const extensions = await testDb.extensions.toArray();
+    const keywords = await testDb.keywords.toArray();
+
+    const fetchPage = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')) return new Response('ext-aaa', { status: 200 });
+      if (url.includes('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')) return new Response('ext-bbb', { status: 200 });
+      if (url.includes('cccccccccccccccccccccccccccccccccc')) return new Response('ext-ccc', { status: 200 });
+      return new Response('search-results', { status: 200 });
+    });
+    const deps = createProcessorDeps({ fetchPage });
+
+    // Three slots on one day, as scansPerDay: 3 would produce.
+    for (const slot of [0, 1, 2]) {
+      const jobs = buildDailyScanJobs(projects, extensions, keywords, {
+        slot,
+        cycleDate: '2026-08-20',
+      });
+      await testDb.enqueueJobs(jobs);
+      await drainQueue(processNextJob, deps);
+    }
+
+    // Each slot kept its own sample rather than overwriting the previous one.
+    const listing = await testDb.listing_snapshots
+      .where('extensionId')
+      .equals('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+      .toArray();
+    expect(listing).toHaveLength(3);
+    expect(listing.map((l) => l.slot).sort()).toEqual([0, 1, 2]);
+    expect(listing.every((l) => l.date === '2026-08-20')).toBe(true);
+
+    // Rank snapshots likewise, per tracked extension.
+    const ranks = await testDb.rank_snapshots
+      .where('[keywordId+extensionId+date]')
+      .equals([1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '2026-08-20'])
+      .toArray();
+    expect(ranks).toHaveLength(3);
+
+    // But the day still reads as a single value: the last sample taken.
+    const rolled = rollupByDate(ranks);
+    expect(rolled).toHaveLength(1);
+    expect(rolled[0].count).toBe(3);
+    const newest = [...ranks].sort((a, b) => b.scannedAt.getTime() - a.scannedAt.getTime())[0];
+    expect(rolled[0].value.scannedAt).toEqual(newest.scannedAt);
+
+    // Reviews run on the first slot only — they are the most expensive job type
+    // and gain nothing from intraday resolution.
+    const reviewJobs = (await testDb.queue.toArray()).filter((j) => j.type === 'review_scan');
+    expect(reviewJobs.filter((j) => j.slot === 0).length).toBeGreaterThan(0);
+    expect(reviewJobs.filter((j) => j.slot !== 0)).toHaveLength(0);
+  });
+
+  it('re-running a slot replaces that slot and leaves the others intact', async () => {
+    const { buildDailyScanJobs } = await import('@/background/queue-builder');
+    const { processNextJob } = await import('@/background/queue-processor');
+
+    await seedSingleProject();
+    const projects = await testDb.getAllProjects();
+    const extensions = await testDb.extensions.toArray();
+    const keywords = await testDb.keywords.toArray();
+
+    const fetchPage = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')) return new Response('ext-aaa', { status: 200 });
+      if (url.includes('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')) return new Response('ext-bbb', { status: 200 });
+      if (url.includes('cccccccccccccccccccccccccccccccccc')) return new Response('ext-ccc', { status: 200 });
+      return new Response('search-results', { status: 200 });
+    });
+    const deps = createProcessorDeps({ fetchPage });
+
+    for (const slot of [0, 1]) {
+      await testDb.enqueueJobs(
+        buildDailyScanJobs(projects, extensions, keywords, { slot, cycleDate: '2026-08-20' })
+      );
+      await drainQueue(processNextJob, deps);
+    }
+    expect(await testDb.listing_snapshots.count()).toBe(6); // 3 extensions x 2 slots
+
+    // A manual refresh of slot 0 replaces slot 0 only.
+    await testDb.enqueueJobs(
+      buildDailyScanJobs(projects, extensions, keywords, { slot: 0, cycleDate: '2026-08-20' })
+    );
+    await drainQueue(processNextJob, deps);
+
+    expect(await testDb.listing_snapshots.count()).toBe(6);
+    const slots = (await testDb.listing_snapshots.toArray()).map((l) => l.slot).sort();
+    expect(slots).toEqual([0, 0, 0, 1, 1, 1]);
   });
 });
