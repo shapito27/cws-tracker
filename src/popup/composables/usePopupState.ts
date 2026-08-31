@@ -54,6 +54,16 @@ export interface RankChange {
   date: string;
   /** Exact timestamp of the current rank snapshot scan. */
   scannedAt: Date;
+  /**
+   * `scannedAt` of the snapshot the current one was compared against — the last
+   * observation still showing `previousPosition`.
+   *
+   * With `scannedAt` this bounds when the move actually happened. A rank change
+   * is only ever observed as "different than last time we looked", so rendering
+   * it at a single instant overstates what is known; the pair is what the UI
+   * should show. Absent when there was no comparable prior snapshot.
+   */
+  previousScannedAt?: Date;
 }
 
 /** A group of rank/autocomplete changes that all occurred on the same date. */
@@ -281,6 +291,7 @@ export async function loadRecentRankChanges(limit: number = 5, ownOnly = false):
         projectId: ownerProject?.id ?? null,
         date: currentDate,
         scannedAt: snap.scannedAt,
+        previousScannedAt: prev?.scannedAt,
       });
     }
   }
@@ -441,6 +452,7 @@ export async function loadRecentAutocompleteChanges(limit: number = 5, ownOnly =
         projectId: ownerProject?.id ?? null,
         date: currentDate,
         scannedAt: snap.scannedAt,
+        previousScannedAt: (effectivePrev ?? immediatePrev)?.scannedAt,
       });
     }
   }
@@ -578,6 +590,7 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
           projectId: ownerProject?.id ?? null,
           date: currentDate,
           scannedAt: snap.scannedAt,
+          previousScannedAt: prev?.scannedAt,
         });
       }
     }
@@ -645,6 +658,7 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
           projectId: ownerProject?.id ?? null,
           date: currentDate,
           scannedAt: snap.scannedAt,
+          previousScannedAt: (effectivePrev ?? immediatePrev)?.scannedAt,
         });
       }
     }

@@ -196,6 +196,26 @@ function createProcessorDeps(overrides: Partial<ProcessorDeps> = {}): ProcessorD
   };
 }
 
+/**
+ * Process every job that is currently due, until the queue reports no more.
+ *
+ * Order within a cycle is randomized (see `buildDailyScanJobs`), so a test can
+ * no longer process "the first N jobs" and know which ones it got. Jobs that
+ * fail are rescheduled into the future and so drop out of this loop rather than
+ * spinning. `maxIterations` is a runaway guard, not an expected bound.
+ */
+async function drainQueue(
+  processNextJob: (deps: ProcessorDeps) => Promise<{ hasMore: boolean }>,
+  deps: ProcessorDeps,
+  maxIterations = 50
+): Promise<void> {
+  for (let i = 0; i < maxIterations; i++) {
+    const { hasMore } = await processNextJob(deps);
+    if (!hasMore) return;
+  }
+  throw new Error(`drainQueue did not settle within ${maxIterations} iterations`);
+}
+
 function createSchedulerDeps(processorDeps?: ProcessorDeps): SchedulerDeps {
   return {
     settings: new SettingsManager(),
@@ -366,14 +386,13 @@ describe('1.10.1 Full scan cycle', () => {
     const sendMessage = vi.fn();
     const deps = createProcessorDeps({ fetchPage, sendMessage });
 
-    // 5. Process all 5 jobs one at a time (3 listing + 1 keyword + 1 autocomplete)
-    // autocomplete_scan will fail because no proxyUrl is configured - that's OK,
-    // it will be retried and eventually fail permanently
-    for (let i = 0; i < 5; i++) {
-      await processNextJob(deps);
-    }
+    // 5. Drain the queue. autocomplete_scan and review_scan both fail because no
+    // proxyUrl is configured - that's OK, they're retried and eventually fail
+    // permanently.
+    await drainQueue(processNextJob, deps);
 
-    // Verify exactly 4 fetch calls were made (autocomplete doesn't fetch without proxy)
+    // Verify exactly 4 fetch calls were made: 3 listing + 1 search.
+    // Autocomplete and reviews bail before fetching when no proxy is set.
     expect(fetchPage.mock.calls.length).toBe(4);
 
     // 6. Verify listing_snapshots saved (1 per extension)
@@ -462,9 +481,7 @@ describe('1.10.2 Second scan cycle', () => {
     const deps = createProcessorDeps({ fetchPage, sendMessage });
 
     // Process all first-scan jobs
-    for (let i = 0; i < 4; i++) {
-      await processNextJob(deps);
-    }
+    await drainQueue(processNextJob, deps);
 
     const firstSnapshots = await testDb.listing_snapshots.toArray();
     expect(firstSnapshots).toHaveLength(3);
@@ -550,9 +567,7 @@ describe('1.10.2 Second scan cycle', () => {
     await testDb.enqueueJobs(jobs2);
 
     // Process all second-scan jobs
-    for (let i = 0; i < 4; i++) {
-      await processNextJob(deps);
-    }
+    await drainQueue(processNextJob, deps);
 
     // Verify listing snapshots (3 total: same-day scans overwrite previous)
     const allListingSnapshots = await testDb.listing_snapshots.toArray();
@@ -1123,9 +1138,7 @@ describe('1.10.7 Multiple projects with shared competitor', () => {
     });
     const deps = createProcessorDeps({ fetchPage });
 
-    for (let i = 0; i < 5; i++) {
-      await processNextJob(deps);
-    }
+    await drainQueue(processNextJob, deps);
 
     // Verify only 1 listing snapshot for shared competitor
     const sharedSnapshots = await testDb.listing_snapshots

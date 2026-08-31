@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { EventRecord } from '@/shared/types';
 import { EVENT_TYPE_LABELS, getEventTypeBadgeClass } from '@/shared/utils/event-colors';
+import { describeEventWindowCompact } from '@/shared/utils/event-window';
 import ExtensionIcon from './ExtensionIcon.vue';
 
 const props = defineProps<{
@@ -9,10 +10,16 @@ const props = defineProps<{
   extensionName: string;
   extensionIconUrl: string | null;
   isOwn: boolean;
-  formattedTime: string;
   /** Project id - enables competitor name → competitor overview link. Optional for contexts without a project. */
   projectId?: number | null;
 }>();
+
+/**
+ * Derived here rather than passed in: every caller wants the same rendering,
+ * and the timing of a change is subtle enough that it should have exactly one
+ * implementation.
+ */
+const timing = computed(() => describeEventWindowCompact(props.event));
 
 const linkTarget = computed(() => {
   if (props.isOwn || props.projectId == null) return null;
@@ -47,9 +54,9 @@ const linkTarget = computed(() => {
       </div>
       <div class="flex items-center gap-1.5 text-xs text-gray-500">
         <span class="truncate">{{ event.note }}</span>
-        <template v-if="formattedTime">
+        <template v-if="timing.label">
           <span class="text-gray-300">&middot;</span>
-          <span class="shrink-0">{{ formattedTime }}</span>
+          <span class="shrink-0" :title="timing.title">{{ timing.label }}</span>
         </template>
       </div>
     </div>

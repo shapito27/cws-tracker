@@ -255,8 +255,28 @@ export interface EventRecord {
   newValue: string | null;
   /** Human-readable description (e.g. "Title changed from 'X' to 'Y'"). */
   note: string;
-  /** Exact timestamp when the change was detected. Not indexed. Absent on legacy records. */
+  /**
+   * When the change was *detected* — i.e. when the scan that noticed it ran.
+   * This is NOT when the change happened; see `lastSeenOldAt`/`firstSeenNewAt`.
+   * Not indexed. Absent on legacy records.
+   */
   detectedAt?: Date;
+  /**
+   * `scannedAt` of the last observation where `oldValue` still held.
+   *
+   * Together with `firstSeenNewAt` this bounds the change: it happened somewhere
+   * in that interval, and nothing narrower is knowable from polling. Rendering a
+   * single timestamp instead implies a precision the data does not have — with
+   * one scan a day the true window is ~24h wide.
+   *
+   * Not indexed. Absent on legacy records and on first-scan events.
+   */
+  lastSeenOldAt?: Date;
+  /**
+   * `scannedAt` of the first observation carrying `newValue`.
+   * See `lastSeenOldAt`. Not indexed. Absent on legacy records.
+   */
+  firstSeenNewAt?: Date;
 }
 
 // ---------------------------------------------------------------------------

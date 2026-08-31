@@ -15,7 +15,7 @@ import { useSettings } from '../../composables/useSettings';
 import { useProxyStatus } from '../../composables/useProxyStatus';
 import { loadExtensionRankHistory } from '../../composables/useRankings';
 import { loadExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
-import { daysAgo, today } from '@/shared/utils/dates';
+import { daysAgo, formatRelativeDateTime, today } from '@/shared/utils/dates';
 import ListingEventItem from '../ListingEventItem.vue';
 import RankChangeItem from '../RankChangeItem.vue';
 import RankChart from '../charts/RankChart.vue';
@@ -163,23 +163,6 @@ watch(
   }
 );
 
-function formatRelativeDateTime(date: Date): string {
-  if (isNaN(date.getTime())) return 'Unknown';
-
-  const now = new Date();
-  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const diffDays = Math.round((dateStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
-
-  if (diffDays === 0) return `Today, ${timeStr}`;
-  if (diffDays === -1) return `Yesterday, ${timeStr}`;
-  if (diffDays === 1) return `Tomorrow, ${timeStr}`;
-
-  return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
-}
-
 function getLastScannedDate(): Date | null {
   const dates = extensions.value
     .filter((e) => e.lastScannedAt)
@@ -235,11 +218,6 @@ function getExtensionIconUrl(extensionId: string): string | null {
 
 function isOwnExtension(extensionId: string): boolean {
   return extensionId === props.project.ownExtensionId;
-}
-
-function formatEventTime(event: EventRecord): string {
-  if (event.detectedAt) return formatRelativeDateTime(event.detectedAt);
-  return event.date;
 }
 
 function getUnifiedEventKey(item: UnifiedEvent): string {
@@ -377,7 +355,6 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
               :extension-icon-url="getExtensionIconUrl((item.data as EventRecord).extensionId)"
               :is-own="isOwnExtension((item.data as EventRecord).extensionId)"
               :project-id="project.id ?? null"
-              :formatted-time="formatEventTime(item.data as EventRecord)"
             />
           </template>
         </div>

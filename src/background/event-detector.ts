@@ -223,7 +223,16 @@ export function detectChanges(
     ));
   }
 
-  return events;
+  // Stamp the observation window on every event in this batch. All of them were
+  // derived from the same snapshot pair, so they share the same bounds: the
+  // change happened somewhere between the two scans and nothing narrower is
+  // knowable. Applied here rather than threaded through createEvent's ~11 call
+  // sites, since the values are identical for the whole batch.
+  return events.map((event) => ({
+    ...event,
+    lastSeenOldAt: previous.scannedAt,
+    firstSeenNewAt: current.scannedAt,
+  }));
 }
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@
  * Builds the initial set of QueueJob entries for a daily scan cycle.
  * - Creates `listing_scan` jobs: 1 per unique extension across all projects.
  * - Creates `keyword_scan` jobs: 1 per keyword (NOT deduplicated across projects).
- * - Assigns priorities: listing scans before keyword scans; own extensions before competitors.
  * - Deduplicates: if the same extension appears in multiple projects, only one listing_scan.
+ * - Randomizes execution order within the cycle (see `buildDailyScanJobs`).
  */
 
 import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
@@ -13,6 +13,10 @@ import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
 // ---------------------------------------------------------------------------
 // Priority constants (lower number = higher priority)
 // ---------------------------------------------------------------------------
+//
+// These still order the *scoped* builders below, each of which emits a single
+// job type. They no longer order a full daily cycle: `buildDailyScanJobs`
+// overwrites priority with a randomized sequence. See the note there.
 
 /** Priority for listing scans of the user's own extension. */
 export const PRIORITY_OWN_LISTING = 10;
@@ -31,6 +35,18 @@ export const PRIORITY_REVIEW_SCAN = 50;
 
 /** Default maximum retries for queue jobs. */
 const DEFAULT_MAX_RETRIES = 3;
+
+/**
+ * Fisher-Yates shuffle. Returns a new array; does not mutate the input.
+ */
+function shuffle<T>(items: T[]): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -102,7 +118,24 @@ export function buildDailyScanJobs(
     jobs.push(createReviewScanJob(extensionId, now));
   }
 
-  return jobs;
+  // --- Randomize execution order -------------------------------------------
+  //
+  // Jobs used to run strictly by type: every listing scan, then every keyword
+  // scan. At roughly one job a minute that put a fixed interval between an
+  // extension's metadata sample and its rank sample — the same interval, in the
+  // same direction, every day, for every extension.
+  //
+  // That is a confound, not a cosmetic detail. It makes the change log show a
+  // metadata change consistently preceding a rank change by a near-constant lag,
+  // which reads as a causal latency that the data does not contain. Shuffling
+  // removes the pattern: across days the offset varies in both size and sign, so
+  // any apparent lead-lag has to come from the store rather than from our
+  // scan order.
+  //
+  // Cost, accepted deliberately: the own extension is no longer guaranteed to be
+  // scanned first, so an interrupted cycle may not have covered it. Snapshots
+  // record when they were taken, so partial cycles stay interpretable.
+  return shuffle(jobs).map((job, index) => ({ ...job, priority: index }));
 }
 
 /**

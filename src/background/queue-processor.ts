@@ -756,6 +756,12 @@ async function detectRankChanges(
       newValue: String(snap.position ?? 'null'),
       note,
       detectedAt: new Date(),
+      // Bound the change by the two observations it was derived from. Uses the
+      // *effective* previous, not immediatePrev: when the comparison reached
+      // back across gap days the window is genuinely that wide, and saying so
+      // is the point.
+      lastSeenOldAt: previous.scannedAt,
+      firstSeenNewAt: snap.scannedAt,
     };
 
     try {
@@ -980,6 +986,10 @@ async function processReviewScan(
   const now = new Date();
   const rows: Review[] = parsed.reviews.map((p) => mapParsedReviewToRow(p, extensionId, now));
 
+  // Read before saveReviews — it refreshes lastSeenAt on every row it sees.
+  // This is the lower bound of the window for any event emitted below.
+  const previousScanAt = await db.getLastReviewScanAt(extensionId);
+
   const changes = await db.saveReviews(rows);
 
   // Persist the CWS-reported text-review count so the UI can compute the exact
@@ -997,7 +1007,7 @@ async function processReviewScan(
 
   // Emit events for detected changes. Must never fail the scan pipeline.
   try {
-    await emitReviewEvents(rows, changes, deps);
+    await emitReviewEvents(rows, changes, deps, previousScanAt);
   } catch {
     // Event creation is supplementary — swallow.
   }
@@ -1038,7 +1048,8 @@ function mapParsedReviewToRow(p: ParsedReview, extensionId: string, now: Date): 
 async function emitReviewEvents(
   rows: Review[],
   changes: { new: string[]; edited: string[]; replied: string[] },
-  deps: ProcessorDeps
+  deps: ProcessorDeps,
+  previousScanAt?: Date
 ): Promise<void> {
   const byId = new Map(rows.map((r) => [r.reviewId, r]));
   const dateStr = today();
@@ -1059,6 +1070,13 @@ async function emitReviewEvents(
       newValue: reviewId,
       note,
       detectedAt: new Date(),
+      // The review was absent (or carried different content) at the previous
+      // review scan and is present now, so it appeared somewhere in between.
+      // Omitted on the first-ever scan of this extension, where there is no
+      // lower bound to claim.
+      ...(previousScanAt
+        ? { lastSeenOldAt: previousScanAt, firstSeenNewAt: review.lastSeenAt }
+        : {}),
     };
     const savedId = await db.saveEvent(event);
     deps.sendMessage({ type: 'NEW_EVENT', event: { ...event, id: savedId } });

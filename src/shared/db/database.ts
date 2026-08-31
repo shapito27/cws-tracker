@@ -558,6 +558,27 @@ export class CWSDatabase extends Dexie {
   // ---------------------------------------------------------------------------
 
   /**
+   * When this extension's reviews were last scanned, as the newest `lastSeenAt`
+   * across its stored rows — or `undefined` if it has never been scanned.
+   *
+   * Must be read *before* `saveReviews`, which refreshes `lastSeenAt` to now on
+   * every row it sees. Used to bound review events: a review reported as new
+   * was demonstrably absent at that earlier scan, which makes it the lower edge
+   * of the window in which it actually appeared.
+   */
+  async getLastReviewScanAt(extensionId: string): Promise<Date | undefined> {
+    const rows = await this.reviews
+      .where('extensionId')
+      .equals(extensionId)
+      .toArray();
+    let latest: Date | undefined;
+    for (const row of rows) {
+      if (!latest || row.lastSeenAt > latest) latest = row.lastSeenAt;
+    }
+    return latest;
+  }
+
+  /**
    * Upsert reviews keyed by `reviewId`, detecting content changes.
    *
    * For each incoming review:

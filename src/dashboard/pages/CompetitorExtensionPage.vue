@@ -13,7 +13,7 @@ import { db } from '@/shared/db/database';
 import { useExtensions } from '../composables/useExtensions';
 import { loadExtensionRankHistory } from '../composables/useRankings';
 import { loadExtensionAutocompleteHistory } from '../composables/useAutocomplete';
-import { daysAgo, today } from '@/shared/utils/dates';
+import { daysAgo, formatRelativeDateTime, today } from '@/shared/utils/dates';
 import ListingEventItem from '../components/ListingEventItem.vue';
 import RankChangeItem from '../components/RankChangeItem.vue';
 import RankChart from '../components/charts/RankChart.vue';
@@ -174,18 +174,6 @@ watch(
   loadAll
 );
 
-function formatRelativeDateTime(date: Date): string {
-  if (isNaN(date.getTime())) return 'Unknown';
-  const now = new Date();
-  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const dateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const diffDays = Math.round((dateStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return `Today, ${timeStr}`;
-  if (diffDays === -1) return `Yesterday, ${timeStr}`;
-  return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeStr}`;
-}
-
 const lastScanned = computed<string>(() => {
   const d = extension.value?.lastScannedAt;
   if (!d) return 'Never';
@@ -196,11 +184,6 @@ const lastScannedTooltip = computed<string>(() => {
   const d = extension.value?.lastScannedAt;
   return d ? d.toLocaleString() : '';
 });
-
-function formatEventTime(event: EventRecord): string {
-  if (event.detectedAt) return formatRelativeDateTime(event.detectedAt);
-  return event.date;
-}
 
 function getExtensionIconUrl(): string | null {
   return extension.value?.iconUrl ?? null;
@@ -343,7 +326,6 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
               :extension-icon-url="getExtensionIconUrl()"
               :is-own="false"
               :project-id="project.id ?? null"
-              :formatted-time="formatEventTime(item.data as EventRecord)"
             />
           </template>
         </div>

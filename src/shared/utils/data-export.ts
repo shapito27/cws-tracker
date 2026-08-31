@@ -117,6 +117,10 @@ const DATE_FIELDS = new Set([
   'lastScannedAt',
   'scannedAt',
   'detectedAt',
+  // Event observation window (EventRecord). Distinct names from the review
+  // timestamps below so the name-matching reviver can't confuse the two.
+  'lastSeenOldAt',
+  'firstSeenNewAt',
   'scheduledAt',
   'startedAt',
   'completedAt',
