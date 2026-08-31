@@ -53,17 +53,34 @@ function shuffle<T>(items: T[]): T[] {
 // ---------------------------------------------------------------------------
 
 /**
+ * Identifies the scan cycle a set of jobs belongs to.
+ *
+ * Stamped onto every job so the snapshots it writes land in the right slot and
+ * on the right date even if the cycle outlives midnight or a service-worker
+ * restart. Omitted by callers that predate slots, which behave as slot 0 with
+ * the execution-time date.
+ */
+export interface ScanCycleContext {
+  /** 0-based scan slot within the day. */
+  slot: number;
+  /** YYYY-MM-DD the cycle is being run for. */
+  cycleDate: string;
+}
+
+/**
  * Build the list of queue jobs for a daily scan (or manual refresh).
  *
  * @param projects  All projects to scan.
  * @param extensions  All known extensions (needed to look up metadata).
  * @param keywords  All keywords across all projects.
+ * @param cycle  Which scan slot/date these jobs belong to.
  * @returns Array of QueueJob entries ready to enqueue (without `id` set).
  */
 export function buildDailyScanJobs(
   projects: Project[],
   extensions: Extension[],
-  keywords: Keyword[]
+  keywords: Keyword[],
+  cycle?: ScanCycleContext
 ): QueueJob[] {
   const now = new Date();
   const jobs: QueueJob[] = [];
@@ -114,8 +131,16 @@ export function buildDailyScanJobs(
   // --- Review scan jobs ---
   // One job per unique tracked extension (own + competitors), deduplicated —
   // reuse the set of extensions that already have a listing_scan.
-  for (const extensionId of seenExtensionIds) {
-    jobs.push(createReviewScanJob(extensionId, now));
+  //
+  // Only on the day's first slot. Reviews are the most expensive job type and
+  // gain nothing from intraday resolution: they are already tracked as entities
+  // with their own first/last-seen timestamps rather than as daily snapshots,
+  // so re-fetching them 4x a day would multiply request volume for no new
+  // information.
+  if (!cycle || cycle.slot === 0) {
+    for (const extensionId of seenExtensionIds) {
+      jobs.push(createReviewScanJob(extensionId, now));
+    }
   }
 
   // --- Randomize execution order -------------------------------------------
@@ -135,7 +160,11 @@ export function buildDailyScanJobs(
   // Cost, accepted deliberately: the own extension is no longer guaranteed to be
   // scanned first, so an interrupted cycle may not have covered it. Snapshots
   // record when they were taken, so partial cycles stay interpretable.
-  return shuffle(jobs).map((job, index) => ({ ...job, priority: index }));
+  return shuffle(jobs).map((job, index) => ({
+    ...job,
+    priority: index,
+    ...(cycle ? { slot: cycle.slot, cycleDate: cycle.cycleDate } : {}),
+  }));
 }
 
 /**
@@ -143,9 +172,12 @@ export function buildDailyScanJobs(
  * Used for section-scoped manual refresh (e.g. "rescan keyword positions
  * for this project").
  */
-export function buildKeywordScanJobs(keywords: Keyword[]): QueueJob[] {
+export function buildKeywordScanJobs(
+  keywords: Keyword[],
+  cycle?: ScanCycleContext
+): QueueJob[] {
   const now = new Date();
-  return keywords.map((k) => createKeywordScanJob(k, now));
+  return keywords.map((k) => withCycle(createKeywordScanJob(k, now), cycle));
 }
 
 /**
@@ -153,9 +185,12 @@ export function buildKeywordScanJobs(keywords: Keyword[]): QueueJob[] {
  * Used for section-scoped manual refresh (e.g. "rescan AC positions
  * for this project").
  */
-export function buildAutocompleteScanJobs(keywords: Keyword[]): QueueJob[] {
+export function buildAutocompleteScanJobs(
+  keywords: Keyword[],
+  cycle?: ScanCycleContext
+): QueueJob[] {
   const now = new Date();
-  return keywords.map((k) => createAutocompleteScanJob(k, now));
+  return keywords.map((k) => withCycle(createAutocompleteScanJob(k, now), cycle));
 }
 
 /**
@@ -163,10 +198,19 @@ export function buildAutocompleteScanJobs(keywords: Keyword[]): QueueJob[] {
  * Used for section-scoped manual refresh ("refresh reviews for this project").
  * Duplicate IDs are deduplicated.
  */
-export function buildReviewScanJobs(extensionIds: string[]): QueueJob[] {
+export function buildReviewScanJobs(
+  extensionIds: string[],
+  cycle?: ScanCycleContext
+): QueueJob[] {
   const now = new Date();
   const unique = [...new Set(extensionIds.filter((id) => !!id))];
-  return unique.map((id) => createReviewScanJob(id, now));
+  return unique.map((id) => withCycle(createReviewScanJob(id, now), cycle));
+}
+
+/** Stamp a job with its scan cycle, if one was supplied. */
+function withCycle(job: QueueJob, cycle?: ScanCycleContext): QueueJob {
+  if (!cycle) return job;
+  return { ...job, slot: cycle.slot, cycleDate: cycle.cycleDate };
 }
 
 // ---------------------------------------------------------------------------

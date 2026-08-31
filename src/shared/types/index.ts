@@ -210,6 +210,16 @@ export interface ListingSnapshot {
   listingQualityScore: number | null;
   /** Exact timestamp of this scan. */
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 /**
@@ -232,6 +242,16 @@ export interface RankSnapshot {
   /** Total number of extensions in search results. */
   totalResults: number;
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 /**
@@ -338,6 +358,25 @@ export interface QueueJob {
   completedAt: Date | null;
   /** Error message if the job failed. */
   error: string | null;
+  /**
+   * Which scan slot of the day this job belongs to (0-based).
+   *
+   * Carried on the job rather than read from settings at execution time, so a
+   * retry or a service-worker restart still writes into the slot the cycle was
+   * built for. Not indexed; absent on jobs queued before slots existed, which
+   * are treated as slot 0.
+   */
+  slot?: number;
+  /**
+   * The calendar date (YYYY-MM-DD) this cycle was built for.
+   *
+   * Snapshots use this instead of the date at execution time. A cycle takes
+   * roughly a minute per job, so one that starts late enough will still be
+   * running after local midnight — without this, its first jobs land on one date
+   * and its last on the next, splitting a single scan across two days. Absent on
+   * legacy jobs, which fall back to the execution-time date as before.
+   */
+  cycleDate?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +535,16 @@ export interface AutocompleteSnapshot {
   /** Extension name as shown in autocomplete (may differ from listing title). null when not found. */
   suggestedName: string | null;
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 /**
@@ -513,6 +562,16 @@ export interface AutocompleteKeywordSuggestion {
   /** Text suggestions returned by CWS autocomplete. */
   suggestions: string[];
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 // ---------------------------------------------------------------------------

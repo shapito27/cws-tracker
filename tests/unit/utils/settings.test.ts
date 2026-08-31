@@ -180,6 +180,22 @@ describe('Validation', () => {
     await expect(settings.set('reviewFetchLimit', 500)).resolves.toBeUndefined();
   });
 
+  it('rejects scansPerDay outside 1–4', async () => {
+    await expect(settings.set('scansPerDay', 0)).rejects.toThrow(SettingsValidationError);
+    await expect(settings.set('scansPerDay', 5)).rejects.toThrow(
+      'scansPerDay must be an integer between 1 and 4'
+    );
+    // Non-integers would make 24/N a fractional hour offset.
+    await expect(settings.set('scansPerDay', 2.5)).rejects.toThrow(SettingsValidationError);
+  });
+
+  it('accepts scansPerDay within range', async () => {
+    for (const n of [1, 2, 3, 4]) {
+      await expect(settings.set('scansPerDay', n)).resolves.toBeUndefined();
+      expect(await settings.get('scansPerDay')).toBe(n);
+    }
+  });
+
   it('rejects negative queueJitterMs', async () => {
     await expect(settings.set('queueJitterMs', -1)).rejects.toThrow(
       SettingsValidationError
@@ -310,6 +326,15 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.lastDailyScanDate).toBeNull();
     expect(DEFAULT_SETTINGS.proxyUrl).toBe('');
     expect(DEFAULT_SETTINGS.proxyApiKey).toBeNull();
+  });
+
+  it('defaults to one scan a day with the daily view', () => {
+    // Both defaults exist to make multi-sampling strictly opt-in: at these
+    // values every read path behaves exactly as it did before slots existed.
+    expect(DEFAULT_SETTINGS.scansPerDay).toBe(1);
+    expect(DEFAULT_SETTINGS.intradayView).toBe(false);
+    expect(DEFAULT_SETTINGS.lastScanSlotKey).toBeNull();
+    expect(DEFAULT_SETTINGS.scanCycleSlotKey).toBeNull();
   });
 
   it('has 15 default translation locales per PRD 5.3.6', () => {

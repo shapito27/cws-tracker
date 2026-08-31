@@ -15,6 +15,7 @@ import { db } from '../../shared/db/database';
 import { SettingsManager, isProxyConfigured } from '../../shared/utils/settings';
 import { today, daysBetween } from '../../shared/utils/dates';
 import { findEffectivePrevious, classifyDrop } from '../../shared/utils/rank-history';
+import { pickLatestPerDate } from '../../shared/utils/daily-rollup';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -134,40 +135,38 @@ export function isServiceWorkerMessage(msg: unknown): msg is ServiceWorkerMessag
 /**
  * Group snapshots by `keywordId:extensionId` and sort each list ascending by
  * date. Within each date, keeps the snapshot with the latest scannedAt
- * (matches deduplicateSnapshots semantics).
+ * (matches deduplicateByPair semantics).
  */
 function buildPairHistory<
   T extends { keywordId: number; extensionId: string; date: string; scannedAt: Date }
 >(snapshots: T[]): Map<string, T[]> {
-  const byPairAndDate = new Map<string, Map<string, T>>();
+  const byPair = new Map<string, T[]>();
   for (const s of snapshots) {
     const pairKey = `${s.keywordId}:${s.extensionId}`;
-    let dateMap = byPairAndDate.get(pairKey);
-    if (!dateMap) {
-      dateMap = new Map();
-      byPairAndDate.set(pairKey, dateMap);
-    }
-    const existing = dateMap.get(s.date);
-    if (!existing || s.scannedAt > existing.scannedAt) {
-      dateMap.set(s.date, s);
-    }
+    const existing = byPair.get(pairKey);
+    if (existing) existing.push(s);
+    else byPair.set(pairKey, [s]);
   }
   const out = new Map<string, T[]>();
-  for (const [pairKey, dateMap] of byPairAndDate) {
-    const list = [...dateMap.values()];
-    list.sort((a, b) => a.date.localeCompare(b.date));
-    out.set(pairKey, list);
+  for (const [pairKey, list] of byPair) {
+    // pickLatestPerDate returns one entry per day, ascending by date.
+    out.set(pairKey, pickLatestPerDate(list));
   }
   return out;
 }
 
 /**
- * Deduplicate snapshots per [keywordId, extensionId] within a date group,
- * keeping the snapshot with the latest scannedAt. Consistent with the
- * dashboard's deduplicateByDate logic.
+ * Keep one snapshot per [keywordId, extensionId], the one with the latest
+ * scannedAt.
+ *
+ * Note this dedupes by *pair*, not by date — callers pass a slice already
+ * filtered to a single date, so within that slice the pair is the identity.
+ * It is not `deduplicateByDate` and cannot be replaced by it.
  */
-function deduplicateSnapshots(snapshots: RankSnapshot[]): RankSnapshot[] {
-  const byKey = new Map<string, RankSnapshot>();
+function deduplicateByPair<
+  T extends { keywordId: number; extensionId: string; scannedAt: Date }
+>(snapshots: T[]): T[] {
+  const byKey = new Map<string, T>();
   for (const snap of snapshots) {
     const key = `${snap.keywordId}:${snap.extensionId}`;
     const existing = byKey.get(key);
@@ -227,10 +226,10 @@ export async function loadRecentRankChanges(limit: number = 5, ownOnly = false):
 
   // Deduplicate per [keywordId, extensionId] within each date, keeping latest scannedAt.
   // This matches the dashboard's deduplicateByDate behavior.
-  const current = deduplicateSnapshots(
+  const current = deduplicateByPair(
     projectSnapshots.filter((s) => s.date === currentDate)
   );
-  const previous = deduplicateSnapshots(
+  const previous = deduplicateByPair(
     projectSnapshots.filter((s) => s.date === previousDate)
   );
 
@@ -333,21 +332,6 @@ export async function loadRecentRankChanges(limit: number = 5, ownOnly = false):
 }
 
 /**
- * Deduplicate autocomplete snapshots per [keywordId, extensionId], keeping latest scannedAt.
- */
-function deduplicateAutocompleteSnapshots(snapshots: AutocompleteSnapshot[]): AutocompleteSnapshot[] {
-  const byKey = new Map<string, AutocompleteSnapshot>();
-  for (const snap of snapshots) {
-    const key = `${snap.keywordId}:${snap.extensionId}`;
-    const existing = byKey.get(key);
-    if (!existing || snap.scannedAt > existing.scannedAt) {
-      byKey.set(key, snap);
-    }
-  }
-  return [...byKey.values()];
-}
-
-/**
  * Load the top autocomplete position changes between the two most recent scan dates.
  * Returns up to `limit` changes, own extensions first, then by magnitude.
  *
@@ -386,10 +370,10 @@ export async function loadRecentAutocompleteChanges(limit: number = 5, ownOnly =
   const currentDate = dates[0];
   const previousDate = dates[1];
 
-  const current = deduplicateAutocompleteSnapshots(
+  const current = deduplicateByPair(
     projectSnapshots.filter((s) => s.date === currentDate)
   );
-  const previous = deduplicateAutocompleteSnapshots(
+  const previous = deduplicateByPair(
     projectSnapshots.filter((s) => s.date === previousDate)
   );
 
@@ -540,10 +524,10 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
     const currentDate = rankDates[i];
     const previousDate = rankDates[i + 1];
 
-    const currentRank = deduplicateSnapshots(
+    const currentRank = deduplicateByPair(
       projectRankSnaps.filter((s) => s.date === currentDate)
     );
-    const previousRank = deduplicateSnapshots(
+    const previousRank = deduplicateByPair(
       projectRankSnaps.filter((s) => s.date === previousDate)
     );
 
@@ -601,10 +585,10 @@ export async function loadAllChanges(snapshotLimit: number = 10000): Promise<Cha
     const currentDate = acDates[i];
     const previousDate = acDates[i + 1];
 
-    const currentAC = deduplicateAutocompleteSnapshots(
+    const currentAC = deduplicateByPair(
       projectACSnaps.filter((s) => s.date === currentDate)
     );
-    const previousAC = deduplicateAutocompleteSnapshots(
+    const previousAC = deduplicateByPair(
       projectACSnaps.filter((s) => s.date === previousDate)
     );
 

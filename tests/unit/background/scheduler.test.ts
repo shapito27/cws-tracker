@@ -195,10 +195,14 @@ describe('Scheduler', () => {
       // One-shot (absolute `when`), NOT a fixed 24h period anchored to install time.
       expect(info.when).toBeTypeOf('number');
       expect(info.periodInMinutes).toBeUndefined();
-      // Fires at 11:00 (today or tomorrow).
+      // Fires in the 11:00 slot (today or tomorrow). Each slot carries up to
+      // 20 minutes of jitter, so the exact minute is deliberately not fixed —
+      // scanning at the same wall-clock minute every day is its own systematic
+      // sampling pattern.
       const scheduled = new Date(info.when!);
       expect(scheduled.getHours()).toBe(11);
-      expect(scheduled.getMinutes()).toBe(0);
+      expect(scheduled.getMinutes()).toBeGreaterThanOrEqual(0);
+      expect(scheduled.getMinutes()).toBeLessThan(20);
     });
 
     it('clears the dailyScan alarm when auto-scan is disabled', async () => {
@@ -252,9 +256,11 @@ describe('Scheduler', () => {
 
       const calls = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
       expect(calls).toHaveLength(1);
-      expect((calls[0].args[1] as { when?: number }).when).toBe(
-        new Date(2026, 5, 25, 8, 30, 0, 0).getTime()
-      );
+      // Slot start, plus up to 20 minutes of jitter.
+      const slotStart = new Date(2026, 5, 25, 8, 30, 0, 0).getTime();
+      const when = (calls[0].args[1] as { when?: number }).when!;
+      expect(when).toBeGreaterThanOrEqual(slotStart);
+      expect(when).toBeLessThan(slotStart + 20 * 60_000);
     });
 
     it('clears the dailyScan alarm when disabled', async () => {
@@ -329,9 +335,11 @@ describe('Scheduler', () => {
       expect(await testDb.queue.count()).toBe(0);
       const armed = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
       expect(armed).toHaveLength(1);
-      expect((armed[0].args[1] as { when?: number }).when).toBe(
-        new Date(2026, 5, 24, 11, 0, 0, 0).getTime()
-      );
+      // Today's 11:00 slot, plus up to 20 minutes of jitter.
+      const slotStart = new Date(2026, 5, 24, 11, 0, 0, 0).getTime();
+      const when = (armed[0].args[1] as { when?: number }).when!;
+      expect(when).toBeGreaterThanOrEqual(slotStart);
+      expect(when).toBeLessThan(slotStart + 20 * 60_000);
     });
 
     it('resumes an interrupted scan by kicking the processor when jobs are still queued', async () => {

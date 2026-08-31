@@ -366,6 +366,25 @@ async function executeJob(
 }
 
 /**
+ * The scan slot a job belongs to. Jobs queued before slots existed have none,
+ * and the single daily scan they came from is slot 0.
+ */
+function jobSlot(job: QueueJob): number {
+  return job.slot ?? 0;
+}
+
+/**
+ * The date a job's snapshots should be recorded under.
+ *
+ * Prefers the date the cycle was built for, so a long cycle that runs past
+ * local midnight still writes all its snapshots against one day instead of
+ * splitting across two. Falls back to the execution-time date for legacy jobs.
+ */
+function jobDate(job: QueueJob): string {
+  return job.cycleDate ?? today();
+}
+
+/**
  * Process a listing_scan job:
  * 1. Fetch CWS detail page
  * 2. Parse with listing parser
@@ -406,13 +425,11 @@ async function processListingScan(
   );
 
   // Build snapshot
-  const dateStr = today();
-  const snapshot: ListingSnapshot = mapListingDataToSnapshot(
-    listingData,
-    extensionId,
-    dateStr,
-    permissionRiskScore
-  );
+  const dateStr = jobDate(job);
+  const snapshot: ListingSnapshot = {
+    ...mapListingDataToSnapshot(listingData, extensionId, dateStr, permissionRiskScore),
+    slot: jobSlot(job),
+  };
 
   // Get previous snapshot for event detection
   const previousSnapshot = await db.getLatestListingSnapshot(extensionId);
@@ -469,7 +486,8 @@ async function processKeywordScan(
 
   // All tracked extension IDs for this project
   const trackedExtIds = [project.ownExtensionId, ...project.competitorIds];
-  const dateStr = today();
+  const dateStr = jobDate(job);
+  const slot = jobSlot(job);
 
   // Fetch search results with pagination (up to MAX_SEARCH_PAGES pages).
   // Page 1 must succeed (errors propagate). Pages 2+ are best-effort:
@@ -626,6 +644,7 @@ async function processKeywordScan(
       keywordId,
       extensionId,
       date: dateStr,
+      slot,
       position: searchEntry ? searchEntry.position : null,
       totalResults: totalCount,
       scannedAt: new Date(),
@@ -805,7 +824,8 @@ async function processAutocompleteScan(
   }
 
   const trackedExtIds = new Set([project.ownExtensionId, ...project.competitorIds]);
-  const dateStr = today();
+  const dateStr = jobDate(job);
+  const slot = jobSlot(job);
 
   // Fetch autocomplete data
   const data = await fetchAutocompleteWithLogging(
@@ -828,6 +848,7 @@ async function processAutocompleteScan(
         keywordId,
         extensionId: suggestion.extensionId,
         date: dateStr,
+        slot,
         position: suggestion.position,
         suggestedName: suggestion.name,
         scannedAt: new Date(),
@@ -845,6 +866,7 @@ async function processAutocompleteScan(
         keywordId,
         extensionId: extId,
         date: dateStr,
+        slot,
         position: null,
         suggestedName: null,
         scannedAt: new Date(),
@@ -860,6 +882,7 @@ async function processAutocompleteScan(
     await db.saveAutocompleteSuggestions({
       keywordId,
       date: dateStr,
+      slot,
       suggestions: textSuggestions,
       scannedAt: new Date(),
     });

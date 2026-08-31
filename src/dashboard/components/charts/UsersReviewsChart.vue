@@ -2,22 +2,21 @@
 import { computed } from 'vue';
 import VueApexCharts from 'vue3-apexcharts';
 import type { ListingSnapshot } from '@/shared/types';
+import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
 
 const props = defineProps<{
   snapshots: ListingSnapshot[];
 }>();
 
-/** Deduplicate snapshots by date, keeping the latest scannedAt per day. */
-const deduped = computed(() => {
-  const byDate = new Map<string, ListingSnapshot>();
-  for (const snap of props.snapshots) {
-    const existing = byDate.get(snap.date);
-    if (!existing || snap.scannedAt > existing.scannedAt) {
-      byDate.set(snap.date, snap);
-    }
-  }
-  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
-});
+/**
+ * One point per day: the day's last sample.
+ *
+ * User and review counts are monotone counters, so the intraday spread carries
+ * nothing worth plotting — the day's end state is the whole story. Without this
+ * two same-day samples would land on the same x value (midnight UTC below) and
+ * render unpredictably.
+ */
+const deduped = computed(() => deduplicateByDate(props.snapshots));
 
 const chartSeries = computed(() => [
   {
