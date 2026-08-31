@@ -191,6 +191,21 @@ export class CWSDatabase extends Dexie {
     return results[0];
   }
 
+  /**
+   * Which scan slots actually produced data for this extension on `date`.
+   *
+   * Counts scans that wrote a snapshot rather than slots that fired, so a slot
+   * that ran but failed does not inflate the number. Returned ascending; a row
+   * without `slot` (written before multi-sampling) counts as slot 0.
+   */
+  async getScanSlotsForDate(extensionId: string, date: string): Promise<number[]> {
+    const rows = await this.listing_snapshots
+      .where('[extensionId+date]')
+      .equals([extensionId, date])
+      .toArray();
+    return [...new Set(rows.map(slotOf))].sort((a, b) => a - b);
+  }
+
   async saveListingSnapshot(snapshot: ListingSnapshot): Promise<number> {
     return this.transaction('rw', this.listing_snapshots, async () => {
       // Replace only the same slot of the same day. Re-running a slot (a retry

@@ -2,6 +2,23 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.38.1] - 2026-08-31
+
+### Fixed
+- **`scansPerDay` never fired more than once a day.** Reported from the field: set to 4 with Daily Auto-Scan on, still one scan a day. A guard meant to stop the 0.38.0 upgrade itself triggering a redundant rescan was suppressing every slot after the first. It inferred "this install predates slots" from `lastScanSlotKey === null` — but that key is written *only* when a **scheduled** cycle drains, so it stayed null indefinitely, while `lastDailyScanDate` is set to today by *any* drain. On upgrade day the pre-upgrade scan had already stamped the date, so every remaining slot returned early, silently. Worse, because a manual "Refresh Now" deliberately claims no slot, hitting Refresh before the day's first scheduled scan re-entered the trap **every day, indefinitely**. Legacy state is now converted once, up front (`migrateLegacyScanState`, run before any scheduling decision), and the inferred guard is gone — `lastScanSlotKey` is the single authority for whether a slot has run.
+- **A catch-up scan could cost a scan rather than add one.** Starting Chrome shortly before a slot was due ran the *previous* missed slot, whose cycle was still draining when the real slot fired — so the in-flight guard skipped it. A missed slot is now left alone when the next one is under 30 minutes away.
+
+### Added
+- **The scan schedule is now visible.** Settings lists the computed slot times with the next one highlighted ("Scans at **03:00**, 09:00, 15:00, 21:00 — each within 20 minutes of that time. Next: today 15:00."), and says plainly when Daily Auto-Scan is off and the setting is therefore inert.
+- **"Scans Today" stat** on the project overview, showing `2 of 4` — how many of the day's scheduled scans actually produced data. A slot that fired but failed is not counted, since the honest measure is samples recorded.
+- **Scan-log entries for slot lifecycle.** A slot cycle now logs when it starts, alongside the existing entry for a slot skipped because the previous cycle was still running. The Logs page shows which slots ran, which were skipped, and why.
+
+### Notes
+- **This was invisible by construction, which is why it reached a user.** Charts show one point per day *by design*, `lastDailyScanDate` carries no time, and nothing displayed the schedule — so a schedule that had collapsed to one scan looked identical to a working one. The three additions above exist to close that gap, not as decoration.
+- **The test gap that let it ship:** every scheduler test either started from clean state or set `lastScanSlotKey` explicitly, so the "upgraded install, mid-day" state was never exercised. That exact scenario is now a regression test, along with the manual-refresh variant that made the bug permanent.
+- Existing installs are repaired automatically on the next browser start or extension update — no action needed, and no data is affected.
+- No database schema change.
+
 ## [0.38.0] - 2026-08-31
 
 ### Fixed
