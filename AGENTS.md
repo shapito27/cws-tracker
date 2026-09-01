@@ -26,7 +26,7 @@
 
 ## Data And Scanning
 - All IndexedDB access goes through `CWSDatabase` / `db` in `src/shared/db/database.ts`; do not use raw `indexedDB.open()`.
-- Actual Dexie schema is currently v5 and includes `reviews`; older docs mentioning v4 are stale.
+- Dexie schema is currently v5 and includes `reviews`.
 - DB version bumps only for schema changes, independent of `manifest.json`.
 - Do not await external work such as fetch/OpenAI inside a Dexie transaction.
 - Indexed date fields use `YYYY-MM-DD` strings; `Date` objects are for non-indexed metadata.

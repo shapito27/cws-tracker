@@ -24,9 +24,11 @@ tests/
     cws-search-results.html       # Search results page
     cws-search-empty.html         # Empty search results
     cws-search-page2-batchexecute.html  # Pagination via batchexecute
+    cws-detail-website.html       # Detail page carrying a developer website (card[7])
     cws-autocomplete-vpn.json             # Autocomplete (QcU9bc RPC) suggestions
     cws-autocomplete-password-manager.json
     cws-autocomplete-pinterest-wrapped.json
+    reviews-website-broken-link-check.html  # Review list page
   unit/
     background/         # Service worker tests (queue, scheduler, events, messaging)
     parsers/            # Parser tests against fixtures
