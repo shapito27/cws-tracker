@@ -6,8 +6,9 @@
  *
  * ds:0 data layout:
  *   data[0]  = Extension card (20 fields): [id, iconUrl, name, rating, ratingCount,
- *              screenshot1, shortDesc, null, null, null, null, category, badgeA,
- *              badgeB, userCount, null, screenshot2, timestamp, manifest, nameRepeat]
+ *              screenshot1, shortDesc, website, hasWebsite, null, null, category,
+ *              badgeA, badgeB, userCount, flag, screenshot2, timestamp, manifest,
+ *              nameRepeat]
  *   data[5]  = Screenshots array: [[1, url], [1, url], ...]
  *   data[6]  = Full description text
  *   data[10] = Developer info: [email, null, null, null, 1, displayName, ..., developerId]
@@ -20,6 +21,14 @@
  *   data[27] = Browser min version
  *   data[33] = Privacy policy URL
  *   data[38] = Language codes array
+ *
+ * Developer website (card[7]):
+ *   Stored verbatim as the developer submitted it, so the format varies across
+ *   listings: full URLs ("https://www.joinhoney.com/", "http://grammarly.com/")
+ *   and bare domains ("wizardstool.com") both occur. `null` when the listing
+ *   declares no website. card[8] is `1` whenever card[7] is set and `null`
+ *   otherwise, so it flags "has a website" — NOT the verified-publisher badge
+ *   (sampled listings with card[8] === 1 and no badge confirm this).
  *
  * Featured badge detection:
  *   card[12] and card[13] are both `1` for editorially "Featured" extensions
@@ -229,8 +238,8 @@ export const listingParserV1: ListingParser = {
     // Privacy policy at data[33]
     const privacyPolicyUrl = typeof data[33] === 'string' ? data[33] : null;
 
-    // Website URL - check card[7] (some extensions have it there)
-    const websiteUrl = typeof card[7] === 'string' ? card[7] : null;
+    // Developer website at card[7] - raw value, may be a full URL or bare domain
+    const websiteUrl = typeof card[7] === 'string' && card[7].length > 0 ? card[7] : null;
 
     // Manifest JSON at card[18]
     const manifestJson = typeof card[18] === 'string' ? card[18] : null;

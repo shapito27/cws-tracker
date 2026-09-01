@@ -2,6 +2,17 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.38.2] - 2026-09-01
+
+### Fixed
+- **Developer website/domain is no longer discarded.** The listing parser already read the developer website from the CWS listing, but `ListingSnapshot` had no field for it and `mapListingDataToSnapshot` dropped it, so every scan parsed the value and threw it away. It is now stored and shown on the extension listing card (own extensions and competitors) as a linked domain, e.g. `wizardstool.com`.
+  - The value comes from the listing's **developer website** field, which CWS stores verbatim — some listings hold a full URL (`https://www.joinhoney.com/`), others a bare domain (`wizardstool.com`). Snapshots keep the raw value; the card displays the hostname with any `www.` stripped. Note this field is present on some listings where CWS itself does not render a website next to the title, so the domain may appear here for extensions whose Chrome Web Store page shows only a publisher name.
+  - The website is untrusted third-party input that ends up in an `href`, so it is rendered only when it parses as an `http(s)` URL with a dotted hostname and no embedded credentials; `javascript:`/`data:` values and shapes like `https://trusted.com@evil.com` are dropped rather than linked (new `shared/utils/website.ts`).
+  - Existing snapshots are unaffected and keep rendering without a domain — the field is optional, so no DB migration or schema bump was needed. The domain appears for each extension after its next scan.
+
+### Changed
+- `listing-v1` parser docblock corrected: `card[7]` (developer website) and `card[8]` were documented as always `null`, which was only true of the uBlock Origin fixture used to write it. Also documents that `card[8]` flags "has a website" and is **not** the verified-publisher badge — sampled listings carry `card[8] === 1` with no badge, so `developerVerified` remains `false` until a real source for it is found.
+
 ## [0.38.1] - 2026-08-31
 
 ### Fixed
