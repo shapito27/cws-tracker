@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue';
 import type { AutocompleteKeywordSuggestion, Keyword } from '@/shared/types';
 import { loadKeywordSuggestions } from '../../composables/useAutocomplete';
+import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
 
 const props = defineProps<{
   keywords: Keyword[];
@@ -22,8 +23,16 @@ const uniqueSuggestions = ref<string[]>([]);
 const trackedKeywordsLower = ref<Set<string>>(new Set());
 
 /** Suggestions sorted by date descending (for timeline view). */
+/**
+ * One entry per day, newest first.
+ *
+ * Rolled up because a day can hold several samples once `scansPerDay > 1`.
+ * Suggestions are a state rather than a measurement, so the day's last reading
+ * is the useful one — and without this the `:key="entry.date"` below would
+ * collide across a day's samples.
+ */
 const suggestionsByDate = computed(() =>
-  [...suggestions.value].sort((a, b) => b.date.localeCompare(a.date))
+  deduplicateByDate(suggestions.value).sort((a, b) => b.date.localeCompare(a.date))
 );
 
 watch(

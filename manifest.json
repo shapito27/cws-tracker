@@ -17,7 +17,8 @@
   },
   "permissions": [
     "storage",
-    "alarms"
+    "alarms",
+    "unlimitedStorage"
   ],
   "host_permissions": [
     "https://chromewebstore.google.com/*"

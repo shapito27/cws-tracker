@@ -13,6 +13,7 @@ import type {
 } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { daysAgo, today } from '@/shared/utils/dates';
+import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
 
 /** Autocomplete position data for one extension on one keyword. */
 export interface AutocompletePosition {
@@ -89,18 +90,8 @@ export async function loadAutocompleteHistory(
       endDate
     );
 
-    // Deduplicate by date (keep latest scannedAt per day)
-    const byDate = new Map<string, AutocompleteSnapshot>();
-    for (const snap of snapshots) {
-      const existing = byDate.get(snap.date);
-      if (!existing || snap.scannedAt > existing.scannedAt) {
-        byDate.set(snap.date, snap);
-      }
-    }
-
-    const sorted = [...byDate.values()].sort((a, b) =>
-      a.date.localeCompare(b.date)
-    );
+    // One point per day: the day's last sample (see daily-rollup).
+    const sorted = deduplicateByDate(snapshots);
 
     const data: AutocompleteChartPoint[] = sorted.map((s) => ({
       x: s.date,
@@ -138,18 +129,7 @@ export async function loadExtensionAutocompleteHistory(
 
   const series: AutocompleteChartSeries[] = [];
   withId.forEach((kw, idx) => {
-    // Deduplicate by date
-    const byDate = new Map<string, AutocompleteSnapshot>();
-    for (const snap of snapshotsArray[idx]) {
-      const existing = byDate.get(snap.date);
-      if (!existing || snap.scannedAt > existing.scannedAt) {
-        byDate.set(snap.date, snap);
-      }
-    }
-
-    const sorted = [...byDate.values()].sort((a, b) =>
-      a.date.localeCompare(b.date)
-    );
+    const sorted = deduplicateByDate(snapshotsArray[idx]);
 
     if (sorted.length === 0) return;
 
@@ -267,14 +247,10 @@ export async function loadKeywordAcPositionTable(
   const rows: AcPositionRow[] = [];
 
   withId.forEach((kw, idx) => {
-    // Deduplicate by date (keep latest scannedAt per day)
-    const byDate = new Map<string, AutocompleteSnapshot>();
-    for (const snap of snapshotsArray[idx]) {
-      const existing = byDate.get(snap.date);
-      if (!existing || snap.scannedAt > existing.scannedAt) {
-        byDate.set(snap.date, snap);
-      }
-    }
+    // One entry per day: the day's last sample (see daily-rollup).
+    const byDate = new Map<string, AutocompleteSnapshot>(
+      deduplicateByDate(snapshotsArray[idx]).map((s) => [s.date, s])
+    );
 
     const days = new Map<string, AcDayCell>();
 

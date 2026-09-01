@@ -349,3 +349,53 @@ describe('detectChanges', () => {
     }
   });
 });
+
+describe('observation window', () => {
+  it('bounds every event by the two snapshots it was derived from', () => {
+    const previous = makeSnapshot({
+      title: 'Old',
+      version: '1.0',
+      scannedAt: new Date('2026-02-04T03:12:00Z'),
+    });
+    const current = makeSnapshot({
+      title: 'New',
+      version: '2.0',
+      scannedAt: new Date('2026-02-05T03:44:00Z'),
+    });
+
+    const events = detectChanges(previous, current);
+
+    expect(events.length).toBeGreaterThan(1);
+    for (const event of events) {
+      expect(event.lastSeenOldAt).toEqual(new Date('2026-02-04T03:12:00Z'));
+      expect(event.firstSeenNewAt).toEqual(new Date('2026-02-05T03:44:00Z'));
+    }
+  });
+
+  it('widens the window when the previous snapshot is older than a day', () => {
+    // A gap day (a scan that never ran) genuinely widens what is knowable.
+    // The window must reflect that rather than implying a 24h bound.
+    const previous = makeSnapshot({
+      title: 'Old',
+      scannedAt: new Date('2026-02-01T03:00:00Z'),
+    });
+    const current = makeSnapshot({
+      title: 'New',
+      scannedAt: new Date('2026-02-05T03:00:00Z'),
+    });
+
+    const [event] = detectChanges(previous, current);
+
+    expect(event.lastSeenOldAt).toEqual(new Date('2026-02-01T03:00:00Z'));
+    expect(event.firstSeenNewAt).toEqual(new Date('2026-02-05T03:00:00Z'));
+  });
+
+  it('still records detectedAt alongside the window', () => {
+    const previous = makeSnapshot({ title: 'Old' });
+    const current = makeSnapshot({ title: 'New' });
+
+    const [event] = detectChanges(previous, current);
+
+    expect(event.detectedAt).toBeInstanceOf(Date);
+  });
+});

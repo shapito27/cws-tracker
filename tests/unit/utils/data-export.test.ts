@@ -15,6 +15,7 @@ import type {
   TranslationSnapshot,
   AutocompleteSnapshot,
   AutocompleteKeywordSuggestion,
+  Review,
 } from '@/shared/types';
 import type { CachedAuditResult } from '@/shared/utils/keyword-audit';
 import type { Settings } from '@/shared/types/settings';
@@ -150,7 +151,7 @@ beforeEach(async () => {
 });
 
 describe('buildExportData', () => {
-  it('reads all 10 tables and sets correct meta', async () => {
+  it('reads all 11 tables and sets correct meta', async () => {
     await testDb.projects.add(makeProject());
     await testDb.extensions.add(makeExtension());
 
@@ -158,8 +159,9 @@ describe('buildExportData', () => {
 
     expect(result.meta.format).toBe('cws-tracker-v1');
     expect(result.meta.extensionVersion).toBe('0.21.0');
-    expect(result.meta.schemaVersion).toBe(4);
+    expect(result.meta.schemaVersion).toBe(5);
     expect(result.meta.exportedAt).toBeTruthy();
+    expect(result.tables.reviews).toHaveLength(0);
 
     expect(result.tables.projects).toHaveLength(1);
     expect(result.tables.extensions).toHaveLength(1);
@@ -244,14 +246,16 @@ describe('validateExportFile', () => {
   function makeValidRaw(): Record<string, unknown> {
     return {
       meta: {
-        exportedAt: '2026-01-15T10:00:00Z',
+        // Fresh by default so the stale-backup warning does not fire in tests
+        // that are not about staleness.
+        exportedAt: new Date().toISOString(),
         extensionVersion: '0.21.0',
-        schemaVersion: 4,
+        schemaVersion: 5,
         format: 'cws-tracker-v1',
       },
       settings: {},
       tables: {
-        projects: [],
+        projects: [{ name: 'p' }],
         extensions: [],
         keywords: [],
         listing_snapshots: [],
@@ -261,6 +265,7 @@ describe('validateExportFile', () => {
         audit_cache: [],
         autocomplete_snapshots: [],
         autocomplete_keyword_suggestions: [],
+        reviews: [],
       },
     };
   }
@@ -321,8 +326,7 @@ describe('validateExportFile', () => {
     (raw.meta as Record<string, unknown>).schemaVersion = 99;
     const result = validateExportFile(raw);
     expect(result.valid).toBe(true); // Still valid, just a warning
-    expect(result.warnings).toHaveLength(1);
-    expect(result.warnings[0]).toContain('newer');
+    expect(result.warnings.some((w) => w.includes('newer'))).toBe(true);
   });
 
   it('reports record counts', () => {
@@ -333,6 +337,57 @@ describe('validateExportFile', () => {
     expect(result.counts.projects).toBe(3);
     expect(result.counts.keywords).toBe(1);
     expect(result.counts.extensions).toBe(0);
+  });
+
+  // Regression: a v4-era file has no `reviews` table. It must still import
+  // (as a warning), not be rejected outright.
+  it('accepts a legacy file with no reviews table and counts it as empty', () => {
+    const raw = makeValidRaw();
+    delete (raw.tables as Record<string, unknown>).reviews;
+    const result = validateExportFile(raw);
+    expect(result.valid).toBe(true);
+    expect(result.errors).toHaveLength(0);
+    expect(result.counts.reviews).toBe(0);
+    expect(result.warnings.some((w) => w.includes('reviews'))).toBe(true);
+  });
+
+  it('warns that a file with no projects would erase existing projects', () => {
+    const raw = makeValidRaw();
+    (raw.tables as Record<string, unknown[]>).projects = [];
+    const result = validateExportFile(raw);
+    expect(result.valid).toBe(true);
+    expect(result.warnings.some((w) => w.includes('no projects'))).toBe(true);
+  });
+
+  it('warns when the backup is older than a week and reports its age', () => {
+    const raw = makeValidRaw();
+    const old = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+    (raw.meta as Record<string, unknown>).exportedAt = old;
+    const result = validateExportFile(raw);
+    expect(result.warnings.some((w) => w.includes('120 days old'))).toBe(true);
+    expect(result.exportedAt).toBe(old);
+  });
+
+  it('does not warn about staleness for a fresh backup', () => {
+    const result = validateExportFile(makeValidRaw());
+    expect(result.warnings.some((w) => w.includes('days old'))).toBe(false);
+  });
+
+  it('warns instead of staying silent when the export date is in the future', () => {
+    const raw = makeValidRaw();
+    (raw.meta as Record<string, unknown>).exportedAt = new Date(
+      Date.now() + 30 * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const result = validateExportFile(raw);
+    expect(result.warnings.some((w) => w.includes('in the future'))).toBe(true);
+  });
+
+  it('ignores an unparseable exportedAt rather than surfacing it for display', () => {
+    const raw = makeValidRaw();
+    (raw.meta as Record<string, unknown>).exportedAt = 'not-a-date';
+    const result = validateExportFile(raw);
+    expect(result.exportedAt).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes('days old'))).toBe(false);
   });
 });
 
@@ -361,6 +416,7 @@ describe('importData', () => {
         audit_cache: [],
         autocomplete_snapshots: [],
         autocomplete_keyword_suggestions: [],
+        reviews: [],
       },
     };
 
@@ -386,19 +442,20 @@ describe('importData', () => {
         audit_cache: [],
         autocomplete_snapshots: [],
         autocomplete_keyword_suggestions: [],
+        reviews: [],
       },
     };
 
     const progressCalls: Array<{ table: string; done: number; total: number }> = [];
     await importData(testDb, importPayload, (p) => progressCalls.push({ ...p }));
 
-    // 10 tables + final "done" = 11 calls
-    expect(progressCalls).toHaveLength(11);
+    // 11 tables + final "done" = 12 calls
+    expect(progressCalls).toHaveLength(12);
     expect(progressCalls[0].table).toBe('projects');
     expect(progressCalls[0].done).toBe(0);
-    expect(progressCalls[0].total).toBe(10);
-    expect(progressCalls[10].table).toBe('done');
-    expect(progressCalls[10].done).toBe(10);
+    expect(progressCalls[0].total).toBe(11);
+    expect(progressCalls[11].table).toBe('done');
+    expect(progressCalls[11].done).toBe(11);
   });
 
   it('preserves IDs when present', async () => {
@@ -416,6 +473,7 @@ describe('importData', () => {
         audit_cache: [],
         autocomplete_snapshots: [],
         autocomplete_keyword_suggestions: [],
+        reviews: [],
       },
     };
 
@@ -434,6 +492,81 @@ describe('generateExportFilename', () => {
   it('returns correct format', () => {
     const filename = generateExportFilename();
     expect(filename).toMatch(/^cws-tracker-export-\d{4}-\d{2}-\d{2}\.json$/);
+  });
+});
+
+describe('reviews round-trip (schema v5)', () => {
+  function makeReview(): Review {
+    return {
+      reviewId: 'rev-1',
+      extensionId: 'ext-own-123',
+      reviewerName: 'Ann',
+      reviewerAvatar: null,
+      rating: 5,
+      text: 'Great',
+      postedDate: '2026-02-01',
+      updatedDate: '2026-02-01',
+      postedAtEpoch: 1769904000,
+      updatedAtEpoch: 1769904000,
+      helpfulCount: 3,
+      devReplyAuthor: null,
+      devReplyText: null,
+      devReplyDate: null,
+      hasText: true,
+      versionReviewed: '1.0.0',
+      language: 'en',
+      contentHash: 'hash-1',
+      firstSeenAt: new Date('2026-02-02T00:00:00Z'),
+      lastSeenAt: new Date('2026-02-03T00:00:00Z'),
+      lastChangedAt: null,
+      isDeleted: false,
+    };
+  }
+
+  /**
+   * Regression for the DATE_FIELDS gap: `reviews` was absent from the export
+   * entirely, and its three Date fields were absent from the reviver — so
+   * adding the table without adding the fields would have restored them as
+   * strings. Equally important, the indexed YYYY-MM-DD fields must stay
+   * strings, or the [extensionId+postedDate] index breaks.
+   */
+  it('restores Date fields as Dates and leaves indexed date strings as strings', async () => {
+    await testDb.reviews.add(makeReview());
+
+    const json = serializeExportData(await buildExportData(testDb, {}, '0.37.1'));
+    await testDb.reviews.clear();
+    await importData(testDb, deserializeExportData(json));
+
+    const [restored] = await testDb.reviews.toArray();
+    expect(restored).toBeDefined();
+    expect(restored.firstSeenAt).toBeInstanceOf(Date);
+    expect(restored.lastSeenAt).toBeInstanceOf(Date);
+    expect(restored.firstSeenAt.toISOString()).toBe('2026-02-02T00:00:00.000Z');
+    expect(restored.lastChangedAt).toBeNull();
+
+    // Indexed date strings must NOT be revived into Date objects.
+    expect(typeof restored.postedDate).toBe('string');
+    expect(restored.postedDate).toBe('2026-02-01');
+    expect(typeof restored.updatedDate).toBe('string');
+
+    // The compound index still resolves after the round-trip.
+    const byIndex = await testDb.reviews
+      .where('[extensionId+postedDate]')
+      .equals(['ext-own-123', '2026-02-01'])
+      .toArray();
+    expect(byIndex).toHaveLength(1);
+  });
+
+  it('imports a legacy file with no reviews table without aborting', async () => {
+    await testDb.projects.add(makeProject());
+    const json = serializeExportData(await buildExportData(testDb, {}, '0.37.1'));
+    const legacy = deserializeExportData(json);
+    // Simulate a v4-era file.
+    delete (legacy.tables as Partial<typeof legacy.tables>).reviews;
+
+    await expect(importData(testDb, legacy)).resolves.toBeUndefined();
+    expect(await testDb.projects.count()).toBe(1);
+    expect(await testDb.reviews.count()).toBe(0);
   });
 });
 

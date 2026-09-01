@@ -219,6 +219,16 @@ export interface ListingSnapshot {
   listingQualityScore: number | null;
   /** Exact timestamp of this scan. */
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 /**
@@ -241,6 +251,16 @@ export interface RankSnapshot {
   /** Total number of extensions in search results. */
   totalResults: number;
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 /**
@@ -264,8 +284,46 @@ export interface EventRecord {
   newValue: string | null;
   /** Human-readable description (e.g. "Title changed from 'X' to 'Y'"). */
   note: string;
-  /** Exact timestamp when the change was detected. Not indexed. Absent on legacy records. */
+  /**
+   * When the change was *detected* — i.e. when the scan that noticed it ran.
+   * This is NOT when the change happened; see `lastSeenOldAt`/`firstSeenNewAt`.
+   * Not indexed. Absent on legacy records.
+   */
   detectedAt?: Date;
+  /**
+   * `scannedAt` of the last observation where `oldValue` still held.
+   *
+   * Together with `firstSeenNewAt` this bounds the change: it happened somewhere
+   * in that interval, and nothing narrower is knowable from polling. Rendering a
+   * single timestamp instead implies a precision the data does not have — with
+   * one scan a day the true window is ~24h wide.
+   *
+   * Not indexed. Absent on legacy records and on first-scan events.
+   */
+  lastSeenOldAt?: Date;
+  /**
+   * `scannedAt` of the first observation carrying `newValue`.
+   * See `lastSeenOldAt`. Not indexed. Absent on legacy records.
+   */
+  firstSeenNewAt?: Date;
+  /**
+   * Which scan slot of the day detected this. Not indexed; absent on legacy
+   * records, which are treated as slot 0.
+   *
+   * With more than one scan a day, several real transitions can occur on one
+   * date, so `(extensionId, date)` no longer identifies an event. This is what
+   * lets a re-run of one slot replace its own events without deleting those of
+   * the other slots.
+   */
+  slot?: number;
+  /**
+   * For `rank_change` events, which keyword the position was for.
+   *
+   * Previously recoverable only by substring-matching the human-readable
+   * `note`, which broke the moment that wording changed. Not indexed; absent on
+   * legacy records and on event types that are not keyword-scoped.
+   */
+  keywordId?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -327,6 +385,25 @@ export interface QueueJob {
   completedAt: Date | null;
   /** Error message if the job failed. */
   error: string | null;
+  /**
+   * Which scan slot of the day this job belongs to (0-based).
+   *
+   * Carried on the job rather than read from settings at execution time, so a
+   * retry or a service-worker restart still writes into the slot the cycle was
+   * built for. Not indexed; absent on jobs queued before slots existed, which
+   * are treated as slot 0.
+   */
+  slot?: number;
+  /**
+   * The calendar date (YYYY-MM-DD) this cycle was built for.
+   *
+   * Snapshots use this instead of the date at execution time. A cycle takes
+   * roughly a minute per job, so one that starts late enough will still be
+   * running after local midnight — without this, its first jobs land on one date
+   * and its last on the next, splitting a single scan across two days. Absent on
+   * legacy jobs, which fall back to the execution-time date as before.
+   */
+  cycleDate?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -485,6 +562,16 @@ export interface AutocompleteSnapshot {
   /** Extension name as shown in autocomplete (may differ from listing title). null when not found. */
   suggestedName: string | null;
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 /**
@@ -502,6 +589,16 @@ export interface AutocompleteKeywordSuggestion {
   /** Text suggestions returned by CWS autocomplete. */
   suggestions: string[];
   scannedAt: Date;
+  /**
+   * Which scan of the day produced this snapshot: 0-based, in schedule order.
+   *
+   * With `scansPerDay: 1` (the default) this is always 0 and behaves exactly as
+   * before. Above 1, it is what lets several samples share a `date` without
+   * overwriting each other: the storage upsert replaces the same slot and
+   * appends a new one. Not indexed - absent on every record written before
+   * multi-sampling existed, and treated as slot 0 there.
+   */
+  slot?: number;
 }
 
 // ---------------------------------------------------------------------------

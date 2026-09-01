@@ -13,6 +13,72 @@ All notable changes to CWS Tracker will be documented in this file.
 ### Changed
 - `listing-v1` parser docblock corrected: `card[7]` (developer website) and `card[8]` were documented as always `null`, which was only true of the uBlock Origin fixture used to write it. Also documents that `card[8]` flags "has a website" and is **not** the verified-publisher badge — sampled listings carry `card[8] === 1` with no badge, so `developerVerified` remains `false` until a real source for it is found.
 
+## [0.38.1] - 2026-08-31
+
+### Fixed
+- **`scansPerDay` never fired more than once a day.** Reported from the field: set to 4 with Daily Auto-Scan on, still one scan a day. A guard meant to stop the 0.38.0 upgrade itself triggering a redundant rescan was suppressing every slot after the first. It inferred "this install predates slots" from `lastScanSlotKey === null` — but that key is written *only* when a **scheduled** cycle drains, so it stayed null indefinitely, while `lastDailyScanDate` is set to today by *any* drain. On upgrade day the pre-upgrade scan had already stamped the date, so every remaining slot returned early, silently. Worse, because a manual "Refresh Now" deliberately claims no slot, hitting Refresh before the day's first scheduled scan re-entered the trap **every day, indefinitely**. Legacy state is now converted once, up front (`migrateLegacyScanState`, run before any scheduling decision), and the inferred guard is gone — `lastScanSlotKey` is the single authority for whether a slot has run.
+- **A catch-up scan could cost a scan rather than add one.** Starting Chrome shortly before a slot was due ran the *previous* missed slot, whose cycle was still draining when the real slot fired — so the in-flight guard skipped it. A missed slot is now left alone when the next one is under 30 minutes away.
+
+### Added
+- **The scan schedule is now visible.** Settings lists the computed slot times with the next one highlighted ("Scans at **03:00**, 09:00, 15:00, 21:00 — each within 20 minutes of that time. Next: today 15:00."), and says plainly when Daily Auto-Scan is off and the setting is therefore inert.
+- **"Scans Today" stat** on the project overview, showing `2 of 4` — how many of the day's scheduled scans actually produced data. A slot that fired but failed is not counted, since the honest measure is samples recorded.
+- **Scan-log entries for slot lifecycle.** A slot cycle now logs when it starts, alongside the existing entry for a slot skipped because the previous cycle was still running. The Logs page shows which slots ran, which were skipped, and why.
+
+### Notes
+- **This was invisible by construction, which is why it reached a user.** Charts show one point per day *by design*, `lastDailyScanDate` carries no time, and nothing displayed the schedule — so a schedule that had collapsed to one scan looked identical to a working one. The three additions above exist to close that gap, not as decoration.
+- **The test gap that let it ship:** every scheduler test either started from clean state or set `lastScanSlotKey` explicitly, so the "upgraded install, mid-day" state was never exercised. That exact scenario is now a regression test, along with the manual-refresh variant that made the bug permanent.
+- Existing installs are repaired automatically on the next browser start or extension update — no action needed, and no data is affected.
+- No database schema change.
+
+## [0.38.0] - 2026-08-31
+
+### Fixed
+- **The change log was manufacturing a causal signal.** Every scan cycle enqueued all listing (metadata) jobs before any keyword (rank) job, and the processor runs roughly one job a minute — so metadata was sampled a near-constant interval before rank, in the same direction, every day, for every tracked extension. Rendering each change at a single timestamp turned that scheduling artifact into what looked like a tight, consistent latency between a listing edit and a ranking response. Nobody publishes how fast CWS reacts to a listing change, which makes a plausible-looking number here especially easy to believe. Two changes address it: changes are now recorded and displayed as intervals, and job order within a cycle is randomized.
+- **A same-day re-scan no longer destroys the earlier scan's data.** `saveListingSnapshot`, `saveRankSnapshots` and both autocomplete upserts deleted every row for the date before inserting. That was correct when a day held one scan; it silently discarded the first sample of any day that held two. They now replace only the matching scan slot.
+- **The AI audit was shown an arbitrary sample.** `formatRankHistory` and `formatAutocompleteHistory` collapsed snapshots to one per day with a plain last-write-wins map and no `scannedAt` tiebreak, so with several samples the number fed to the model was whatever IndexedDB happened to return last. Both now use the shared rollup. The audit cache key also gains a sample fingerprint — keyed on the date alone, a re-audit after the day's second scan returned the result built from the first.
+- **A cycle running past local midnight no longer splits across two dates.** Each job called `today()` when it executed, so a long cycle wrote its early snapshots under one date and its later ones under the next. The cycle's date is now fixed when its jobs are built.
+- **Rank-change events were deduplicated by matching the note text** (`note.includes('for "<keyword>"')`), which broke if that wording ever changed. Events now carry `keywordId` and `slot` and are keyed on those.
+- **Three lists could render duplicate Vue keys** once a day could hold more than one change for the same extension/keyword pair (`RecentRankChanges`, `OverviewTab`, `CompetitorExtensionPage` keyed on the date). They now key on the scan timestamp, matching `RankChangesPage`.
+- **A manual refresh could mark a scheduled scan slot as already done.** The drain handler stamps whichever slot key the in-flight cycle marker holds; a manual refresh set the cycle marker without clearing that key, so it inherited the previous scheduled cycle's — suppressing that slot's real scan. Worst with a scoped refresh, which only touched one job type. A manual refresh now explicitly claims no slot, and a cancelled scan clears the key it left behind.
+- **Changing `scansPerDay` did not move the armed alarm.** `handleSettingsChange` re-armed only on `dailyScanTime` / `dailyScanEnabled`, so raising the cadence would not take effect until the next day. The Settings page's explicit reschedule message covered the UI path; this fixes every other one, such as restoring a backup.
+- Window widths under an hour were computed from an already-rounded hour value, so 45 minutes displayed as 48.
+
+### Added
+- **Changes are recorded as intervals.** `EventRecord` gains `lastSeenOldAt` and `firstSeenNewAt` — the last observation where the old value still held, and the first carrying the new one. A change found by polling is never observed happening; all that is known is that it had not happened at one scan and had at the next. The log now shows that window and its width ("Jul 10 11:47 → Jul 13 14:49, somewhere in ~75h"), and rank-chart event annotations are shaded bands spanning the window rather than a line at midnight. Records written before this have no window and fall back to the old single timestamp, explicitly marked as imprecise rather than silently rendered as if bounded.
+- **`scansPerDay` setting (1–4, default 1).** Slot 0 fires at `dailyScanTime` and each later slot follows 24/N hours after, with up to 20 minutes of jitter so the sampling times are not themselves perfectly regular. More samples narrow the interval above — three scans a day bound a change to about 8 hours instead of 24. Settings shows the resulting per-day request estimate and warns when a round cannot finish before the next slot is due.
+- **Intraday view.** Charts and tables still show **one point per day: the day's last sample**, which is identical to previous behaviour and keeps multi-sample days comparable with existing history. Where a day's samples disagreed, the chart adds a faint best/worst marker pair, the tooltip lists each sample with its time, and table cells carry a sample-count superscript. An "Intraday" toggle switches cells to the day's range; it appears only when the visible range actually contains a multi-sample day, and days whose samples agreed render exactly like single-sample days.
+- New `daily-rollup` module holding the "day's value" rule and per-day statistics, replacing five drifted copies of the same logic across the dashboard, popup, charts and audit.
+
+### Changed
+- **Job order within a scan cycle is randomized** (Fisher–Yates), so the metadata-to-rank offset varies in both size and sign across days instead of being fixed. The per-type `PRIORITY_*` constants still order the single-type scoped builders. Accepted cost: the own extension is no longer guaranteed to be scanned first, so an interrupted cycle may not have covered it — snapshots record when they were taken, so partial cycles stay interpretable.
+- **Review scans run only on the day's first slot.** They are the most expensive job type and are already tracked as entities with their own first/last-seen timestamps, so intraday resolution adds nothing.
+- Rank comparisons now use the previous *sample*, so an intraday move is reported when it happens. The drop debounce deliberately does **not** follow: "two consecutive nulls confirm an Out" still means two consecutive *days*. Keying it on samples would make `scansPerDay: 4` confirm a drop four times as fast, redefining what an "Out" means as a side effect of an unrelated setting.
+- Scan slot arithmetic lives in `shared/utils/scan-slots.ts` so the dashboard's "next scan" estimate uses the same logic as the scheduler.
+
+### Notes
+- **No database schema version bump** — every new field (`slot`, `cycleDate`, `lastSeenOldAt`, `firstSeenNewAt`, `keywordId`) is non-indexed, so Dexie needs no migration and existing records keep their meaning. `slot` is deliberately kept **out** of the compound indexes: IndexedDB omits records missing an indexed key, so indexing it would have hidden every pre-existing row and forced a backfill of the entire snapshot history. It is matched in JS instead, where a day holds at most four rows per key.
+- **Data safety on upgrade is covered by tests**, since the upsert change is the part that could silently destroy history: a slot-0 scan replaces an untagged pre-upgrade snapshot rather than duplicating it, a later slot leaves it alone, lowering `scansPerDay` does not delete the extra samples already recorded, and re-running one slot leaves the others — and other extensions and keywords — untouched.
+- A malformed `scansPerDay` (0, `NaN`, a non-integer) reaching the slot arithmetic is clamped rather than producing an alarm time of `NaN`, which would have stopped scanning permanently and silently. Validation already rejects such values on write; this covers the path where `getWithDefaults` merges stored values without re-validating.
+- Slot times are computed as local wall-clock times rather than by adding milliseconds, so they stay put across DST boundaries. Capping `scansPerDay` at 4 keeps `24/N` a whole number of hours.
+- A slot skipped because the previous cycle is still draining now writes a scan-log entry naming the cause, rather than silently producing no sample.
+
+## [0.37.1] - 2026-08-22
+
+### Fixed
+- **A failed database read no longer looks like data loss.** `useProjects` caught IndexedDB errors into `error`, but `HomePage.vue` never rendered it — so any read failure showed the "No projects" empty state, indistinguishable from every project actually being gone. The dashboard now shows an explicit error with the message, a Retry button, and a warning not to import a backup before checking.
+- **Import no longer silently overwrites live settings.** Restoring a backup also restored its `settings` blob, writing the proxy URL, proxy API key, OpenAI key and scan schedule that were current *when the export was taken* over the working ones — breaking scans with stale credentials in a way that is hard to trace back to the import. Restoring settings is now an explicit opt-in checkbox, **off by default**; table data is restored either way.
+- **Exports were losing all reviews.** The `reviews` table (schema v5) was absent from `ExportTables`/`EXPORT_TABLE_NAMES`, so every backup silently dropped it. Reviews are now exported and imported, and `meta.schemaVersion` is corrected from `4` to `5`.
+- **Review timestamps would have round-tripped as strings.** `firstSeenAt`, `lastSeenAt` and `lastChangedAt` were missing from the import reviver's `DATE_FIELDS`. Added — deliberately *without* `postedDate`/`devReplyDate`, which are indexed `YYYY-MM-DD` strings that reviving into `Date` objects would have broken the `[extensionId+postedDate]` index. A round-trip test now asserts both halves.
+- **`importData`'s transaction scope is derived from the table list** instead of being a second hand-maintained array. Adding a table to the export while forgetting the scope array would have made `clear()` throw `NotFoundError` and abort every import.
+
+### Added
+- **`unlimitedStorage` permission.** Without it the extension's IndexedDB sits in Chrome's best-effort storage bucket, which Chrome may evict wholesale under disk pressure — destroying the database while `chrome.storage.local` (a separate store) survives, so settings look intact and all tracking data is gone. This was observed in the field: a user's `CWSTrackerDB` LevelDB was recreated from scratch on 2026-08-19 (fresh `MANIFEST-000001`, auto-increment generators reset to 1) while the settings store dated from 2026-02-06.
+- **Guard rails before a destructive import.** Import replaces all data wholesale; validation now warns when the file is more than 7 days old (reporting its exact age and export date) and when it contains **no projects** — the case that erases every project while reporting success. The export date is shown in the confirmation panel.
+- Backward compatibility for pre-v5 export files: a missing `reviews` table is a warning treated as empty, not a validation error.
+
+### Notes
+- **Known gap (unchanged):** `dataRetentionDays` is configurable in Settings but `pruneOldSnapshots` has no production caller, so snapshot retention is never enforced. Left as-is deliberately — wiring it up starts deleting data, which is not a change to make in a fix release.
+
 ## [0.37.0] - 2026-07-07
 
 ### Added

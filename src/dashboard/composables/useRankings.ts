@@ -9,11 +9,32 @@ import type { RankSnapshot, Extension, Keyword } from '@/shared/types';
 import { db } from '@/shared/db/database';
 import { daysAgo, today } from '@/shared/utils/dates';
 import { deduplicateByDate } from '@/shared/utils/snapshot-dedup';
+import {
+  rollupByDate,
+  positionStats,
+  formatSampleList,
+  type DayRollup,
+  type PositionStats,
+} from '@/shared/utils/daily-rollup';
 
 /** A single data point for ApexCharts. */
 export interface ChartDataPoint {
   x: string; // date YYYY-MM-DD
   y: number | null; // position (null = not ranked)
+  /**
+   * The day's best and worst sample, when it held more than one and they
+   * disagreed.
+   *
+   * `y` stays the day's rolled-up value (the last sample), so the line is
+   * unchanged. This is drawn as a faint band around that point, so intraday
+   * volatility is visible rather than silently averaged away by picking one
+   * sample. Absent for single-sample days.
+   */
+  band?: { best: number; worst: number };
+  /** Number of samples behind this point. Absent when there was only one. */
+  sampleCount?: number;
+  /** "06:14 #9, 14:02 #5, 21:47 #7" for the tooltip. Absent for single-sample days. */
+  sampleList?: string;
 }
 
 /** One series in the chart (one line per extension or per keyword). */
@@ -68,13 +89,18 @@ export async function loadRankHistory(
  * Deduplicates by date (takes latest scannedAt per day) and sorts ascending.
  */
 function transformSnapshots(snapshots: RankSnapshot[]): ChartDataPoint[] {
-  const deduped = deduplicateByDate(snapshots);
-  deduped.sort((a, b) => a.date.localeCompare(b.date));
-
-  return deduped.map((s) => ({
-    x: s.date,
-    y: s.position,
-  }));
+  return rollupByDate(snapshots).map((day) => {
+    const point: ChartDataPoint = { x: day.date, y: day.value.position };
+    if (day.count > 1) {
+      const stats = positionStats(day.samples);
+      point.sampleCount = day.count;
+      point.sampleList = formatSampleList(day.samples);
+      if (stats.varied && stats.best !== null && stats.worst !== null) {
+        point.band = { best: stats.best, worst: stats.worst };
+      }
+    }
+    return point;
+  });
 }
 
 /** Position delta info for a single extension. */
@@ -290,6 +316,17 @@ export interface KeywordDayCell {
    * hint + Re-scan. Uses the immediate-prior snapshot (no extended lookback).
    */
   unstable?: boolean;
+  /**
+   * How the day's samples looked, when there was more than one.
+   *
+   * `position` above stays the day's rolled-up value (the last sample), so the
+   * default reading is unchanged. This carries what the daily view discards, for
+   * the intraday toggle to show. Absent when the day held a single sample —
+   * which is every day at `scansPerDay: 1`.
+   */
+  stats?: PositionStats;
+  /** The day's individual samples, ascending by time. Absent for single-sample days. */
+  samples?: RankSnapshot[];
 }
 
 /** One row in the keyword position table. */
@@ -330,31 +367,30 @@ export async function loadKeywordPositionTable(
   }
 
   withId.forEach((kw, idx) => {
-    const sorted = deduplicateByDate(snapshotsArray[idx])
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    // Index snapshots by date for O(1) lookup
-    const byDate = new Map<string, RankSnapshot>();
-    for (const snap of sorted) {
-      byDate.set(snap.date, snap);
+    // Roll up to one entry per day, keeping each day's samples for the
+    // intraday view.
+    const byDate = new Map<string, DayRollup<RankSnapshot>>();
+    for (const day of rollupByDate(snapshotsArray[idx])) {
+      byDate.set(day.date, day);
     }
 
     const days = new Map<string, KeywordDayCell>();
 
     for (let i = 0; i < visibleDates.length; i++) {
       const date = visibleDates[i];
-      const snap = byDate.get(date);
-      if (!snap) continue;
+      const day = byDate.get(date);
+      if (!day) continue;
+      const snap = day.value;
 
       // Find the previous day's snapshot by looking backwards
       let prevSnap: RankSnapshot | undefined;
       for (let j = i - 1; j >= 0; j--) {
-        prevSnap = byDate.get(visibleDates[j]);
+        prevSnap = byDate.get(visibleDates[j])?.value;
         if (prevSnap) break;
       }
       // For the first visible date, check the day before the range
       if (!prevSnap) {
-        prevSnap = byDate.get(startDate);
+        prevSnap = byDate.get(startDate)?.value;
       }
 
       let delta: number | null = null;
@@ -365,7 +401,16 @@ export async function loadKeywordPositionTable(
       // First off-list reading right after a ranked day → likely volatility.
       const unstable = snap.position === null && (prevSnap?.position ?? null) !== null;
 
-      days.set(date, { position: snap.position, delta, unstable });
+      days.set(date, {
+        position: snap.position,
+        delta,
+        unstable,
+        // Only attached when the day actually holds several samples, so
+        // single-scan days carry no extra weight.
+        ...(day.count > 1
+          ? { stats: positionStats(day.samples), samples: day.samples }
+          : {}),
+      });
     }
 
     rows.push({

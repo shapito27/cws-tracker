@@ -195,10 +195,14 @@ describe('Scheduler', () => {
       // One-shot (absolute `when`), NOT a fixed 24h period anchored to install time.
       expect(info.when).toBeTypeOf('number');
       expect(info.periodInMinutes).toBeUndefined();
-      // Fires at 11:00 (today or tomorrow).
+      // Fires in the 11:00 slot (today or tomorrow). Each slot carries up to
+      // 20 minutes of jitter, so the exact minute is deliberately not fixed —
+      // scanning at the same wall-clock minute every day is its own systematic
+      // sampling pattern.
       const scheduled = new Date(info.when!);
       expect(scheduled.getHours()).toBe(11);
-      expect(scheduled.getMinutes()).toBe(0);
+      expect(scheduled.getMinutes()).toBeGreaterThanOrEqual(0);
+      expect(scheduled.getMinutes()).toBeLessThan(20);
     });
 
     it('clears the dailyScan alarm when auto-scan is disabled', async () => {
@@ -252,9 +256,11 @@ describe('Scheduler', () => {
 
       const calls = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
       expect(calls).toHaveLength(1);
-      expect((calls[0].args[1] as { when?: number }).when).toBe(
-        new Date(2026, 5, 25, 8, 30, 0, 0).getTime()
-      );
+      // Slot start, plus up to 20 minutes of jitter.
+      const slotStart = new Date(2026, 5, 25, 8, 30, 0, 0).getTime();
+      const when = (calls[0].args[1] as { when?: number }).when!;
+      expect(when).toBeGreaterThanOrEqual(slotStart);
+      expect(when).toBeLessThan(slotStart + 20 * 60_000);
     });
 
     it('clears the dailyScan alarm when disabled', async () => {
@@ -286,12 +292,30 @@ describe('Scheduler', () => {
       expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
     });
 
-    it('false when already scanned today', async () => {
-      const { isDailyScanDue } = await import('@/background/scheduler');
+    it('false when this slot already ran today', async () => {
+      const { isDailyScanDue, slotKey } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '11:00');
+      const now = new Date(2026, 5, 24, 13, 0, 0);
+      await settingsManager.setMultiple({
+        lastDailyScanDate: toDateString(now),
+        lastScanSlotKey: slotKey(toDateString(now), 0),
+      });
+      expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
+    });
+
+    it('false for a legacy install once its state has been migrated', async () => {
+      // A pre-0.38 install records only lastDailyScanDate. That is no longer
+      // read at scan time — migrateLegacyScanState converts it up front, which
+      // is what handleBrowserStartup does before any scheduling decision.
+      const { isDailyScanDue, migrateLegacyScanState } = await import('@/background/scheduler');
       await settingsManager.set('dailyScanEnabled', true);
       await settingsManager.set('dailyScanTime', '11:00');
       const now = new Date(2026, 5, 24, 13, 0, 0);
       await settingsManager.set('lastDailyScanDate', toDateString(now));
+
+      await migrateLegacyScanState(settingsManager);
+
       expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
     });
 
@@ -329,9 +353,11 @@ describe('Scheduler', () => {
       expect(await testDb.queue.count()).toBe(0);
       const armed = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
       expect(armed).toHaveLength(1);
-      expect((armed[0].args[1] as { when?: number }).when).toBe(
-        new Date(2026, 5, 24, 11, 0, 0, 0).getTime()
-      );
+      // Today's 11:00 slot, plus up to 20 minutes of jitter.
+      const slotStart = new Date(2026, 5, 24, 11, 0, 0, 0).getTime();
+      const when = (armed[0].args[1] as { when?: number }).when!;
+      expect(when).toBeGreaterThanOrEqual(slotStart);
+      expect(when).toBeLessThan(slotStart + 20 * 60_000);
     });
 
     it('resumes an interrupted scan by kicking the processor when jobs are still queued', async () => {
@@ -369,6 +395,158 @@ describe('Scheduler', () => {
     });
   });
 
+  describe('migrateLegacyScanState', () => {
+    it('records the pre-0.38 daily scan as slot 0 of its date', async () => {
+      const { migrateLegacyScanState } = await import('@/background/scheduler');
+      await settingsManager.set('lastDailyScanDate', '2026-08-20');
+
+      await migrateLegacyScanState(settingsManager);
+
+      expect(await settingsManager.get('lastScanSlotKey')).toBe('2026-08-20#0');
+    });
+
+    it('leaves an existing slot key alone', async () => {
+      const { migrateLegacyScanState } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({
+        lastDailyScanDate: '2026-08-20',
+        lastScanSlotKey: '2026-08-20#2',
+      });
+
+      await migrateLegacyScanState(settingsManager);
+
+      expect(await settingsManager.get('lastScanSlotKey')).toBe('2026-08-20#2');
+    });
+
+    it('is a no-op on a fresh install that has never scanned', async () => {
+      const { migrateLegacyScanState } = await import('@/background/scheduler');
+
+      await migrateLegacyScanState(settingsManager);
+
+      expect(await settingsManager.get('lastScanSlotKey')).toBeNull();
+    });
+
+    it('is idempotent', async () => {
+      const { migrateLegacyScanState } = await import('@/background/scheduler');
+      await settingsManager.set('lastDailyScanDate', '2026-08-20');
+
+      await migrateLegacyScanState(settingsManager);
+      await migrateLegacyScanState(settingsManager);
+
+      expect(await settingsManager.get('lastScanSlotKey')).toBe('2026-08-20#0');
+    });
+
+    it('runs before handleBrowserStartup makes any scheduling decision', async () => {
+      const { handleBrowserStartup } = await import('@/background/scheduler');
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '11:00',
+        lastDailyScanDate: '2026-08-20',
+      });
+
+      await handleBrowserStartup(createSchedulerDeps(), new Date(2026, 7, 20, 13, 0));
+
+      expect(await settingsManager.get('lastScanSlotKey')).toBe('2026-08-20#0');
+    });
+  });
+
+  describe('catch-up proximity guard', () => {
+    it('does not catch up a missed slot when the next one is imminent', async () => {
+      // Catching up at 08:55 would still be draining at 09:00, so the in-flight
+      // guard would skip slot 1 — a catch-up that costs a scan instead of
+      // adding one.
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '03:00',
+        scansPerDay: 4,
+      });
+
+      const now = new Date(2026, 7, 20, 8, 55);
+      expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
+    });
+
+    it('catches up a missed slot when the next one is hours away', async () => {
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '03:00',
+        scansPerDay: 4,
+      });
+
+      // 12:00 — slot 1 (09:00) was missed, slot 2 is 3 hours off.
+      const now = new Date(2026, 7, 20, 12, 0);
+      expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(true);
+    });
+  });
+
+  describe('upgraded install with more than one scan a day', () => {
+    // The state a real 0.38.0 upgrade lands in: the pre-upgrade daily scan
+    // already stamped lastDailyScanDate, and lastScanSlotKey has never been
+    // written because it only exists in the new version. Every test before this
+    // one either started clean or set the slot key explicitly, which is exactly
+    // why the bug below shipped.
+    async function seedUpgradedInstall(): Promise<void> {
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '03:00',
+        scansPerDay: 4,
+        lastDailyScanDate: today(),
+        lastScanSlotKey: null,
+      });
+    }
+
+    it('runs a later slot on the day of the upgrade', async () => {
+      const { handleDailyScanAlarm, migrateLegacyScanState } = await import('@/background/scheduler');
+      await seedUpgradedInstall();
+      await migrateLegacyScanState(settingsManager);
+
+      // 15:00 is slot 2 of 03:00/09:00/15:00/21:00. It has never run.
+      const now = new Date();
+      now.setHours(15, 30, 0, 0);
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      expect(await testDb.queue.count()).toBeGreaterThan(0);
+    });
+
+    it('does not re-run the slot the pre-upgrade scan already covered', async () => {
+      const { handleDailyScanAlarm, migrateLegacyScanState } = await import('@/background/scheduler');
+      await seedUpgradedInstall();
+      await migrateLegacyScanState(settingsManager);
+
+      // 03:30 is slot 0 — the one the old single daily scan corresponds to.
+      const now = new Date();
+      now.setHours(3, 30, 0, 0);
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      expect(await testDb.queue.count()).toBe(0);
+    });
+
+    it('keeps running later slots after a manual refresh stamps the date', async () => {
+      const { handleDailyScanAlarm, migrateLegacyScanState } = await import('@/background/scheduler');
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '03:00',
+        scansPerDay: 4,
+        lastDailyScanDate: null,
+        lastScanSlotKey: null,
+      });
+      await migrateLegacyScanState(settingsManager);
+
+      // A manual refresh sets lastDailyScanDate but deliberately claims no slot.
+      // That must not suppress the day's remaining scheduled slots.
+      await settingsManager.set('lastDailyScanDate', today());
+
+      const now = new Date();
+      now.setHours(15, 30, 0, 0);
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      expect(await testDb.queue.count()).toBeGreaterThan(0);
+    });
+  });
+
   describe('handleSettingsChange', () => {
     it('re-arms the alarm when the scan time changes', async () => {
       const { handleSettingsChange, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
@@ -384,6 +562,41 @@ describe('Scheduler', () => {
       expect(
         getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN).length
       ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('re-arms the alarm when scansPerDay changes', async () => {
+      const { handleSettingsChange, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanEnabled', true);
+      await settingsManager.set('dailyScanTime', '03:00');
+      await settingsManager.set('scansPerDay', 3);
+
+      await handleSettingsChange(
+        { dailyScanTime: '03:00', dailyScanEnabled: true, scansPerDay: 1 },
+        { dailyScanTime: '03:00', dailyScanEnabled: true, scansPerDay: 3 },
+        createSchedulerDeps()
+      );
+
+      // Raising the cadence adds slots later today that the armed alarm knows
+      // nothing about; without re-arming, the new cadence would not start until
+      // tomorrow.
+      expect(
+        getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN).length
+      ).toBeGreaterThanOrEqual(1);
+    });
+
+    it('does not re-arm when nothing schedule-related changed', async () => {
+      const { handleSettingsChange, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+      await settingsManager.set('dailyScanEnabled', true);
+
+      await handleSettingsChange(
+        { dailyScanTime: '03:00', dailyScanEnabled: true, scansPerDay: 1, queueDelayMs: 60_000 },
+        { dailyScanTime: '03:00', dailyScanEnabled: true, scansPerDay: 1, queueDelayMs: 90_000 },
+        createSchedulerDeps()
+      );
+
+      expect(
+        getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN)
+      ).toHaveLength(0);
     });
 
     it('clears the alarm when auto-scan is toggled off', async () => {
@@ -694,6 +907,59 @@ describe('Scheduler', () => {
       // Should have updated lastDailyScanDate
       const lastScan = await settingsManager.get('lastDailyScanDate');
       expect(lastScan).toBe(today());
+    });
+
+    it('stamps the completed slot from the cycle marker, not the clock', async () => {
+      const { handleProcessQueueAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      // A cycle that started in slot 2 and is only draining now. Recomputing the
+      // slot from the current time would credit the run to whichever slot we
+      // happen to be in when the last job finishes.
+      await settingsManager.set('scanCycleSlotKey', '2026-08-20#2');
+      await testDb.enqueueJobs([{
+        type: 'listing_scan',
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'pending',
+        priority: 0,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(Date.now() - 1000),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      }]);
+
+      await handleProcessQueueAlarm(createSchedulerDeps());
+
+      expect(await settingsManager.get('lastScanSlotKey')).toBe('2026-08-20#2');
+      // And the marker is cleared so a later drain cannot re-stamp it.
+      expect(await settingsManager.get('scanCycleSlotKey')).toBeNull();
+    });
+
+    it('does not stamp a slot when no cycle marker is set', async () => {
+      const { handleProcessQueueAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.set('lastScanSlotKey', '2026-08-19#0');
+      await testDb.enqueueJobs([{
+        type: 'listing_scan',
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'pending',
+        priority: 0,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(Date.now() - 1000),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      }]);
+
+      await handleProcessQueueAlarm(createSchedulerDeps());
+
+      // A manual refresh (which sets no slot key) must not claim a scheduled
+      // slot as done, or it would suppress that slot's real scan.
+      expect(await settingsManager.get('lastScanSlotKey')).toBe('2026-08-19#0');
     });
   });
 

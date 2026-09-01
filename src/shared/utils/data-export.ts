@@ -16,6 +16,7 @@ import type {
   TranslationSnapshot,
   AutocompleteSnapshot,
   AutocompleteKeywordSuggestion,
+  Review,
 } from '../types';
 import type { CachedAuditResult } from './keyword-audit';
 import type { Settings } from '../types/settings';
@@ -42,6 +43,7 @@ export interface ExportTables {
   audit_cache: CachedAuditResult[];
   autocomplete_snapshots: AutocompleteSnapshot[];
   autocomplete_keyword_suggestions: AutocompleteKeywordSuggestion[];
+  reviews: Review[];
 }
 
 export interface ExportData {
@@ -55,6 +57,8 @@ export interface ValidationResult {
   errors: string[];
   warnings: string[];
   counts: Record<string, number>;
+  /** ISO timestamp the file was exported at, when readable. Lets the UI warn about stale backups. */
+  exportedAt?: string;
 }
 
 export interface ImportProgress {
@@ -67,8 +71,11 @@ export interface ImportProgress {
 // Constants
 // ---------------------------------------------------------------------------
 
-const CURRENT_SCHEMA_VERSION = 4;
+const CURRENT_SCHEMA_VERSION = 5;
 const EXPORT_FORMAT = 'cws-tracker-v1' as const;
+
+/** Age at which a backup is old enough that a destructive import deserves a warning. */
+const STALE_EXPORT_WARNING_DAYS = 7;
 
 /** Table names included in export (excludes queue and scan_logs). */
 const EXPORT_TABLE_NAMES: (keyof ExportTables)[] = [
@@ -82,11 +89,26 @@ const EXPORT_TABLE_NAMES: (keyof ExportTables)[] = [
   'audit_cache',
   'autocomplete_snapshots',
   'autocomplete_keyword_suggestions',
+  'reviews',
 ];
+
+/**
+ * Tables introduced after the export format shipped. Files written by older
+ * builds legitimately lack them, so a missing key is a warning (treated as an
+ * empty table) rather than a validation error.
+ */
+const OPTIONAL_TABLE_NAMES: ReadonlySet<keyof ExportTables> = new Set<keyof ExportTables>([
+  'reviews',
+]);
 
 /**
  * Field names that contain Date objects and need revival from JSON strings.
  * Used by the JSON.parse reviver.
+ *
+ * IMPORTANT: the reviver matches on field name across every table, so only add
+ * names that are `Date` in *all* types that use them. Indexed `YYYY-MM-DD`
+ * strings (Review.postedDate, Review.devReplyDate, *.date) must NOT be listed —
+ * reviving them into Date objects breaks the compound indexes built on them.
  */
 const DATE_FIELDS = new Set([
   'createdAt',
@@ -95,9 +117,17 @@ const DATE_FIELDS = new Set([
   'lastScannedAt',
   'scannedAt',
   'detectedAt',
+  // Event observation window (EventRecord). Distinct names from the review
+  // timestamps below so the name-matching reviver can't confuse the two.
+  'lastSeenOldAt',
+  'firstSeenNewAt',
   'scheduledAt',
   'startedAt',
   'completedAt',
+  // Review timestamps (schema v5)
+  'firstSeenAt',
+  'lastSeenAt',
+  'lastChangedAt',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -120,6 +150,7 @@ export async function buildExportData(
     audit_cache: await db.audit_cache.toArray(),
     autocomplete_snapshots: await db.autocomplete_snapshots.toArray(),
     autocomplete_keyword_suggestions: await db.autocomplete_keyword_suggestions.toArray(),
+    reviews: await db.reviews.toArray(),
   };
 
   return {
@@ -164,6 +195,7 @@ export function validateExportFile(raw: unknown): ValidationResult {
   }
 
   const data = raw as Record<string, unknown>;
+  let exportedAt: string | undefined;
 
   // Check meta
   if (!data.meta || typeof data.meta !== 'object') {
@@ -180,6 +212,24 @@ export function validateExportFile(raw: unknown): ValidationResult {
         `Export schema version ${meta.schemaVersion} is newer than current ${CURRENT_SCHEMA_VERSION}. Some data may not import correctly.`
       );
     }
+    if (typeof meta.exportedAt === 'string' && !isNaN(new Date(meta.exportedAt).getTime())) {
+      exportedAt = meta.exportedAt;
+      const ageDays = exportAgeInDays(meta.exportedAt);
+      if (ageDays === null) {
+        // Ahead of the local clock: skew or a hand-edited file. The age can't be
+        // trusted, so warn rather than staying silent — silence here is exactly
+        // the failure this guard exists to prevent.
+        warnings.push(
+          `This backup's export date (${meta.exportedAt.slice(0, 10)}) is in the future, so its ` +
+            'age cannot be verified. Importing replaces all current data.'
+        );
+      } else if (ageDays >= STALE_EXPORT_WARNING_DAYS) {
+        warnings.push(
+          `This backup is ${ageDays} days old (exported ${meta.exportedAt.slice(0, 10)}). ` +
+            'Importing replaces all current data — anything recorded since then will be lost.'
+        );
+      }
+    }
   }
 
   // Check tables
@@ -189,12 +239,23 @@ export function validateExportFile(raw: unknown): ValidationResult {
     const tables = data.tables as Record<string, unknown>;
     for (const name of EXPORT_TABLE_NAMES) {
       if (!(name in tables)) {
-        errors.push(`Missing table "${name}"`);
+        if (OPTIONAL_TABLE_NAMES.has(name)) {
+          warnings.push(`Table "${name}" is absent (older export); it will be imported as empty.`);
+          counts[name] = 0;
+        } else {
+          errors.push(`Missing table "${name}"`);
+        }
       } else if (!Array.isArray(tables[name])) {
         errors.push(`Table "${name}" is not an array`);
       } else {
         counts[name] = (tables[name] as unknown[]).length;
       }
+    }
+
+    if (counts.projects === 0) {
+      warnings.push(
+        'This file contains no projects. Importing it will erase every project you currently have.'
+      );
     }
   }
 
@@ -203,7 +264,16 @@ export function validateExportFile(raw: unknown): ValidationResult {
     errors,
     warnings,
     counts,
+    exportedAt,
   };
+}
+
+/** Whole days between `isoTimestamp` and now, or null if unparseable/in the future. */
+function exportAgeInDays(isoTimestamp: string): number | null {
+  const then = new Date(isoTimestamp).getTime();
+  if (isNaN(then)) return null;
+  const days = Math.floor((Date.now() - then) / (24 * 60 * 60 * 1000));
+  return days < 0 ? null : days;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,24 +286,17 @@ export async function importData(
   onProgress?: (progress: ImportProgress) => void
 ): Promise<void> {
   const tableEntries: Array<{ name: keyof ExportTables; records: unknown[] }> = EXPORT_TABLE_NAMES.map(
-    (name) => ({ name, records: data.tables[name] })
+    // A table absent from an older export (see OPTIONAL_TABLE_NAMES) imports as empty.
+    (name) => ({ name, records: data.tables[name] ?? [] })
   );
   const total = tableEntries.length;
 
+  // Scope is derived from EXPORT_TABLE_NAMES rather than hand-listed: a table
+  // added to the export but missed here would make db.table(name).clear() throw
+  // NotFoundError and abort every import.
   await db.transaction(
     'rw',
-    [
-      db.projects,
-      db.extensions,
-      db.keywords,
-      db.listing_snapshots,
-      db.rank_snapshots,
-      db.events,
-      db.translation_snapshots,
-      db.audit_cache,
-      db.autocomplete_snapshots,
-      db.autocomplete_keyword_suggestions,
-    ],
+    EXPORT_TABLE_NAMES.map((name) => db.table(name)),
     async () => {
       for (let i = 0; i < tableEntries.length; i++) {
         const { name, records } = tableEntries[i];

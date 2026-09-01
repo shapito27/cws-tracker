@@ -61,7 +61,7 @@ watch(
     <div class="divide-y divide-gray-50">
       <RankChangeItem
         v-for="rc in rankChanges"
-        :key="`${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.date}`"
+        :key="`${rc.type}-${rc.extensionId}-${rc.keywordId}-${rc.scannedAt instanceof Date ? rc.scannedAt.getTime() : new Date(rc.scannedAt).getTime()}`"
         :rank-change="rc"
         :link-to-project="true"
         :show-date="true"

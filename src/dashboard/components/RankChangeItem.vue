@@ -5,6 +5,7 @@ import {
   AC_DISAPPEARED_SENTINEL,
   type RankChange,
 } from '@/popup/composables/usePopupState';
+import { formatObservationWindow, formatWindowWidth } from '@/shared/utils/dates';
 import ExtensionIcon from './ExtensionIcon.vue';
 
 const props = withDefaults(defineProps<{
@@ -69,6 +70,29 @@ const formattedDateTime = computed((): string => {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 });
 
+/**
+ * How wide the window is between the two scans this change was derived from.
+ *
+ * `formattedDateTime` above shows when the *new* position was first seen, which
+ * on its own reads as when the move happened. It didn't necessarily: the rank
+ * could have moved at any point since the previous scan. Showing the width
+ * keeps that visible without lengthening the line much.
+ */
+const observationWindow = computed((): { width: string; title: string } | null => {
+  const rc = props.rankChange;
+  const from = rc.previousScannedAt;
+  const to = rc.scannedAt;
+  if (!(from instanceof Date) || !(to instanceof Date)) return null;
+  if (isNaN(from.getTime()) || isNaN(to.getTime()) || to < from) return null;
+  return {
+    width: formatWindowWidth(from, to),
+    title:
+      `Moved at some point between ${formatObservationWindow(from, to)} ` +
+      `(${formatWindowWidth(from, to)}). Consecutive scans are all that was observed — ` +
+      `the exact moment is not knowable from polling.`,
+  };
+});
+
 function isNew(rc: RankChange): boolean {
   if (rc.type === 'autocomplete') return rc.change === AC_APPEARED_SENTINEL;
   return rc.change !== null && rc.change > 30;
@@ -104,6 +128,12 @@ function isOut(rc: RankChange): boolean {
         <template v-if="formattedDateTime">
           <span class="text-gray-300">&middot;</span>
           <span class="shrink-0">{{ formattedDateTime }}</span>
+        </template>
+        <template v-if="observationWindow">
+          <span
+            class="shrink-0 text-gray-400"
+            :title="observationWindow.title"
+          >(within {{ observationWindow.width }})</span>
         </template>
       </div>
     </div>

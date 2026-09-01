@@ -8,6 +8,7 @@ import { OpenAIClient, OpenAIError } from '@/shared/utils/openai';
 import {
   buildAuditPrompt,
   buildCacheKey,
+  buildSampleFingerprint,
   shortHash,
   estimateAuditTokens,
   runKeywordAudit,
@@ -335,14 +336,41 @@ async function runAudit(): Promise<void> {
     settings.auditSystemPrompt || settings.auditUserPromptTemplate
       ? shortHash(`${settings.auditSystemPrompt ?? ''}\u0000${settings.auditUserPromptTemplate ?? ''}`)
       : '';
+  // Load historical context up front. It feeds the prompt below, but it also
+  // has to feed the cache key: with more than one scan a day, `date` alone no
+  // longer identifies a distinct set of inputs, so a re-audit after the day's
+  // second scan would otherwise return the result built from the first.
+  // (14d is a superset of 7d — query once, filter in memory.)
+  const todayStr = today();
+  const start14d = daysAgo(14);
+  const start7d = daysAgo(7);
+  const ownExtId = props.project.ownExtensionId;
+  const compExtId = selectedCompetitorId.value;
+  const kwId = primaryKeywordId.value;
+
+  const [ownRanks14d, compRanks14d, ownAc14d, compAc14d, ownEv14d, compEv14d] = await Promise.all([
+    db.getRankSnapshots(kwId, ownExtId, start14d, todayStr),
+    db.getRankSnapshots(kwId, compExtId, start14d, todayStr),
+    db.getAutocompleteSnapshots(kwId, ownExtId, start14d, todayStr),
+    db.getAutocompleteSnapshots(kwId, compExtId, start14d, todayStr),
+    db.getEvents(ownExtId, start14d, todayStr),
+    db.getEvents(compExtId, start14d, todayStr),
+  ]);
+
+  const sampleFingerprint = buildSampleFingerprint(
+    [...ownRanks14d, ...compRanks14d],
+    [...ownAc14d, ...compAc14d],
+  );
+
   const cacheKey = buildCacheKey(
     allKeywordTexts,
     props.project.ownExtensionId,
     selectedCompetitorId.value,
-    today(),
+    todayStr,
     settings.auditPromptVariant || 'default',
     reviewFingerprint,
     promptFingerprint,
+    sampleFingerprint,
   );
 
   try {
@@ -376,24 +404,7 @@ async function runAudit(): Promise<void> {
 
     const client = new OpenAIClient(settings.openaiApiKey);
 
-    // Load historical context for primary keyword (14d is superset of 7d — query once, filter in memory)
-    const todayStr = today();
-    const start14d = daysAgo(14);
-    const start7d = daysAgo(7);
-    const ownExtId = props.project.ownExtensionId;
-    if (!selectedCompetitorId.value || !primaryKeywordId.value) return;
-    const compExtId = selectedCompetitorId.value;
-    const kwId = primaryKeywordId.value;
-
-    const [ownRanks14d, compRanks14d, ownAc14d, compAc14d, ownEv14d, compEv14d] = await Promise.all([
-      db.getRankSnapshots(kwId, ownExtId, start14d, todayStr),
-      db.getRankSnapshots(kwId, compExtId, start14d, todayStr),
-      db.getAutocompleteSnapshots(kwId, ownExtId, start14d, todayStr),
-      db.getAutocompleteSnapshots(kwId, compExtId, start14d, todayStr),
-      db.getEvents(ownExtId, start14d, todayStr),
-      db.getEvents(compExtId, start14d, todayStr),
-    ]);
-
+    // Historical context was loaded above (it also feeds the cache key).
     // Filter 14d results to get 7d subsets
     const filterByDate = <T extends { date: string }>(items: T[], startDate: string): T[] =>
       items.filter((item) => item.date >= startDate);

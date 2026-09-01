@@ -10,6 +10,8 @@ import {
   getVariantUserPromptTemplate,
 } from '@/shared/utils/keyword-audit';
 import type { AuditPromptVariant } from '@/shared/types/settings';
+import { db } from '@/shared/db/database';
+import { nextSlotOccurrence, slotScanTime } from '@/shared/utils/scan-slots';
 
 const {
   settings,
@@ -40,6 +42,7 @@ const localQueueDelay = ref(60);
 const localQueueJitter = ref(10);
 const localDailyScanTime = ref('03:00');
 const localDailyScanEnabled = ref(false);
+const localScansPerDay = ref(1);
 const localReviewFetchLimit = ref(50);
 const localDataRetention = ref(365);
 const localProxyUrl = ref('');
@@ -50,6 +53,8 @@ const localAuditUserPromptTemplate = ref('');
 const localAuditPromptVariant = ref<AuditPromptVariant>('default');
 const showPlaceholderHelp = ref(false);
 const importFileInput = ref<HTMLInputElement | null>(null);
+/** Opt-in: an old backup carries old proxy/OpenAI keys that would overwrite working ones. */
+const restoreSettingsOnImport = ref(false);
 
 const {
   exporting: dataExporting,
@@ -72,10 +77,27 @@ function onFileSelected(event: Event): void {
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   if (file) {
+    // Each file is a fresh decision — never carry a previous opt-in over.
+    restoreSettingsOnImport.value = false;
     validateFile(file);
   }
   // Reset so the same file can be re-selected
   input.value = '';
+}
+
+async function handleConfirmImport(): Promise<void> {
+  await confirmImport({ restoreSettings: restoreSettingsOnImport.value });
+  // Only clear on success. A failed import keeps its pending data so the user
+  // can press "Replace All Data" again — silently unticking their choice would
+  // make that retry drop settings with no indication it had changed.
+  if (!dataTransferError.value) {
+    restoreSettingsOnImport.value = false;
+  }
+}
+
+function handleCancelImport(): void {
+  restoreSettingsOnImport.value = false;
+  cancelImport();
 }
 
 const VARIANT_OPTIONS: Array<{ value: AuditPromptVariant; label: string; description: string }> = [
@@ -108,9 +130,21 @@ const AVAILABLE_LOCALES: Array<{ code: string; name: string }> = [
   { code: 'da', name: 'Danish' },
 ];
 
+/** Tracked-entity counts, for the per-day request estimate below. */
+const extensionCount = ref(0);
+const keywordCount = ref(0);
+
 onMounted(async () => {
   await loadSettings();
   syncLocalState();
+  try {
+    [extensionCount.value, keywordCount.value] = await Promise.all([
+      db.extensions.count(),
+      db.keywords.count(),
+    ]);
+  } catch {
+    // Estimate is advisory; a failed count just hides it.
+  }
 });
 
 /** Detect if any local form value differs from the saved settings. */
@@ -123,6 +157,7 @@ const hasUnsavedChanges = computed(() => {
     localQueueJitter.value !== Math.round(settings.queueJitterMs / 1000) ||
     localDailyScanTime.value !== settings.dailyScanTime ||
     localDailyScanEnabled.value !== settings.dailyScanEnabled ||
+    localScansPerDay.value !== settings.scansPerDay ||
     localReviewFetchLimit.value !== settings.reviewFetchLimit ||
     localOpenAIKey.value !== (settings.openaiApiKey ?? '') ||
     localDataRetention.value !== settings.dataRetentionDays ||
@@ -147,6 +182,7 @@ function syncLocalState(): void {
   localQueueJitter.value = Math.round(settings.queueJitterMs / 1000);
   localDailyScanTime.value = settings.dailyScanTime;
   localDailyScanEnabled.value = settings.dailyScanEnabled;
+  localScansPerDay.value = settings.scansPerDay;
   localReviewFetchLimit.value = settings.reviewFetchLimit;
   localDataRetention.value = settings.dataRetentionDays;
   localProxyUrl.value = settings.proxyUrl;
@@ -166,6 +202,59 @@ const extensionVersion = computed(() => {
   }
 });
 
+/**
+ * Rough cost of the configured schedule, per day.
+ *
+ * Raising scansPerDay multiplies CWS request volume, and the resulting scan
+ * time can exceed the gap between slots - at which point a slot gets skipped
+ * because the previous cycle is still draining. Showing the arithmetic up front
+ * is cheaper than letting someone discover it from a warning in the logs.
+ *
+ * Reviews only run on the day's first slot, so they are counted once.
+ */
+const scanBudget = computed(() => {
+  const perSlot = extensionCount.value + keywordCount.value * 2;
+  const requests = perSlot * localScansPerDay.value + extensionCount.value;
+  if (requests === 0) return null;
+
+  // One job per queue delay, floored at the 1-minute MV3 alarm minimum.
+  const minutesPerRequest = Math.max(localQueueDelay.value / 60, 1);
+  const totalMinutes = Math.round(requests * minutesPerRequest);
+  const perSlotMinutes = Math.round((perSlot + extensionCount.value) * minutesPerRequest);
+  const slotGapHours = 24 / localScansPerDay.value;
+
+  return {
+    requests,
+    totalHours: Math.round((totalMinutes / 60) * 10) / 10,
+    // A cycle that takes longer than the gap between slots will cause skips.
+    overruns: perSlotMinutes > slotGapHours * 60,
+    slotGapHours,
+  };
+});
+
+/**
+ * The actual times scans will run, and which is next.
+ *
+ * Without this the schedule is unobservable: charts show one point per day by
+ * design and `lastDailyScanDate` carries no time, so a schedule that has
+ * silently collapsed to one scan looks exactly like a working one. This is the
+ * surface that makes "is it doing what I set?" answerable at a glance.
+ */
+const schedulePreview = computed(() => {
+  if (!localDailyScanEnabled.value) return null;
+  const now = new Date();
+  const next = nextSlotOccurrence(localDailyScanTime.value, localScansPerDay.value, now);
+  const times = Array.from({ length: localScansPerDay.value }, (_, slot) =>
+    slotScanTime(localDailyScanTime.value, slot, localScansPerDay.value)
+  );
+  const nextDate = new Date(next.when);
+  const nextLabel =
+    nextDate.toDateString() === now.toDateString()
+      ? `today ${times[next.slot]}`
+      : `tomorrow ${times[next.slot]}`;
+  return { times, nextSlot: next.slot, nextLabel };
+});
+
 const queueDelayDisplay = computed(() => {
   const secs = localQueueDelay.value;
   if (secs >= 60) {
@@ -181,6 +270,7 @@ async function saveScanSettings(): Promise<void> {
     queueJitterMs: localQueueJitter.value * 1000,
     dailyScanTime: localDailyScanTime.value,
     dailyScanEnabled: localDailyScanEnabled.value,
+    scansPerDay: localScansPerDay.value,
     reviewFetchLimit: localReviewFetchLimit.value,
   });
   // Wake the service worker to re-arm the daily-scan alarm from the new time /
@@ -332,7 +422,7 @@ onUnmounted(() => {
           <div class="flex items-center justify-between">
             <div>
               <label class="text-sm font-medium text-gray-700">Daily Auto-Scan</label>
-              <p class="text-xs text-gray-500">Automatically scan all projects once per day.</p>
+              <p class="text-xs text-gray-500">Automatically scan all projects on a schedule.</p>
             </div>
             <button
               class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
@@ -348,13 +438,61 @@ onUnmounted(() => {
 
           <!-- Daily scan time -->
           <div>
-            <label for="dailyScanTime" class="block text-sm font-medium text-gray-700">Scan Time (24h)</label>
+            <label for="dailyScanTime" class="block text-sm font-medium text-gray-700">
+              First Scan Time (24h)
+            </label>
+            <p class="text-xs text-gray-500">
+              When the day&rsquo;s first scan starts. Later scans follow at even intervals.
+              Each scan is offset by up to 20 random minutes.
+            </p>
             <input
               id="dailyScanTime"
               v-model="localDailyScanTime"
               type="time"
               class="mt-1 block w-40 rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
+          </div>
+
+          <!-- Scans per day -->
+          <div>
+            <label for="scansPerDay" class="block text-sm font-medium text-gray-700">
+              Scans Per Day
+            </label>
+            <p class="text-xs text-gray-500">
+              How often to sample each day (1&ndash;4). More samples narrow when a change
+              is known to have happened &mdash; 3 scans bound it to about 8 hours instead
+              of 24 &mdash; but each one costs a full round of requests. Charts still show
+              one point per day either way.
+            </p>
+            <input
+              id="scansPerDay"
+              v-model.number="localScansPerDay"
+              type="number"
+              min="1"
+              max="4"
+              step="1"
+              class="mt-1 block w-32 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <p v-if="schedulePreview" class="mt-1 text-xs text-gray-600">
+              Scans at
+              <template v-for="(t, i) in schedulePreview.times" :key="t">
+                <span :class="i === schedulePreview.nextSlot ? 'font-semibold text-gray-900' : ''">{{ t }}</span
+                ><span v-if="i < schedulePreview.times.length - 1">, </span>
+              </template>
+              &mdash; each within 20 minutes of that time. Next: {{ schedulePreview.nextLabel }}.
+            </p>
+            <p v-else class="mt-1 text-xs text-amber-700">
+              Daily Auto-Scan is off, so this setting has no effect yet.
+            </p>
+            <p v-if="scanBudget" class="mt-1 text-xs" :class="scanBudget.overruns ? 'text-amber-700' : 'text-gray-500'">
+              About {{ scanBudget.requests }} requests/day, roughly
+              {{ scanBudget.totalHours }}h of scanning.
+              <template v-if="scanBudget.overruns">
+                A single round already takes longer than the
+                {{ scanBudget.slotGapHours }}h gap between scans, so some will be skipped.
+                Lower this or shorten the request delay.
+              </template>
+            </p>
           </div>
 
           <!-- Queue delay -->
@@ -670,25 +808,35 @@ onUnmounted(() => {
               <p v-for="warn in validationResult.warnings" :key="warn" class="text-sm text-amber-700">{{ warn }}</p>
             </div>
             <div v-if="validationResult.valid" class="space-y-1">
+              <p v-if="validationResult.exportedAt" class="text-sm text-gray-700">
+                Backup taken <strong>{{ validationResult.exportedAt.slice(0, 10) }}</strong>
+              </p>
               <p class="text-sm font-medium text-gray-900">Records to import:</p>
               <div class="grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs text-gray-600">
                 <span v-for="(count, table) in validationResult.counts" :key="table">
                   {{ table }}: {{ count }}
                 </span>
               </div>
+              <label class="flex items-start gap-2 pt-2 text-xs text-gray-600">
+                <input v-model="restoreSettingsOnImport" type="checkbox" class="mt-0.5" />
+                <span>
+                  Also restore settings from this file (proxy URL, API keys, scan schedule).
+                  Leave unchecked to keep your current settings — an old backup carries old keys.
+                </span>
+              </label>
             </div>
             <div class="flex items-center gap-3 mt-3">
               <button
                 v-if="validationResult.valid"
                 class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                 :disabled="dataImporting"
-                @click="confirmImport"
+                @click="handleConfirmImport"
               >
                 Replace All Data
               </button>
               <button
                 class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                @click="cancelImport"
+                @click="handleCancelImport"
               >
                 Cancel
               </button>

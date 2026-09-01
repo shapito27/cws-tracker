@@ -78,18 +78,28 @@ export function classifyDrop(
  * snapshot exists.
  */
 export function findEffectivePrevious<
-  T extends { date: string; position: number | null }
+  T extends { date: string; position: number | null; scannedAt?: Date }
 >(
   pairHistory: readonly T[],
   immediatePrev: T | undefined,
   currentDate: string,
-  lookbackDays: number = RANK_NULL_LOOKBACK_DAYS
+  lookbackDays: number = RANK_NULL_LOOKBACK_DAYS,
+  currentScannedAt?: Date
 ): T | undefined {
   if (!immediatePrev || immediatePrev.position !== null) return immediatePrev;
   for (let i = pairHistory.length - 1; i >= 0; i--) {
     const candidate = pairHistory[i];
     if (candidate.position === null) continue;
-    if (candidate.date >= currentDate) continue;
+    if (candidate.date > currentDate) continue;
+    if (candidate.date === currentDate) {
+      // Same-day candidates only exist when scanning more than once a day, and
+      // only count when the caller says which sample we are comparing against —
+      // otherwise "earlier today" is undefined. Callers that omit
+      // `currentScannedAt` keep the original whole-day exclusion.
+      if (!currentScannedAt || !candidate.scannedAt) continue;
+      if (candidate.scannedAt.getTime() >= currentScannedAt.getTime()) continue;
+      return candidate;
+    }
     if (dayDiff(currentDate, candidate.date) > lookbackDays) break;
     return candidate;
   }

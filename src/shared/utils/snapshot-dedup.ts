@@ -3,26 +3,18 @@
  *
  * When multiple scans occur on the same day, keeps only the snapshot
  * with the latest scannedAt timestamp per date.
+ *
+ * Retained as the established name for this operation; the implementation now
+ * lives in `daily-rollup.ts` alongside the per-day statistics that the intraday
+ * view needs, so there is a single definition of "the day's value".
  */
 
-interface HasDateAndScannedAt {
-  date: string;
-  scannedAt: Date;
-}
+import { pickLatestPerDate, type DatedSample } from './daily-rollup';
 
 /**
  * Deduplicate snapshots by date, keeping the latest scannedAt per day.
- * Returns a new array (does not mutate input).
+ * Returns a new array (does not mutate input), ascending by date.
  */
-export function deduplicateByDate<T extends HasDateAndScannedAt>(
-  snapshots: T[]
-): T[] {
-  const byDate = new Map<string, T>();
-  for (const snap of snapshots) {
-    const existing = byDate.get(snap.date);
-    if (!existing || snap.scannedAt > existing.scannedAt) {
-      byDate.set(snap.date, snap);
-    }
-  }
-  return [...byDate.values()];
+export function deduplicateByDate<T extends DatedSample>(snapshots: T[]): T[] {
+  return pickLatestPerDate(snapshots);
 }
