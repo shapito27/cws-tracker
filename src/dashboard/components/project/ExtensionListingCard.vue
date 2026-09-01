@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Extension, ListingSnapshot } from '@/shared/types';
+import { websiteDomain, websiteHref } from '@/shared/utils/website';
 
 const props = defineProps<{
   extension: Extension | null | undefined;
@@ -33,7 +34,12 @@ const safeEmail = computed<string | null>(() => {
   return /^[^\s@?#&/:]+@[^\s@?#&/:]+\.[^\s@?#&/:]+$/.test(raw) ? raw : null;
 });
 
-type MetaKind = 'rating' | 'version' | 'devName' | 'updated' | 'size' | 'email';
+// Developer website from the CWS listing. Both are null unless the raw value
+// parses as an http(s) URL, so a hostile value can never reach the href.
+const siteDomain = computed<string | null>(() => websiteDomain(props.snapshot?.websiteUrl));
+const siteHref = computed<string | null>(() => websiteHref(props.snapshot?.websiteUrl));
+
+type MetaKind = 'rating' | 'version' | 'devName' | 'domain' | 'updated' | 'size' | 'email';
 
 // Single source of truth for inline metadata items + their order. The template
 // renders one separator (`|`) between every consecutive pair, so missing items
@@ -45,6 +51,7 @@ const metaItems = computed<MetaKind[]>(() => {
   if (s.rating != null) items.push('rating');
   if (s.version) items.push('version');
   if (s.developerName) items.push('devName');
+  if (siteDomain.value) items.push('domain');
   if (s.lastUpdated) items.push('updated');
   if (s.size) items.push('size');
   if (safeEmail.value) items.push('email');
@@ -113,6 +120,20 @@ const metaItems = computed<MetaKind[]>(() => {
             <span v-else-if="kind === 'devName'" class="text-sm text-gray-500">
               by {{ snapshot?.developerName }}
             </span>
+
+            <a
+              v-else-if="kind === 'domain' && siteHref"
+              :href="siteHref"
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              class="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 hover:underline"
+              :aria-label="`Developer website ${siteDomain} (opens in new tab)`"
+            >
+              <svg class="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm.75-13.94a6.51 6.51 0 0 1 4.535 3.19h-1.35a10.9 10.9 0 0 0-1.117-2.432c-.33-.53-.688-.94-1.046-1.213a2.87 2.87 0 0 0-1.022.455ZM8.25 4.06a6.51 6.51 0 0 0-4.535 3.19h1.35c.29-.9.67-1.72 1.117-2.432.33-.53.688-.94 1.046-1.213a2.87 2.87 0 0 1 1.022.455ZM3.5 10c0-.69.108-1.354.308-1.978h1.63A15.9 15.9 0 0 0 5.25 10c0 .674.067 1.335.188 1.978h-1.63A6.48 6.48 0 0 1 3.5 10Zm1.215 2.75a6.51 6.51 0 0 0 4.535 3.19 2.87 2.87 0 0 1-1.022-.455c-.358-.273-.716-.683-1.046-1.213a10.9 10.9 0 0 1-1.117-2.432h-1.35Zm9.92 0a10.9 10.9 0 0 1-1.117 2.432c-.33.53-.688.94-1.046 1.213a2.87 2.87 0 0 1-1.022.455 6.51 6.51 0 0 0 4.535-3.19h-1.35Zm1.757-1.5c.12-.643.188-1.304.188-1.978 0-.674-.067-1.335-.188-1.978h1.63c.2.624.308 1.289.308 1.978 0 .69-.108 1.354-.308 1.978h-1.63ZM10 3.75c-.29 0-.68.174-1.104.673-.322.379-.62.9-.868 1.54a12.4 12.4 0 0 0-.29.837h4.524a12.4 12.4 0 0 0-.29-.837c-.248-.64-.546-1.161-.868-1.54C10.68 3.924 10.29 3.75 10 3.75ZM7.36 7.5a14.4 14.4 0 0 0-.11 1.75c0 .61.038 1.198.11 1.75h5.28c.072-.552.11-1.14.11-1.75 0-.61-.038-1.198-.11-1.75H7.36Zm.378 5c.084.297.18.577.29.837.248.64.546 1.161.868 1.54.424.499.814.673 1.104.673.29 0 .68-.174 1.104-.673.322-.379.62-.9.868-1.54.11-.26.206-.54.29-.837H7.738Z" clip-rule="evenodd" />
+              </svg>
+              {{ siteDomain }}
+            </a>
 
             <span v-else-if="kind === 'updated'" class="text-sm text-gray-500">
               Updated {{ formattedLastUpdated }}

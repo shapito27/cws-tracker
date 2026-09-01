@@ -147,6 +147,10 @@ describe('listingParserV1', () => {
       expect(result.developerVerified).toBe(false);
     });
 
+    it('returns null websiteUrl when the listing declares no website', () => {
+      expect(result.websiteUrl).toBeNull();
+    });
+
     it('defaults hasPromoVideo to false', () => {
       expect(result.hasPromoVideo).toBe(false);
     });
@@ -394,6 +398,36 @@ describe('listingParserV1', () => {
       const html = buildDetailHtml(1, 1);
       const result = listingParserV1.parse(html);
       expect(result.badgeFlags.featured).toBe(true);
+    });
+  });
+
+  describe('detail page with a developer website (Claude Code Enhancer)', () => {
+    let result: ListingData;
+
+    beforeAll(() => {
+      result = listingParserV1.parse(loadFixture('cws-detail-website.html'));
+    });
+
+    it('extracts the developer website verbatim', () => {
+      // CWS stores this listing's website schemeless; the parser must not
+      // normalize it, so downstream code sees exactly what CWS returned.
+      expect(result.websiteUrl).toBe('wizardstool.com');
+    });
+
+    it('still parses the rest of the listing', () => {
+      expect(result.extensionId).toBe('agefagkplnpjloalhpbpkfmadidjkepi');
+      expect(result.name).toBe('Claude Code Enhancer');
+      expect(result.developerName).toBe('idevext');
+    });
+
+    it('does not treat the website flag as a verified-publisher badge', () => {
+      // card[8] is 1 whenever a website exists, including on listings that
+      // carry no verified badge - so it must not drive developerVerified.
+      expect(result.developerVerified).toBe(false);
+    });
+
+    it('is not featured', () => {
+      expect(result.badgeFlags.featured).toBe(false);
     });
   });
 

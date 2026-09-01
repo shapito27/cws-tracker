@@ -285,6 +285,7 @@ beforeEach(async () => {
       return createDefaultListingData({
         extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         name: 'Test Extension',
+        websiteUrl: 'wizardstool.com',
       });
     }
     if (html.includes('ext-bbb')) {
@@ -393,6 +394,8 @@ describe('1.10.1 Full scan cycle', () => {
     )!;
     expect(ownSnapshot.title).toBe('Test Extension');
     expect(ownSnapshot.rating).toBe(4.5);
+    // Parsed developer website must survive the ListingData -> snapshot mapping.
+    expect(ownSnapshot.websiteUrl).toBe('wizardstool.com');
     expect(ownSnapshot.permissionRiskScore).toBeGreaterThanOrEqual(0);
 
     // 7. Verify rank_snapshots saved (1 per tracked extension per keyword)

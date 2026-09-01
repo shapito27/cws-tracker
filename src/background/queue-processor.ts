@@ -1332,6 +1332,7 @@ function mapListingDataToSnapshot(
     category: data.category,
     developerName: data.developerName,
     developerEmail: data.developerEmail,
+    websiteUrl: data.websiteUrl,
     developerVerified: data.developerVerified,
     listingQualityScore: null,
     scannedAt: new Date(),

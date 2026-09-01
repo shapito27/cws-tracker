@@ -152,6 +152,7 @@ export interface Keyword {
  * | developerVerified  | developerVerified     | direct (defaults to false)              |
  * | category           | category              | direct                                  |
  * | developerEmail     | developerEmail        | direct (null when not published)        |
+ * | websiteUrl         | websiteUrl            | direct (raw CWS value, null when unset) |
  * | —                  | permissionRiskScore   | calculated by permission-risk utility   |
  * | —                  | listingQualityScore   | Phase 2 calculation; defaults to `null` |
  */
@@ -204,6 +205,14 @@ export interface ListingSnapshot {
    * (reads back as `undefined`); new snapshots always set it to `string | null`.
    */
   developerEmail?: string | null;
+  /**
+   * Developer-submitted website, stored verbatim as CWS returns it. May be a
+   * full URL ("https://www.joinhoney.com/") or a bare domain
+   * ("wizardstool.com"); `null` when the listing declares none. Use
+   * `websiteDomain()` / `websiteHref()` from `shared/utils/website` to display
+   * or link it. Optional because pre-0.38.0 snapshots lack the field entirely.
+   */
+  websiteUrl?: string | null;
   /** Not currently extractable from CWS data; defaults to false. */
   developerVerified: boolean;
   /** Composite quality score (0-100). `null` until Phase 2 calculation. */
