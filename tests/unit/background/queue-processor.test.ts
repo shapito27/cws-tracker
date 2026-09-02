@@ -755,6 +755,196 @@ describe('Queue Processor', () => {
     });
   });
 
+  describe('translation_audit', () => {
+    const EXT = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    function makeTranslationJob(locale: string, overrides: Partial<QueueJob> = {}): QueueJob {
+      return {
+        type: 'translation_audit',
+        payload: { extensionId: EXT, locale },
+        status: 'pending',
+        priority: 60,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(Date.now() - 1000),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+        cycleDate: '2026-09-02',
+        ...overrides,
+      };
+    }
+
+    it('fetches the detail page with the locale as ?hl= (direct URL)', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeTranslationJob('es')]);
+
+      const deps = createDeps();
+      await processNextJob(deps);
+
+      const fetchMock = deps.fetchPage as ReturnType<typeof vi.fn>;
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const url = fetchMock.mock.calls[0][0] as string;
+      expect(url).toBe(`https://chromewebstore.google.com/detail/${EXT}?hl=es`);
+    });
+
+    it('passes hl through the proxy URL and redacts the key in the scan log', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      const settings = new SettingsManager();
+      await settings.setMultiple({ proxyUrl: 'https://proxy.test', proxyApiKey: 'secret' });
+      await testDb.enqueueJobs([makeTranslationJob('zh_CN')]);
+
+      const deps = createDeps({
+        settings,
+        fetchPage: vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ html: MOCK_LISTING_HTML, status: 200 }), { status: 200 })
+        ),
+      });
+      await processNextJob(deps);
+
+      const url = (deps.fetchPage as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+      const parsed = new URL(url);
+      expect(parsed.pathname).toBe('/detail');
+      expect(parsed.searchParams.get('id')).toBe(EXT);
+      expect(parsed.searchParams.get('hl')).toBe('zh_CN');
+      expect(parsed.searchParams.get('key')).toBe('secret');
+
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs).toHaveLength(1);
+      expect(logs[0].requestUrl).toContain('hl=zh_CN');
+      expect(logs[0].requestUrl).not.toContain('secret');
+      expect(logs[0].jobType).toBe('translation_audit');
+    });
+
+    it('saves a translation snapshot for the locale under the cycle date', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeTranslationJob('es')]);
+
+      await processNextJob(createDeps());
+
+      const rows = await testDb.translation_snapshots.toArray();
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        extensionId: EXT,
+        locale: 'es',
+        date: '2026-09-02',
+        title: 'Test Extension',
+        shortDescription: 'A test extension',
+        fullDescription: 'Full description here',
+        descriptionLength: 'Full description here'.length,
+      });
+      expect(rows[0].manipulationFlags).toHaveProperty('differentName');
+      expect(rows[0].scannedAt).toBeInstanceOf(Date);
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs[0].status).toBe('completed');
+    });
+
+    it('re-running the same locale on the same date replaces the earlier row', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeTranslationJob('es')]);
+      await processNextJob(createDeps());
+      await testDb.enqueueJobs([makeTranslationJob('es')]);
+      await processNextJob(createDeps());
+
+      expect(await testDb.translation_snapshots.count()).toBe(1);
+    });
+
+    it('recomputes flags across locales as each one lands', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // The mocked parser returns the same English text for every locale, so
+      // the Japanese page reads as untranslated English.
+      await testDb.enqueueJobs([makeTranslationJob('en'), makeTranslationJob('ja', { priority: 61 })]);
+      await processNextJob(createDeps());
+      await processNextJob(createDeps());
+
+      const rows = await testDb.getTranslationSnapshots(EXT, '2026-09-02');
+      expect(rows.map((r) => r.locale)).toEqual(['en', 'ja']);
+      const ja = rows.find((r) => r.locale === 'ja')!;
+      const en = rows.find((r) => r.locale === 'en')!;
+      expect(ja.manipulationFlags.untranslatedEnglish.detected).toBe(true);
+      expect(ja.manipulationFlags.differentName.detected).toBe(false);
+      expect(en.manipulationFlags.untranslatedEnglish.detected).toBe(false);
+      // The mocked listing is too short for a confident language guess.
+      expect(ja.detectedLanguage).toBeNull();
+    });
+
+    it('flags competitor names from the same project, excluding the own name', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // Give a competitor a name that appears in the mocked listing text.
+      await testDb.saveExtension({
+        id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+        name: 'Full description',
+        iconUrl: null,
+        addedAt: new Date(),
+        lastScannedAt: null,
+        status: 'active',
+        projectRefs: [1],
+      });
+      await testDb.enqueueJobs([makeTranslationJob('es')]);
+      await processNextJob(createDeps());
+
+      const [row] = await testDb.translation_snapshots.toArray();
+      expect(row.manipulationFlags.competitorNames.detected).toBe(true);
+      expect(row.manipulationFlags.competitorNames.matches).toEqual(['Full description']);
+    });
+
+    it('HTTP 404: extension marked removed, no snapshot, job completed', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeTranslationJob('es')]);
+
+      const deps = createDeps({
+        fetchPage: vi.fn().mockResolvedValue(new Response('not found', { status: 404 })),
+      });
+      await processNextJob(deps);
+
+      expect(await testDb.translation_snapshots.count()).toBe(0);
+      const ext = await testDb.getExtension(EXT);
+      expect(ext?.status).toBe('removed');
+      const [job] = await testDb.queue.toArray();
+      expect(job.status).toBe('completed');
+    });
+
+    it('HTTP 500: job retried', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeTranslationJob('es')]);
+
+      const deps = createDeps({
+        fetchPage: vi.fn().mockResolvedValue(new Response('err', { status: 500 })),
+      });
+      await processNextJob(deps);
+
+      const [job] = await testDb.queue.toArray();
+      expect(job.status).toBe('pending');
+      expect(job.retryCount).toBe(1);
+      expect(await testDb.translation_snapshots.count()).toBe(0);
+    });
+
+    it('progress message describes the job with its locale', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeTranslationJob('fr')]);
+
+      const deps = createDeps();
+      await processNextJob(deps);
+
+      const sendMock = deps.sendMessage as ReturnType<typeof vi.fn>;
+      const progress = sendMock.mock.calls
+        .map((c) => c[0] as { type: string; currentJob?: string })
+        .filter((m) => m.type === 'SCAN_PROGRESS');
+      expect(progress.length).toBeGreaterThan(0);
+      expect(progress[progress.length - 1].currentJob).toBe(`Translation [fr]: Test Extension (${EXT})`);
+    });
+  });
+
   describe('calculateRetryDelay', () => {
     it('retry 1 → 2 minutes', async () => {
       const { calculateRetryDelay } = await import('@/background/queue-processor');

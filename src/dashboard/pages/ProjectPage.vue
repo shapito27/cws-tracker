@@ -13,6 +13,7 @@ const ExtensionsTab = defineAsyncComponent(() => import('../components/project/E
 const KeywordsTab = defineAsyncComponent(() => import('../components/project/KeywordsTab.vue'));
 const EventsTab = defineAsyncComponent(() => import('../components/project/EventsTab.vue'));
 const ReviewsTab = defineAsyncComponent(() => import('../components/project/ReviewsTab.vue'));
+const TranslationsTab = defineAsyncComponent(() => import('../components/project/TranslationsTab.vue'));
 const ListingCompare = defineAsyncComponent(() => import('../components/comparison/ListingCompare.vue'));
 const KeywordAnalysis = defineAsyncComponent(() => import('../components/tables/KeywordAnalysis.vue'));
 
@@ -23,7 +24,7 @@ const { scanStatus } = useServiceWorker();
 const project = ref<Project | null>(null);
 const loading = ref(true);
 const loadError = ref<string | null>(null);
-const activeTab = ref<'overview' | 'rankings' | 'extensions' | 'keywords' | 'events' | 'reviews' | 'compare' | 'analysis'>('overview');
+const activeTab = ref<'overview' | 'rankings' | 'extensions' | 'keywords' | 'events' | 'reviews' | 'translations' | 'compare' | 'analysis'>('overview');
 
 const tabs = [
   {
@@ -55,6 +56,11 @@ const tabs = [
     id: 'reviews' as const,
     label: 'Reviews',
     icon: ['M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z'],
+  },
+  {
+    id: 'translations' as const,
+    label: 'Translations',
+    icon: ['m10.5 21 5.25-11.25L21 21m-9-3h7.5M3 5.621a48.474 48.474 0 0 1 6-.371m0 0c1.12 0 2.233.038 3.334.114M9 5.25V3m3.334 2.364C11.176 10.658 7.69 15.08 3 17.502m9.334-12.138c.896.061 1.785.147 2.666.257m-4.589 8.495a18.023 18.023 0 0 1-3.827-5.802'],
   },
   {
     id: 'compare' as const,
@@ -174,6 +180,10 @@ watch(
     />
     <ReviewsTab
       v-else-if="activeTab === 'reviews'"
+      :project="project"
+    />
+    <TranslationsTab
+      v-else-if="activeTab === 'translations'"
       :project="project"
     />
     <ListingCompare

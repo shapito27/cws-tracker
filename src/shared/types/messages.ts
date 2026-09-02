@@ -144,6 +144,21 @@ export interface RescheduleDailyScanMessage {
   type: 'RESCHEDULE_DAILY_SCAN';
 }
 
+/**
+ * Start a translation audit: one `translation_audit` job per extension x locale.
+ *
+ * Manual only (PRD 5.3.6) - never part of the scheduled scan. Jobs are appended
+ * to the queue without clearing pending work, so an audit can be queued while
+ * a regular scan is draining.
+ */
+export interface TriggerTranslationAuditMessage {
+  type: 'TRIGGER_TRANSLATION_AUDIT';
+  /** CWS extension IDs to audit. */
+  extensionIds: string[];
+  /** Locale codes to fetch for each extension (e.g. "es", "zh_CN"). */
+  locales: string[];
+}
+
 /** Union of all messages the Dashboard/Popup can send to the Service Worker. */
 export type DashboardMessage =
   | TriggerRefreshMessage
@@ -152,4 +167,5 @@ export type DashboardMessage =
   | CancelScanMessage
   | TestPaginationMessage
   | RescanKeywordMessage
-  | RescheduleDailyScanMessage;
+  | RescheduleDailyScanMessage
+  | TriggerTranslationAuditMessage;

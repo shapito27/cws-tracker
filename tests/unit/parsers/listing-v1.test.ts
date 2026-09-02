@@ -12,6 +12,43 @@ function loadFixture(name: string): string {
 }
 
 describe('listingParserV1', () => {
+  describe('localized detail pages (?hl=) - translation audit input', () => {
+    let en: ListingData;
+    let es: ListingData;
+    let ja: ListingData;
+
+    beforeAll(() => {
+      en = listingParserV1.parse(loadFixture('cws-detail-en.html'));
+      es = listingParserV1.parse(loadFixture('cws-detail-es.html'));
+      ja = listingParserV1.parse(loadFixture('cws-detail-ja.html'));
+    });
+
+    it('parses the same extension from every locale', () => {
+      expect(es.extensionId).toBe(en.extensionId);
+      expect(ja.extensionId).toBe(en.extensionId);
+      expect(es.name).toBe('uBlock Origin');
+      expect(ja.name).toBe('uBlock Origin');
+    });
+
+    it('returns the localized short description', () => {
+      expect(en.shortDescription).toBe('Finally, an efficient blocker. Easy on CPU and memory.');
+      expect(es.shortDescription).toBe('Por fin, un bloqueador eficiente con uso mínimo de procesador y memoria.');
+      expect(ja.shortDescription).toBe('高効率ブロッカーついに登場。CPU とメモリーに負担をかけません。');
+    });
+
+    it('returns the localized full description', () => {
+      expect(es.fullDescription).toContain('Un bloqueador eficiente');
+      expect(ja.fullDescription).toContain('効率的なブロッカー');
+      expect(es.fullDescription).not.toBe(en.fullDescription);
+      expect(ja.fullDescription).not.toBe(en.fullDescription);
+    });
+
+    it('reports the same locale list regardless of the page language', () => {
+      expect(es.availableLocales).toEqual(en.availableLocales);
+      expect(ja.availableLocales).toEqual(en.availableLocales);
+    });
+  });
+
   describe('English detail page (uBlock Origin)', () => {
     let html: string;
     let result: ListingData;

@@ -5,11 +5,10 @@ Chrome extension (MV3) for ASO and competitive intelligence on Chrome Web Store.
 ## Key Documents
 
 Read before starting any feature:
-- `CWS_Tracker_PRD_v2.md` - Full product requirements
-- `CWS_Tracker_TODO.md` - Implementation plan (517 tasks with dependencies)
-- `EXTENSION_DEV_GUIDE.md` - Chrome Extension MV3 best practices
-- `SPIKE_RESULTS.md` - Phase 0 CWS response format findings
-- `QUALITY_SCORE_THRESHOLDS.md` - Calibrated quality score thresholds
+- `CWS_Tracker_PRD_v2.md` / `CWS_Tracker_TODO.md` - Full product requirements and the 517-task implementation plan. **Removed from the tree in June 2026** (commit `dd50231`); recover the last versions with `git show dd50231^:CWS_Tracker_PRD_v2.md` / `git show dd50231^:CWS_Tracker_TODO.md`. The TODO predates autocomplete UI, reviews, export/backup and the translation audit, all of which have since shipped.
+- `docs/superpowers/specs/` and `docs/superpowers/plans/` - Per-feature design specs and plans written since the PRD was removed
+- `docs/SPIKE_RESULTS.md` - Phase 0 CWS response format findings
+- `docs/QUALITY_SCORE_THRESHOLDS.md` - Calibrated quality score thresholds
 
 ## Tech Stack
 
@@ -58,6 +57,7 @@ src/
       useAutocomplete.ts  # Autocomplete position tracking and keyword suggestions
       useExtensionSnapshots.ts  # Snapshot data
       useReviews.ts       # Review queries and review-signal aggregation
+      useTranslationAudit.ts  # Translation audit report building, loaders, JSON export
       useScanLogs.ts      # Scan log queries
       useProxyStatus.ts   # Reactive proxy-configured state (gates scan UI)
       useDataTransfer.ts  # Export/import all data (backup/restore)
@@ -66,7 +66,8 @@ src/
     components/
       charts/             # ApexCharts wrappers (RankChart, RankHeatmap, KeywordScatterPlot, etc.)
       comparison/         # ListingCompare, DiffView, PermissionsDiff
-      project/            # Tab components (OverviewTab, RankingsTab, KeywordsTab, ReviewsTab, EventsTab, etc.)
+      project/            # Tab components (OverviewTab, RankingsTab, KeywordsTab, ReviewsTab, TranslationsTab, EventsTab, etc.)
+      translation/        # AuditReport (score + per-trick breakdown), LocaleComparisonTable
       tables/             # Data tables (ExtensionsOverviewTable, KeywordPositionTable, etc.)
       ai/                 # AuditTool.vue - OpenAI integration
     pages/                # HomePage, ProjectPage, SettingsPage, LogsPage, RankChangesPage, CompetitorExtensionPage
@@ -101,6 +102,8 @@ src/
       review-analysis.ts  # Review sentiment / signal extraction
       review-hash.ts      # Stable hash for review change detection
       website.ts          # Sanitize untrusted CWS developer-website values for display/href
+      translation-checks.ts  # Translation manipulation detectors (8 tricks), scoring, analyzeLocaleSet
+      locales.ts          # CWS audit locale list + display names (Settings and Translations tab)
       chart-colors.ts     # Shared chart color palette
       data-export.ts      # Serialize/deserialize DB for backup/restore
 tests/                    # See tests/CLAUDE.md for patterns
@@ -155,6 +158,13 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 **Events are intervals, not instants:**
 - An `EventRecord` bounds *when* a change happened with `lastSeenOldAt` / `firstSeenNewAt` — the change occurred somewhere between them. `detectedAt` is when the scan noticed, which is NOT when it happened; never present it as the change time.
 - Both fields are optional and absent on legacy records — always handle the missing case. Render with `event-window.ts` (`describeEventWindow` / `describeEventWindowCompact`) rather than formatting the dates ad hoc.
+
+**Translation audit (PRD 5.3.6):**
+- **Manual only.** `translation_audit` jobs are built by `buildTranslationAuditJobs(extensionIds, locales)` and enqueued by `triggerTranslationAudit` on a `TRIGGER_TRANSLATION_AUDIT` message - never by the daily cycle. They are *appended* (no clearing of pending jobs) and never claim a scan slot (`scanCycleSlotKey` stays null).
+- One request per extension x locale: the regular detail page with `hl=<locale>`. The page structure is locale-independent, so `listing-v1` parses it; there is no separate translation parser. The proxy must forward `hl`.
+- `TranslationSnapshot` rows are upserted per extension + date + locale (`db.saveTranslationSnapshot`). All jobs of one audit share a `cycleDate`, so an audit crossing midnight still reports as one date.
+- `manipulationFlags` are **recomputed for every locale of the extension+date after each job lands** (`recomputeTranslationFlags`), because most tricks are relative to the English baseline and to the other locales. Baseline = the `en` locale snapshot if captured, else the latest listing snapshot. Competitor names = the other extensions tracked in the same project(s), minus names equal to / contained in the audited extension's own name.
+- Detectors live in `shared/utils/translation-checks.ts` and are deliberately conservative heuristics (documented per function). Do not "fix" them by lowering thresholds to a raw Levenshtein cutoff: an honest translation shares ~30% of its characters with the English source, so that flags everything.
 
 **Untrusted CWS input:**
 - Values scraped from CWS are third-party input. Anything that reaches an `href` (developer website, and by the same argument privacy-policy / support URLs) must be sanitized first: `shared/utils/website.ts` links a value only when it parses as an `http(s)` URL with a dotted hostname and no embedded credentials, so `javascript:`/`data:` and `https://trusted.com@evil.com` shapes are dropped rather than linked. Store the raw CWS value; sanitize at render time.

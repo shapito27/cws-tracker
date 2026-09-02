@@ -158,6 +158,25 @@ export function useServiceWorker() {
   }
 
   /**
+   * Start a translation audit for the given extensions x locales.
+   * @returns the number of jobs the worker enqueued (0 if it could not, e.g.
+   *   no proxy configured - a SCAN_ERROR arrives separately in that case).
+   */
+  async function requestTranslationAudit(extensionIds: string[], locales: string[]): Promise<number> {
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'TRIGGER_TRANSLATION_AUDIT',
+        extensionIds,
+        locales,
+      })) as { ok?: boolean; jobs?: number } | undefined;
+      return response?.ok && typeof response.jobs === 'number' ? response.jobs : 0;
+    } catch {
+      // SW may not be active - fail silently per architecture rules
+      return 0;
+    }
+  }
+
+  /**
    * Ask the worker to re-arm the daily-scan alarm from current settings. Call
    * after saving scan settings so the change takes effect immediately — this
    * message reliably wakes the worker, unlike a bare storage write.
@@ -176,6 +195,7 @@ export function useServiceWorker() {
     requestResume,
     requestCancel,
     requestKeywordRescan,
+    requestTranslationAudit,
     rescheduleDailyScan,
     // Exposed for testing
     handleMessage,

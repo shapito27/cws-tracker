@@ -19,6 +19,7 @@ export type {
   PauseScanMessage,
   ResumeScanMessage,
   CancelScanMessage,
+  TriggerTranslationAuditMessage,
   ServiceWorkerMessage,
   DashboardMessage,
   ScanType,
@@ -503,8 +504,9 @@ export interface ManipulationFlags {
   /** Trick 7: Description is semantically unrelated to the English version. */
   differentDescription: {
     detected: boolean;
-    /** Keyword overlap ratio (Jaccard similarity). */
+    /** Cognate-aware term overlap coefficient (0-1). */
     similarity: number;
+    details?: string;
   };
   /** Trick 8: Content left in English for a non-English locale. */
   untranslatedEnglish: {
