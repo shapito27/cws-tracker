@@ -2,6 +2,12 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.38.4] - 2026-09-02
+
+### Fixed
+- **Home page "Next:" scan time ignored `scansPerDay`.** The project cards computed the next scan from `dailyScanTime` alone, so with 2-4 scans a day they showed "Tomorrow ~10:00 AM" all day even though the scheduler had further slots armed for later today. They also treated "already scanned today" (`lastDailyScanDate`) as a reason to roll over to tomorrow - the same date/slot conflation fixed in the scheduler in 0.38.1 - so a manual "Refresh Now" pushed the label a day ahead as well. The home page and the project Overview "Next Scan" stat now share one helper (`describeNextScan`) built on the same slot arithmetic the scheduler uses to arm its alarm.
+- The Settings schedule preview and the scheduler itself were already slot-aware and are unchanged.
+
 ## [0.38.3] - 2026-09-02
 
 ### Changed

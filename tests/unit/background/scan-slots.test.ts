@@ -14,6 +14,7 @@ import {
   slotDateFor,
   slotKey,
 } from '@/background/scheduler';
+import { describeNextScan } from '@/shared/utils/scan-slots';
 
 describe('slotScanTime', () => {
   it('returns the base time for the only slot when scanning once a day', () => {
@@ -160,5 +161,51 @@ describe('slotKey', () => {
 
   it('distinguishes slots within a day', () => {
     expect(slotKey('2026-08-28', 0)).not.toBe(slotKey('2026-08-28', 1));
+  });
+});
+
+describe('describeNextScan', () => {
+  // Local-time formatting varies by locale/TZ; assert on the day word and on the
+  // hour/minute fields of the instant the label was built from instead.
+  function timeOf(hour: number, minute: number, on: Date): string {
+    const d = new Date(on);
+    d.setHours(hour, minute, 0, 0);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  it('is tomorrow at the scan time when scanning once a day and today\'s slot passed', () => {
+    const now = new Date(2026, 8, 2, 10, 30);
+    expect(describeNextScan('10:00', 1, now)).toBe(`Tomorrow ~${timeOf(10, 0, now)}`);
+  });
+
+  it('is today at the scan time when it is still ahead', () => {
+    const now = new Date(2026, 8, 2, 8, 0);
+    expect(describeNextScan('10:00', 1, now)).toBe(`Today ~${timeOf(10, 0, now)}`);
+  });
+
+  it('points at the next slot later today when scanning more than once a day', () => {
+    // 10:00 base, 4 slots: 10:00, 16:00, 22:00, 04:00. At 10:30 the next is 16:00
+    // today — this was rendered as "Tomorrow 10:00" by the old home-page code.
+    const now = new Date(2026, 8, 2, 10, 30);
+    expect(describeNextScan('10:00', 4, now)).toBe(`Today ~${timeOf(16, 0, now)}`);
+  });
+
+  it('crosses midnight into tomorrow for a slot that wraps the day', () => {
+    // 10:00 base, 2 slots: 10:00, 22:00. At 22:30 the next is 10:00 tomorrow.
+    const now = new Date(2026, 8, 2, 22, 30);
+    expect(describeNextScan('10:00', 2, now)).toBe(`Tomorrow ~${timeOf(10, 0, now)}`);
+  });
+
+  it('labels an early-morning wrapped slot as today', () => {
+    // 22:00 base, 2 slots: 22:00, 10:00. At 01:00 the next is 10:00 today.
+    const now = new Date(2026, 8, 2, 1, 0);
+    expect(describeNextScan('22:00', 2, now)).toBe(`Today ~${timeOf(10, 0, now)}`);
+  });
+
+  it('ignores whether a scan already ran today — only the clock decides', () => {
+    // No lastDailyScanDate parameter exists: a manual refresh must not push the
+    // label to tomorrow while later slots are still to come.
+    const now = new Date(2026, 8, 2, 12, 0);
+    expect(describeNextScan('10:00', 2, now)).toBe(`Today ~${timeOf(22, 0, now)}`);
   });
 });

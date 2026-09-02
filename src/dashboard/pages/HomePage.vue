@@ -6,6 +6,7 @@ import { useServiceWorker } from '../composables/useServiceWorker';
 import { useSettings } from '../composables/useSettings';
 import { useProxyStatus } from '../composables/useProxyStatus';
 import { db } from '@/shared/db/database';
+import { describeNextScan } from '@/shared/utils/scan-slots';
 import type { Project, Extension } from '@/shared/types';
 import ExtensionsOverviewTable from '../components/tables/ExtensionsOverviewTable.vue';
 import RecentRankChanges from '../components/RecentRankChanges.vue';
@@ -113,31 +114,10 @@ function lastScanDotClass(project: Project): string {
 const nextScanLabel = computed<string>(() => {
   if (scanStatus.value.isRunning) return 'Scanning...';
   if (!settings.dailyScanEnabled) return 'Auto-scan off';
-
-  const [hours, minutes] = settings.dailyScanTime.split(':').map(Number);
-  const now = new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-
-  const nextDate = new Date();
-  nextDate.setHours(hours, minutes, 0, 0);
-
-  // If already scanned today or the scheduled time has passed, next is tomorrow
-  if (settings.lastDailyScanDate === todayStr || nextDate.getTime() <= now.getTime()) {
-    nextDate.setDate(nextDate.getDate() + 1);
-  }
-
-  return formatNextScanDate(nextDate);
+  // Same slot arithmetic as the scheduler: with scansPerDay > 1 the next scan
+  // is usually later today, not tomorrow.
+  return describeNextScan(settings.dailyScanTime, settings.scansPerDay, new Date());
 });
-
-function formatNextScanDate(date: Date): string {
-  const now = new Date();
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (date.toDateString() === now.toDateString()) return `Today ~${timeStr}`;
-  if (date.toDateString() === tomorrow.toDateString()) return `Tomorrow ~${timeStr}`;
-  return `${date.toLocaleDateString()} ~${timeStr}`;
-}
 
 // ---------------------------------------------------------------------------
 // Create project + utilities
