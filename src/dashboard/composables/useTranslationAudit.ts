@@ -33,6 +33,11 @@ export type ScoreLabel = ReturnType<typeof scoreLabel>;
 export interface LocaleReport {
   locale: string;
   snapshot: TranslationSnapshot;
+  /**
+   * False when the extension does not ship this locale, so the store served
+   * the default listing. Such rows are not audited (flags stay empty).
+   */
+  localized: boolean;
   /** 0-100 for this locale alone. */
   score: number;
   /** Tricks detected for this locale, canonical order. */
@@ -66,6 +71,8 @@ export interface TranslationAuditReport {
   label: ScoreLabel;
   localeCount: number;
   flaggedLocaleCount: number;
+  /** Locales served the default listing because the extension does not ship them. */
+  fallbackLocaleCount: number;
   /** Which locale served as the English baseline, if one was captured. */
   baselineLocale: string | null;
   locales: LocaleReport[];
@@ -155,6 +162,7 @@ export function buildAuditReport(
   const locales: LocaleReport[] = sorted.map((s) => ({
     locale: s.locale,
     snapshot: s,
+    localized: s.isLocalized !== false,
     score: computeManipulationScore(s.manipulationFlags),
     tricks: detectedTricks(s.manipulationFlags),
   }));
@@ -179,6 +187,7 @@ export function buildAuditReport(
     label: scoreLabel(score),
     localeCount: locales.length,
     flaggedLocaleCount: locales.filter((l) => l.tricks.length > 0).length,
+    fallbackLocaleCount: locales.filter((l) => !l.localized).length,
     baselineLocale: baseline?.locale ?? null,
     locales,
     breakdown,
@@ -230,12 +239,14 @@ export function serializeAuditReport(report: TranslationAuditReport): string {
     scoreLabel: report.label,
     localeCount: report.localeCount,
     flaggedLocaleCount: report.flaggedLocaleCount,
+    fallbackLocaleCount: report.fallbackLocaleCount,
     baselineLocale: report.baselineLocale,
     breakdown: report.breakdown
       .filter((b) => b.findings.length > 0)
       .map((b) => ({ trick: b.key, label: b.label, severity: b.severity, findings: b.findings })),
     locales: report.locales.map((l) => ({
       locale: l.locale,
+      localized: l.localized,
       score: l.score,
       detectedTricks: l.tricks,
       detectedLanguage: l.snapshot.detectedLanguage,

@@ -24,6 +24,8 @@ function toggle(key: TrickKey): void {
 
 const rows = computed<TrickBreakdown[]>(() => sortBreakdown(props.report.breakdown));
 const detectedCount = computed(() => rows.value.filter((r) => r.findings.length > 0).length);
+/** Locales that were actually analysed (those the extension ships). */
+const auditedCount = computed(() => props.report.localeCount - props.report.fallbackLocaleCount);
 
 const scoreClasses = computed(() => {
   switch (props.report.label) {
@@ -94,6 +96,9 @@ function formatDate(dateStr: string): string {
           <span :class="report.flaggedLocaleCount > 0 ? 'text-red-700' : 'text-green-700'">
             {{ report.flaggedLocaleCount }} flagged
           </span>
+          <span v-if="report.fallbackLocaleCount > 0" class="text-gray-500">
+            · {{ report.fallbackLocaleCount }} not localized (store shows the default listing)
+          </span>
           <span v-if="!report.baselineLocale" class="text-gray-400">
             · compared against the default-locale listing (no “en” locale captured)
           </span>
@@ -135,7 +140,7 @@ function formatDate(dateStr: string): string {
             </span>
             <span class="w-28 shrink-0 text-right text-xs tabular-nums text-gray-500">
               <template v-if="row.findings.length > 0">
-                {{ row.findings.length }} of {{ report.localeCount }} locale{{ report.localeCount === 1 ? '' : 's' }}
+                {{ row.findings.length }} of {{ auditedCount }} locale{{ auditedCount === 1 ? '' : 's' }}
               </template>
               <template v-else>not detected</template>
             </span>

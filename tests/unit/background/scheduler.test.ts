@@ -1033,6 +1033,35 @@ describe('Scheduler', () => {
       expect(await settingsManager.get('scanCycleStartedAt')).toBe(started);
     });
 
+    it('a manual refresh keeps pending translation_audit jobs while replacing the rest', async () => {
+      const { triggerTranslationAudit, triggerManualRefresh } = await import('@/background/scheduler');
+      await seedProject();
+
+      await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['es', 'ja'], createSchedulerDeps());
+      await triggerManualRefresh(undefined, 'keywords', createSchedulerDeps());
+
+      const pending = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pending.filter((j) => j.type === 'translation_audit')).toHaveLength(2);
+      expect(pending.some((j) => j.type === 'keyword_scan')).toBe(true);
+    });
+
+    it('a pending translation audit does not make the scheduled scan skip its slot', async () => {
+      const { triggerTranslationAudit, handleDailyScanAlarm } = await import('@/background/scheduler');
+      await seedProject();
+      await settingsManager.setMultiple({ dailyScanEnabled: true, dailyScanTime: '03:00', scansPerDay: 1 });
+
+      await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['es', 'ja'], createSchedulerDeps());
+      await handleDailyScanAlarm(createSchedulerDeps());
+
+      const pending = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pending.filter((j) => j.type === 'translation_audit')).toHaveLength(2);
+      expect(pending.some((j) => j.type === 'listing_scan')).toBe(true);
+      // Cycle jobs sort ahead of audit jobs.
+      const audit = pending.filter((j) => j.type === 'translation_audit');
+      const cycle = pending.filter((j) => j.type !== 'translation_audit');
+      expect(Math.max(...cycle.map((j) => j.priority))).toBeLessThan(Math.min(...audit.map((j) => j.priority)));
+    });
+
     it('returns 0 and enqueues nothing without extensions or locales', async () => {
       const { triggerTranslationAudit } = await import('@/background/scheduler');
       await seedProject();

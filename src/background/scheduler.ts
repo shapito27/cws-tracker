@@ -418,18 +418,25 @@ async function runDailyScanCycle(
   // truly-concurrent case where neither has enqueued yet is handled by the
   // synchronous in-flight lock in handleDailyScanAlarm; lastDailyScanDate is
   // stamped only on drain, so it can't be relied on here.
-  const [pendingCount, runningJobs] = await Promise.all([
-    db.getPendingCount(),
+  //
+  // Translation-audit jobs are not part of any cycle and are ignored here: a
+  // manual audit of 150 locale pages takes hours, and it must not cost the day
+  // its scheduled scan. The cycle's jobs sort ahead of audit jobs (priority 60+),
+  // so they run first and the audit simply resumes afterwards.
+  const [pendingJobs, runningJobs] = await Promise.all([
+    db.queue.where('status').equals('pending').toArray(),
     db.getRunningJobs(),
   ]);
-  if (pendingCount > 0 || runningJobs.length > 0) {
+  const pendingCycleJobs = pendingJobs.filter((j) => j.type !== 'translation_audit').length;
+  const runningCycleJobs = runningJobs.filter((j) => j.type !== 'translation_audit').length;
+  if (pendingCycleJobs > 0 || runningCycleJobs > 0) {
     // A slot can be skipped because the previous slot's cycle is still draining
     // — likely when scansPerDay is raised past what a cycle can finish in
     // 24/N hours. Log it, or the missing sample looks like a bug.
     await logSlotEvent(
       'warn',
       `Scan slot ${key} skipped: the previous cycle is still running ` +
-        `(${pendingCount} pending, ${runningJobs.length} in flight). ` +
+        `(${pendingCycleJobs} pending, ${runningCycleJobs} in flight). ` +
         `Lower scansPerDay or queueDelayMs if this recurs.`
     );
     return;
@@ -549,10 +556,12 @@ export async function triggerManualRefresh(
   // Guard: a proxy is required to scan. Bail before touching the queue.
   if (!(await ensureProxyConfigured(deps.settings, true))) return;
 
-  // Clear all pending jobs from queue
+  // Clear all pending jobs from queue - except a translation audit in progress,
+  // which the user started separately and would otherwise lose without notice.
   const pendingJobs = await db.queue.where('status').equals('pending').toArray();
-  if (pendingJobs.length > 0) {
-    await db.queue.bulkDelete(pendingJobs.map((j) => j.id!));
+  const replaceable = pendingJobs.filter((j) => j.type !== 'translation_audit');
+  if (replaceable.length > 0) {
+    await db.queue.bulkDelete(replaceable.map((j) => j.id!));
   }
 
   // Clear the processQueue alarm

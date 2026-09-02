@@ -26,6 +26,7 @@ import {
   englishRatio,
   extractTerms,
   isLatinScriptLocale,
+  isLocaleSupported,
   looksLikeKeywordList,
   scoreLabel,
   termOverlap,
@@ -73,6 +74,19 @@ describe('locale helpers', () => {
 
   it('unknown locales default to Latin script', () => {
     expect(isLatinScriptLocale('xx')).toBe(true);
+  });
+
+  it('isLocaleSupported matches CWS hyphenated codes against underscore settings codes', () => {
+    const shipped = ['en', 'de', 'ja', 'pt-BR', 'zh-CN'];
+    expect(isLocaleSupported('ja', shipped)).toBe(true);
+    expect(isLocaleSupported('pt_BR', shipped)).toBe(true);
+    expect(isLocaleSupported('zh_CN', shipped)).toBe(true);
+    expect(isLocaleSupported('ru', shipped)).toBe(false);
+    expect(isLocaleSupported('es', shipped)).toBe(false);
+    // Base-language match counts as shipped.
+    expect(isLocaleSupported('pt_BR', ['pt-PT'])).toBe(true);
+    // No list reported: assume shipped so the detectors still run.
+    expect(isLocaleSupported('ru', [])).toBe(true);
   });
 
   it('detectLanguage recognizes non-Latin scripts', () => {

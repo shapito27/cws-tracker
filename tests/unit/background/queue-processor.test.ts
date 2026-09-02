@@ -874,6 +874,40 @@ describe('Queue Processor', () => {
       expect(ja.detectedLanguage).toBeNull();
     });
 
+    it('a locale the extension does not ship is stored as not localized and not audited', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // The mocked listing declares availableLocales ['en','es','fr','de','ja'];
+      // ru is served the default (English) listing and must not be flagged.
+      await testDb.enqueueJobs([makeTranslationJob('ru'), makeTranslationJob('pt_BR', { priority: 61 })]);
+      await processNextJob(createDeps());
+      await processNextJob(createDeps());
+
+      const rows = await testDb.getTranslationSnapshots(EXT, '2026-09-02');
+      const ru = rows.find((r) => r.locale === 'ru')!;
+      const pt = rows.find((r) => r.locale === 'pt_BR')!;
+      expect(ru.isLocalized).toBe(false);
+      expect(ru.manipulationFlags.untranslatedEnglish.detected).toBe(false);
+      expect(pt.isLocalized).toBe(false);
+      expect(pt.manipulationFlags.untranslatedEnglish.detected).toBe(false);
+    });
+
+    it('a shipped locale is stored as localized (underscore codes match hyphenated CWS codes)', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // The mocked listing ships ['en','es','fr','de','ja'] plus 'pt-BR' style
+      // codes are matched case/separator-insensitively by isLocaleSupported.
+      await testDb.enqueueJobs([makeTranslationJob('es'), makeTranslationJob('ja', { priority: 61 })]);
+      await processNextJob(createDeps());
+      await processNextJob(createDeps());
+
+      const rows = await testDb.getTranslationSnapshots(EXT, '2026-09-02');
+      expect(rows.every((r) => r.isLocalized === true)).toBe(true);
+      // Japanese page carrying English text is audited and flagged; the Spanish
+      // page's text is too short for a function-word verdict, so it is not.
+      expect(rows.find((r) => r.locale === 'ja')!.manipulationFlags.untranslatedEnglish.detected).toBe(true);
+    });
+
     it('flags competitor names from the same project, excluding the own name', async () => {
       const { processNextJob } = await import('@/background/queue-processor');
       await seedProject();

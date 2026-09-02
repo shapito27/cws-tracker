@@ -82,6 +82,22 @@ describe('buildAuditReport', () => {
     expect(clean.findings).toEqual([]);
   });
 
+  it('locales served the default listing are counted as fallback and never flagged', () => {
+    const report = buildAuditReport(EXT, 'My Ext', '2026-09-02', [
+      makeSnapshot({ locale: 'en' }),
+      makeSnapshot({ locale: 'ru', isLocalized: false }),
+      makeSnapshot({ locale: 'ja', manipulationFlags: flaggedFlags() }),
+    ]);
+    expect(report.localeCount).toBe(3);
+    expect(report.fallbackLocaleCount).toBe(1);
+    expect(report.flaggedLocaleCount).toBe(1);
+    expect(report.locales.find((l) => l.locale === 'ru')?.localized).toBe(false);
+    expect(report.locales.find((l) => l.locale === 'en')?.localized).toBe(true);
+    const parsed = JSON.parse(serializeAuditReport(report)) as { fallbackLocaleCount: number; locales: Array<{ locale: string; localized: boolean }> };
+    expect(parsed.fallbackLocaleCount).toBe(1);
+    expect(parsed.locales.find((l) => l.locale === 'ru')?.localized).toBe(false);
+  });
+
   it('clean snapshots give a zero score and a clean label', () => {
     const report = buildAuditReport(EXT, 'My Ext', '2026-09-02', [makeSnapshot({ locale: 'es' })]);
     expect(report.score).toBe(0);

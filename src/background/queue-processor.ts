@@ -28,6 +28,7 @@ import {
   baseLanguage,
   detectLanguage,
   emptyManipulationFlags,
+  isLocaleSupported,
 } from '@/shared/utils/translation-checks';
 import { detectChanges } from '@/background/event-detector';
 import { getListingParser, getSearchParser, getAutocompleteParser, getReviewsParser, ParserError } from '@/background/parsers/index';
@@ -1157,6 +1158,9 @@ async function processTranslationAudit(
     detectedLanguage: detectLanguage(`${data.name}\n${data.shortDescription}\n${data.fullDescription}`),
     manipulationFlags: emptyManipulationFlags(),
     scannedAt: new Date(),
+    // The page reports the locales the extension ships. A locale outside that
+    // list is served the default listing - not a translation, so not audited.
+    isLocalized: isLocaleSupported(locale, data.availableLocales),
   };
 
   await db.saveTranslationSnapshot(snapshot);
@@ -1175,9 +1179,21 @@ async function processTranslationAudit(
  * in any project. Names equal to, or contained in, the audited extension's own
  * name are excluded - "AdBlock" would otherwise be "found" in every listing of
  * "AdBlock Plus".
+ *
+ * Locales the extension does not ship (`isLocalized === false`) carry the
+ * default listing rather than a translation; they are excluded from the
+ * analysis (and from the cross-locale length median) and keep empty flags.
  */
 export async function recomputeTranslationFlags(extensionId: string, date: string): Promise<void> {
-  const snapshots = await db.getTranslationSnapshots(extensionId, date);
+  const all = await db.getTranslationSnapshots(extensionId, date);
+  if (all.length === 0) return;
+
+  const snapshots = all.filter((s) => s.isLocalized !== false);
+  for (const s of all) {
+    if (s.isLocalized === false && s.id !== undefined) {
+      await db.updateTranslationFlags(s.id, emptyManipulationFlags());
+    }
+  }
   if (snapshots.length === 0) return;
 
   const english = snapshots.find((s) => baseLanguage(s.locale) === 'en');

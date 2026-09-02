@@ -144,6 +144,9 @@ const KEYWORDS_INLINE_MAX_SEGMENT_WORDS = 4;
 const TEMPLATE_SENTENCE_MIN_COUNT = 3;
 const TEMPLATE_SENTENCE_SIMILARITY = 0.8;
 const TEMPLATE_SENTENCE_MIN_LENGTH = 30;
+/** Bounds on the pairwise sentence comparison (see detectKeywordsInline). */
+const TEMPLATE_MAX_SENTENCES = 60;
+const TEMPLATE_MAX_SENTENCE_CHARS = 300;
 /** Term-overlap coefficient below which the full description is "unrelated". */
 const DESCRIPTION_OVERLAP_THRESHOLD = 0.1;
 /** Both texts need at least this many extractable terms for overlap to mean anything. */
@@ -253,6 +256,24 @@ const ENGLISH_STOP_WORDS = new Set([
 /** Base language of a CWS locale code: `pt_BR` -> `pt`, `zh-CN` -> `zh`, `EN` -> `en`. */
 export function baseLanguage(locale: string): string {
   return locale.trim().toLowerCase().split(/[_-]/)[0] ?? '';
+}
+
+/**
+ * Whether an extension declares `locale` among the locales it ships.
+ *
+ * CWS reports supported locales with hyphens ("pt-BR", "zh-CN") while the
+ * audit settings use underscores ("pt_BR"), so codes are compared normalized.
+ * A base-language match ("pt_BR" requested, only "pt-PT" shipped) counts as
+ * supported: the store still serves Portuguese, which is worth auditing. An
+ * empty list means the page did not report locales; assume supported so the
+ * detectors still run.
+ */
+export function isLocaleSupported(locale: string, availableLocales: readonly string[]): boolean {
+  if (availableLocales.length === 0) return true;
+  const norm = (code: string): string => code.trim().toLowerCase().replace(/_/g, '-');
+  const wanted = norm(locale);
+  const wantedBase = baseLanguage(locale);
+  return availableLocales.some((code) => norm(code) === wanted || baseLanguage(code) === wantedBase);
 }
 
 /**
@@ -912,13 +933,20 @@ export function detectKeywordsInline(description: string): ManipulationFlags['ke
     }
   }
 
-  // Template injection: near-duplicate sentences.
-  const sentences = splitSentences(text).filter((s) => s.length >= TEMPLATE_SENTENCE_MIN_LENGTH);
+  // Template injection: near-duplicate sentences. Pairwise edit distance is
+  // quadratic in both sentence count and length, so a 16k-char description is
+  // bounded to its first TEMPLATE_MAX_SENTENCES sentences, each compared on
+  // at most TEMPLATE_MAX_SENTENCE_CHARS characters - a template-stuffed block
+  // repeats early and often, so the cap does not hide it.
+  const sentences = splitSentences(text)
+    .filter((s) => s.length >= TEMPLATE_SENTENCE_MIN_LENGTH)
+    .slice(0, TEMPLATE_MAX_SENTENCES);
+  const normalized = sentences.map((s) => normalize(s).slice(0, TEMPLATE_MAX_SENTENCE_CHARS));
   for (let i = 0; i < sentences.length; i++) {
     const group = [sentences[i]];
+    const a = normalized[i];
     for (let j = i + 1; j < sentences.length; j++) {
-      const a = normalize(sentences[i]);
-      const b = normalize(sentences[j]);
+      const b = normalized[j];
       if (Math.abs(a.length - b.length) > a.length * 0.3) continue;
       if (levenshteinSimilarity(a, b) >= TEMPLATE_SENTENCE_SIMILARITY) group.push(sentences[j]);
     }

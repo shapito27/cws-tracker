@@ -22,6 +22,7 @@ function truncate(text: string, max: number): string {
 }
 
 function rowClass(row: LocaleReport): string {
+  if (!row.localized) return 'text-gray-500';
   if (row.tricks.length === 0) return '';
   return row.score >= 20 ? 'bg-red-50/60' : 'bg-amber-50/60';
 }
@@ -60,6 +61,11 @@ function rowClass(row: LocaleReport): string {
                   v-if="row.locale === baselineLocale"
                   class="ml-1 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700"
                 >baseline</span>
+                <span
+                  v-if="!row.localized"
+                  class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-gray-600"
+                  title="The extension does not ship this locale; the store serves its default listing, so it is not audited."
+                >default listing</span>
               </td>
               <td class="max-w-[16rem] px-4 py-2 text-gray-900" :title="row.snapshot.title">
                 {{ truncate(row.snapshot.title, 60) || '—' }}
@@ -74,7 +80,8 @@ function rowClass(row: LocaleReport): string {
                 {{ row.snapshot.detectedLanguage ?? '—' }}
               </td>
               <td class="px-4 py-2">
-                <span v-if="row.tricks.length === 0" class="text-xs text-green-700">none</span>
+                <span v-if="!row.localized" class="text-xs text-gray-400">not audited</span>
+                <span v-else-if="row.tricks.length === 0" class="text-xs text-green-700">none</span>
                 <div v-else class="flex flex-wrap gap-1">
                   <span
                     v-for="t in row.tricks"
