@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.38.3] - 2026-09-02
+
+### Changed
+- **Scan Logs: Simple/Advanced toggle removed.** The button's label named the *current* mode while its styling suggested an action, so it was never clear whether Advanced was on. Expanding a request now always shows the request method + URL, the query-parameter table, and the full response body - there is no Simple mode to switch out of, and the "Switch to Advanced" hint is gone.
+
 ## [0.38.2] - 2026-09-01
 
 ### Fixed

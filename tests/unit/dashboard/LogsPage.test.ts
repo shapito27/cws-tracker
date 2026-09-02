@@ -4,7 +4,7 @@
  * Render tests for LogsPage — validates the job-grouped layout end to end:
  * a paginated keyword scan collapses to one row per page (not two), the
  * synthetic 0ms diagnostics never render as standalone rows, a single-request
- * scan renders as one row, and Advanced mode shows the full response body.
+ * scan renders as one row, and an expanded request shows the full response body.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -120,13 +120,14 @@ describe('LogsPage', () => {
     expect(wrapper.text()).toContain('3 requests');
   });
 
-  it('Advanced mode reveals the full response body for an expanded request', async () => {
+  it('expanding a request reveals the full response body without any mode toggle', async () => {
     await seedLogs();
     wrapper = await mountLoaded();
 
-    // Turn on Advanced, then expand the keyword page-1 row (2nd row in the DOM:
-    // listing row, then keyword page-1, then keyword page-2).
-    await wrapper.get('[data-testid="advanced-toggle"]').trigger('click');
+    // No Simple/Advanced toggle exists any more - details are always shown.
+    expect(wrapper.find('[data-testid="advanced-toggle"]').exists()).toBe(false);
+    // Expand the keyword page-1 row (2nd row in the DOM: listing row, then
+    // keyword page-1, then keyword page-2).
     const rows = wrapper.findAll('[data-testid="log-row"]');
     await rows[1].trigger('click');
     await nextTick();

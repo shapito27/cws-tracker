@@ -19,7 +19,6 @@ const {
 } = useScanLogs();
 
 const expandedIds = ref<Set<number>>(new Set());
-const advancedMode = ref(false);
 const copiedKey = ref<string | null>(null);
 
 onMounted(() => {
@@ -220,21 +219,6 @@ function getParsedUrl(logId: number): ParsedRequestParams {
           {{ jobTypeLabel(jt) }}
         </option>
       </select>
-
-      <button
-        data-testid="advanced-toggle"
-        class="ml-auto inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors"
-        :class="advancedMode
-          ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
-          : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'"
-        :title="advancedMode ? 'Showing request URL, parameters & full response body' : 'Show request URL, parameters & full response body'"
-        @click="advancedMode = !advancedMode"
-      >
-        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75 22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
-        </svg>
-        {{ advancedMode ? 'Advanced' : 'Simple' }}
-      </button>
 
       <button
         class="inline-flex items-center gap-1.5 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
@@ -452,66 +436,58 @@ function getParsedUrl(logId: number): ParsedRequestParams {
                     </div>
                   </div>
 
-                  <!-- Advanced details (behind toggle) -->
-                  <template v-if="advancedMode">
-                    <!-- Request URL -->
-                    <div>
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="font-medium text-gray-500">Request URL</span>
-                        <button
-                          class="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
-                          @click.stop="copyToClipboard(entry.log.requestUrl, `url-${entry.log.id}`)"
-                        >
-                          {{ copiedKey === `url-${entry.log.id}` ? 'Copied' : 'Copy' }}
-                        </button>
-                      </div>
-                      <p class="mt-0.5 break-all font-mono text-gray-700">
-                        <span class="font-semibold">{{ entry.log.httpMethod ?? 'GET' }}</span>
-                        {{ getParsedUrl(entry.log.id).baseUrl }}
-                      </p>
+                  <!-- Request URL -->
+                  <div>
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="font-medium text-gray-500">Request URL</span>
+                      <button
+                        class="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+                        @click.stop="copyToClipboard(entry.log.requestUrl, `url-${entry.log.id}`)"
+                      >
+                        {{ copiedKey === `url-${entry.log.id}` ? 'Copied' : 'Copy' }}
+                      </button>
                     </div>
+                    <p class="mt-0.5 break-all font-mono text-gray-700">
+                      <span class="font-semibold">{{ entry.log.httpMethod ?? 'GET' }}</span>
+                      {{ getParsedUrl(entry.log.id).baseUrl }}
+                    </p>
+                  </div>
 
-                    <!-- Query parameters table -->
-                    <div v-if="getParsedUrl(entry.log.id).params.length > 0">
-                      <span class="font-medium text-gray-500">Parameters</span>
-                      <div class="mt-1 overflow-hidden rounded border border-gray-200 bg-white">
-                        <div
-                          v-for="param in getParsedUrl(entry.log.id).params"
-                          :key="param.key"
-                          class="flex border-b border-gray-100 last:border-b-0"
-                        >
-                          <span class="w-20 shrink-0 border-r border-gray-100 px-2 py-1 font-mono font-medium text-gray-600">
-                            {{ param.key }}
-                          </span>
-                          <span class="min-w-0 flex-1 break-all px-2 py-1 font-mono text-gray-700">
-                            {{ param.value }}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Response preview -->
-                    <div v-if="entry.log.responsePreview">
-                      <div class="flex items-center justify-between gap-2">
-                        <span class="font-medium text-gray-500">
-                          Response preview
-                          <span class="text-gray-400">&middot; {{ entry.log.responsePreview.length }} chars</span>
+                  <!-- Query parameters table -->
+                  <div v-if="getParsedUrl(entry.log.id).params.length > 0">
+                    <span class="font-medium text-gray-500">Parameters</span>
+                    <div class="mt-1 overflow-hidden rounded border border-gray-200 bg-white">
+                      <div
+                        v-for="param in getParsedUrl(entry.log.id).params"
+                        :key="param.key"
+                        class="flex border-b border-gray-100 last:border-b-0"
+                      >
+                        <span class="w-20 shrink-0 border-r border-gray-100 px-2 py-1 font-mono font-medium text-gray-600">
+                          {{ param.key }}
                         </span>
-                        <button
-                          class="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
-                          @click.stop="copyToClipboard(entry.log.responsePreview, `body-${entry.log.id}`)"
-                        >
-                          {{ copiedKey === `body-${entry.log.id}` ? 'Copied' : 'Copy' }}
-                        </button>
+                        <span class="min-w-0 flex-1 break-all px-2 py-1 font-mono text-gray-700">
+                          {{ param.value }}
+                        </span>
                       </div>
-                      <pre class="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-gray-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-gray-600">{{ entry.log.responsePreview }}</pre>
                     </div>
-                  </template>
+                  </div>
 
-                  <!-- Hint for simple mode -->
-                  <p v-if="!advancedMode" class="text-gray-400 italic">
-                    Switch to Advanced for the request URL, parameters, and full response body.
-                  </p>
+                  <!-- Response preview -->
+                  <div v-if="entry.log.responsePreview">
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="font-medium text-gray-500">
+                        Response preview
+                        <span class="text-gray-400">&middot; {{ entry.log.responsePreview.length }} chars</span>
+                      </span>
+                      <button
+                        class="shrink-0 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-gray-500 hover:bg-gray-50"
+                        @click.stop="copyToClipboard(entry.log.responsePreview, `body-${entry.log.id}`)"
+                      >
+                        {{ copiedKey === `body-${entry.log.id}` ? 'Copied' : 'Copy' }}
+                      </button>
+                    </div>
+                    <pre class="mt-1 max-h-72 overflow-auto whitespace-pre-wrap break-all rounded border border-gray-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-gray-600">{{ entry.log.responsePreview }}</pre>
+                  </div>
                 </div>
               </div>
             </div>
