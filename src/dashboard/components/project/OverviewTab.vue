@@ -16,7 +16,7 @@ import { useProxyStatus } from '../../composables/useProxyStatus';
 import { loadExtensionRankHistory } from '../../composables/useRankings';
 import { loadExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
 import { daysAgo, formatRelativeDateTime, today } from '@/shared/utils/dates';
-import { nextSlotOccurrence } from '@/shared/utils/scan-slots';
+import { describeNextScan } from '@/shared/utils/scan-slots';
 import ListingEventItem from '../ListingEventItem.vue';
 import RankChangeItem from '../RankChangeItem.vue';
 import RankChart from '../charts/RankChart.vue';
@@ -212,17 +212,7 @@ function getNextScan(): string {
 
   // Uses the same slot arithmetic as the scheduler, so this stays correct when
   // scansPerDay > 1 — the next scan is often later the same day, not tomorrow.
-  const now = new Date();
-  const nextDate = new Date(
-    nextSlotOccurrence(settings.dailyScanTime, settings.scansPerDay, now).when
-  );
-
-  const tomorrow = new Date(now);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const timeStr = nextDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (nextDate.toDateString() === now.toDateString()) return `Today ~${timeStr}`;
-  if (nextDate.toDateString() === tomorrow.toDateString()) return `Tomorrow ~${timeStr}`;
-  return `${nextDate.toLocaleDateString()} ~${timeStr}`;
+  return describeNextScan(settings.dailyScanTime, settings.scansPerDay, new Date());
 }
 
 function getExtensionName(extensionId: string): string {

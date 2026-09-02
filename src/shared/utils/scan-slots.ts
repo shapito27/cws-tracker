@@ -136,3 +136,26 @@ export function slotDateFor(baseScanTime: string, scansPerDay: number, now: Date
   yesterday.setDate(yesterday.getDate() - 1);
   return toDateString(yesterday);
 }
+
+/**
+ * Human-readable label for the next scheduled scan, e.g. `"Today ~03:00 PM"`.
+ *
+ * This is the one place the dashboard turns the schedule into words, so every
+ * surface (home page cards, project overview) agrees with the scheduler and
+ * with each other. The label is derived purely from the slot arithmetic — it
+ * deliberately does NOT look at `lastDailyScanDate`: that key is stamped by any
+ * drain, a manual "Refresh Now" included, so gating on it pushed the label to
+ * "Tomorrow" for the rest of the day even when later slots were still to come.
+ *
+ * The `~` acknowledges the up-to-20-minute jitter the scheduler adds to each
+ * slot's fire time.
+ */
+export function describeNextScan(baseScanTime: string, scansPerDay: number, now: Date): string {
+  const nextDate = new Date(nextSlotOccurrence(baseScanTime, scansPerDay, now).when);
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const timeStr = nextDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (nextDate.toDateString() === now.toDateString()) return `Today ~${timeStr}`;
+  if (nextDate.toDateString() === tomorrow.toDateString()) return `Tomorrow ~${timeStr}`;
+  return `${nextDate.toLocaleDateString()} ~${timeStr}`;
+}
