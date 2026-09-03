@@ -84,6 +84,7 @@ export interface TranslationAuditReport {
 export interface AuditSummary {
   extensionId: string;
   extensionName: string;
+  iconUrl: string | null;
   /** Most recent audit date, or null when never audited. */
   date: string | null;
   score: number | null;
@@ -133,9 +134,17 @@ export function trickFinding(locale: string, flags: ManipulationFlags, key: Tric
         excerpt: null,
       };
     case 'keywordsAtEnd':
-      return { locale, detail: null, excerpt: flags.keywordsAtEnd.excerpt ?? null };
+      return {
+        locale,
+        detail: flags.keywordsAtEnd.details ?? null,
+        excerpt: flags.keywordsAtEnd.excerpt ?? null,
+      };
     case 'keywordsInline':
-      return { locale, detail: null, excerpt: flags.keywordsInline.excerpt ?? null };
+      return {
+        locale,
+        detail: flags.keywordsInline.details ?? null,
+        excerpt: flags.keywordsInline.excerpt ?? null,
+      };
     case 'untranslatedEnglish':
       return {
         locale,
@@ -302,6 +311,7 @@ export async function loadAuditSummaries(extensions: Extension[]): Promise<Audit
     out.push({
       extensionId: ext.id,
       extensionName: ext.name || ext.id,
+      iconUrl: ext.iconUrl,
       date: report?.date ?? null,
       score: report?.score ?? null,
       label: report?.label ?? null,

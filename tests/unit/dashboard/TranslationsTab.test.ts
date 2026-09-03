@@ -5,7 +5,7 @@
  * (summary cards, breakdown, locale table) and the run-audit controls.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { mount, flushPromises } from '@vue/test-utils';
+import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils';
 import { db } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import { useProxyStatus } from '@/dashboard/composables/useProxyStatus';
@@ -51,6 +51,13 @@ async function settle(): Promise<void> {
   for (let i = 0; i < 6; i++) await flushPromises();
 }
 
+function mountTab() {
+  return mount(TranslationsTab, {
+    props: { project: makeProject() },
+    global: { stubs: { 'router-link': RouterLinkStub } },
+  });
+}
+
 function makeProject(): Project {
   return {
     id: 1, name: 'P', ownExtensionId: OWN, competitorIds: [COMP], keywordIds: [],
@@ -69,7 +76,11 @@ function makeSnapshot(over: Partial<TranslationSnapshot>): TranslationSnapshot {
 }
 function flagged(): ManipulationFlags {
   const f = emptyManipulationFlags();
-  f.keywordsAtEnd = { detected: true, excerpt: 'kw1\nkw2\nkw3\nkw4\nkw5' };
+  f.keywordsAtEnd = {
+    detected: true,
+    excerpt: 'kw1\nkw2\nkw3\nkw4\nkw5',
+    details: '5 short lines (under 50 chars, no bullets) after a 4-newline gap at the end of the description',
+  };
   return f;
 }
 
@@ -85,7 +96,7 @@ describe('TranslationsTab', () => {
   });
 
   it('renders the empty state and preselects every extension and the default locales', async () => {
-    const wrapper = mount(TranslationsTab, { props: { project: makeProject() } });
+    const wrapper = mountTab();
     await settle();
 
     expect(wrapper.find('[data-testid="audit-empty"]').exists()).toBe(true);
@@ -101,7 +112,7 @@ describe('TranslationsTab', () => {
   });
 
   it('disables the run button while no proxy is configured', async () => {
-    const wrapper = mount(TranslationsTab, { props: { project: makeProject() } });
+    const wrapper = mountTab();
     await settle();
     const button = wrapper.find('[data-testid="run-audit"]');
     expect((button.element as HTMLButtonElement).disabled).toBe(true);
@@ -112,7 +123,7 @@ describe('TranslationsTab', () => {
     await new SettingsManager().set('proxyUrl', 'https://proxy.test');
     // Proxy status is module-level shared state; re-read it after the write.
     await useProxyStatus().refreshProxyStatus();
-    const wrapper = mount(TranslationsTab, { props: { project: makeProject() } });
+    const wrapper = mountTab();
     await settle();
 
     // Deselect the competitor and narrow the locales to two.
@@ -138,10 +149,13 @@ describe('TranslationsTab', () => {
     await db.translation_snapshots.bulkAdd([
       makeSnapshot({ locale: 'en' }),
       makeSnapshot({ locale: 'es', title: 'Mi Ext', shortDescription: 'Corto' }),
-      makeSnapshot({ locale: 'ja', title: '広告ブロッカー', manipulationFlags: flagged() }),
+      makeSnapshot({
+        locale: 'ja', title: '広告ブロッカー', manipulationFlags: flagged(),
+        fullDescription: '広告をブロックします。\n\n\n\nkw1\nkw2\nkw3\nkw4\nkw5',
+      }),
     ]);
 
-    const wrapper = mount(TranslationsTab, { props: { project: makeProject() } });
+    const wrapper = mountTab();
     await settle();
 
     expect(wrapper.find('[data-testid="audit-empty"]').exists()).toBe(false);
@@ -157,8 +171,9 @@ describe('TranslationsTab', () => {
     expect(report.find('[data-testid="trick-keywordsAtEnd"]').text()).toContain('1 of 3 locales');
     expect(report.find('[data-testid="trick-differentName"]').text()).toContain('not detected');
 
-    // Expanding the detected trick reveals the excerpt.
+    // Expanding the detected trick reveals why it fired and the excerpt.
     await report.find('[data-testid="trick-keywordsAtEnd"] button').trigger('click');
+    expect(report.find('[data-testid="trick-keywordsAtEnd"]').text()).toContain('5 short lines');
     expect(report.find('[data-testid="trick-keywordsAtEnd"]').text()).toContain('kw1');
 
     const table = wrapper.find('[data-testid="locale-table"]');
@@ -168,6 +183,48 @@ describe('TranslationsTab', () => {
     expect(table.find('[data-testid="locale-detail-es"]').exists()).toBe(false);
     await table.find('[data-testid="locale-row-es"]').trigger('click');
     expect(table.find('[data-testid="locale-detail-es"]').text()).toContain('Corto');
+    expect(table.find('[data-testid="locale-detail-es"] [data-testid="locale-findings"]').exists()).toBe(false);
+
+    // The flagged locale explains what was caught and highlights it in the full text.
+    await table.find('[data-testid="locale-row-ja"]').trigger('click');
+    const jaDetail = table.find('[data-testid="locale-detail-ja"]');
+    expect(jaDetail.find('[data-testid="locale-findings"]').text()).toContain('Keyword list at end');
+    expect(jaDetail.find('[data-testid="locale-findings"]').text()).toContain('5 short lines');
+    const marks = jaDetail.findAll('[data-testid="flagged-text"]');
+    expect(marks.map((m) => m.text())).toEqual(['kw1', 'kw2', 'kw3', 'kw4', 'kw5']);
+    expect(jaDetail.text()).toContain('広告をブロックします。');
+  });
+
+  it('shows extensions with icon, name and link like the Extensions tab', async () => {
+    await db.translation_snapshots.bulkAdd([makeSnapshot({ locale: 'en' })]);
+    const wrapper = mountTab();
+    await settle();
+
+    // Own extension: name links to its Chrome Web Store listing, marked "Own".
+    const own = wrapper.find(`[data-testid="summary-${OWN}"]`);
+    const ownLink = own.find(`a[href="https://chromewebstore.google.com/detail/-/${OWN}"]`);
+    expect(ownLink.exists()).toBe(true);
+    expect(ownLink.text()).toBe('My Ext');
+    expect(own.text()).toContain('Own');
+
+    // Competitor: name routes to the in-dashboard detail page, plus a store icon link.
+    const comp = wrapper.find(`[data-testid="summary-${COMP}"]`);
+    const routerLink = comp.findComponent(RouterLinkStub);
+    expect(routerLink.exists()).toBe(true);
+    expect(routerLink.text()).toBe('Rival Ext');
+    expect(routerLink.props('to')).toEqual({ name: 'competitorExtension', params: { id: '1', extId: COMP } });
+    expect(comp.find(`a[href="https://chromewebstore.google.com/detail/-/${COMP}"]`).exists()).toBe(true);
+
+    // The active report header uses the same template.
+    const active = wrapper.find('[data-testid="active-extension"]');
+    expect(active.exists()).toBe(true);
+    expect(active.text()).toContain('My Ext');
+    expect(active.find('a[href^="https://chromewebstore.google.com/detail/-/"]').exists()).toBe(true);
+
+    // Clicking a name link must not also switch the selected card.
+    await routerLink.trigger('click');
+    await settle();
+    expect(wrapper.find(`[data-testid="summary-${OWN}"]`).classes()).toContain('border-blue-400');
   });
 
   it('switches the report when another audited extension is selected', async () => {
@@ -175,7 +232,7 @@ describe('TranslationsTab', () => {
       makeSnapshot({ locale: 'en' }),
       makeSnapshot({ extensionId: COMP, locale: 'en', title: 'Rival Ext', manipulationFlags: flagged() }),
     ]);
-    const wrapper = mount(TranslationsTab, { props: { project: makeProject() } });
+    const wrapper = mountTab();
     await settle();
 
     expect(wrapper.find('[data-testid="audit-score"]').text()).toBe('0');
@@ -185,7 +242,7 @@ describe('TranslationsTab', () => {
   });
 
   it('shows the progress note while the queue is running', async () => {
-    const wrapper = mount(TranslationsTab, { props: { project: makeProject() } });
+    const wrapper = mountTab();
     await settle();
     state.scanStatus.value = { ...state.scanStatus.value, isRunning: true, completed: 2, total: 6, currentJob: 'Translation [es]: My Ext' };
     await settle();

@@ -2,6 +2,15 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.39.2] - 2026-09-03
+
+### Fixed
+- **Translation audit: honest translations were flagged as a "Different extension name".** The name check treated every non-stop-word of the English title as a brand word, so "Pinterest Pin Stats - Sort Pins" translated faithfully into Spanish ("Estadísticas de pines de Pinterest - Ordenar pines") lost "stats", "sort" and "pins" and was flagged. The check now flags only **brand loss** or a competitor's name, never wording. Which words are the brand is inferred from evidence (`identifyBrandTokens`): words that look coined (digit or inner capital: "uBlock", "1Password") or that most of the *other* audited locales kept verbatim (or that appear inside a non-Latin-script title). Untranslated copies of the English title carry no evidence. "AdBlock Plus - 広告ブロッカー" still passes, "広告ブロッカー" is still flagged, and the finding now names the missing brand word.
+- **Translation audit: "Keyword stuffing inside description" did not say what it caught.** The keyword detectors now report why they fired ("6 comma-separated short phrases (2 words each on average) in one line", "5 short lines (under 50 chars, no bullets) after a 4-newline gap", "4 near-identical sentences (the same sentence repeated with a keyword swapped)") and return the offending text verbatim instead of a trimmed fragment. The expanded locale row lists the findings under **What was flagged** and highlights the flagged text inside the full description; the breakdown findings show the same explanation above the excerpt.
+
+### Changed
+- **Translations tab shows extensions with the same icon + name + link template as the Extensions tab** (extension picker, summary cards, report header): a competitor's name opens its dashboard detail page with a small "open in Chrome Web Store" icon, the project's own extension links to its store listing and carries the "Own" badge. Extracted as the reusable `ExtensionNameLink.vue`.
+
 ## [0.39.1] - 2026-09-03
 
 ### Fixed

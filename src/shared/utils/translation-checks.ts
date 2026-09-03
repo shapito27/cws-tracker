@@ -520,6 +520,44 @@ export function brandTokens(title: string): string[] {
   return out;
 }
 
+/**
+ * The words of the English title a translation is obliged to keep: the brand.
+ *
+ * Nothing in a title says which words are the brand ("Pinterest Pin Stats -
+ * Sort Pins" is one brand and four ordinary English words that an honest
+ * translation replaces), so a word counts as brand only with evidence:
+ *  - it looks coined: contains a digit or an inner capital ("uBlock", "1Password"), or
+ *  - the other locales kept it: more than half of the other translated titles
+ *    contain it verbatim, or any title written mostly in a non-Latin script
+ *    does (a Latin word inside a Japanese title is a name, not a translation).
+ *
+ * Other titles identical to the English one are untranslated copies and say
+ * nothing about what a translator keeps, so they are ignored as evidence.
+ * Returns the tokens in their English casing, first occurrence, no duplicates.
+ */
+export function identifyBrandTokens(englishTitle: string, otherTitles: readonly string[] = []): string[] {
+  const english = normalize(englishTitle);
+  const evidence = otherTitles.map((t) => t.trim()).filter((t) => t.length > 0 && normalize(t) !== english);
+  const nonLatin = evidence.filter((t) => {
+    const script = dominantScript(t);
+    return script !== 'latin' && script !== 'none';
+  });
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of englishTitle.match(/[A-Za-z0-9À-ɏ]+/g) ?? []) {
+    const lower = raw.toLowerCase();
+    if (lower.length < 2 || ENGLISH_STOP_WORDS.has(lower) || seen.has(lower)) continue;
+    seen.add(lower);
+    const coined = /\d/.test(raw) || /[a-z][A-Z]/.test(raw);
+    const keptBy = evidence.filter((t) => containsPhrase(t, raw)).length;
+    const keptByMajority = evidence.length > 0 && keptBy * 2 > evidence.length;
+    const keptInNonLatin = nonLatin.some((t) => containsPhrase(t, raw));
+    if (coined || keptByMajority || keptInNonLatin) out.push(raw);
+  }
+  return out;
+}
+
 /** Share of `tokens` that appear (case-insensitive, whole word) in `text`. 1 when there are none to check. */
 function retentionRatio(tokens: string[], text: string): number {
   if (tokens.length === 0) return 1;
@@ -592,60 +630,69 @@ function excerpt(text: string): string {
  *
  * - Empty localized title: flagged.
  * - Title contains a competitor's name: flagged.
- * - Latin-script locale: similarity is the better of normalized Levenshtein
- *   similarity and brand-token retention (so "AdBlock Plus - Bloqueador de
- *   anuncios" keeps its brand and passes even though the string is longer).
- *   Flagged below 0.5.
- * - Non-Latin locale: edit distance is meaningless across scripts, so only
- *   brand retention counts. Flagged when *none* of the English brand tokens
- *   survive ("広告ブロッカー" for "AdBlock Plus"); a title that keeps the brand
- *   ("AdBlock Plus - 広告ブロッカー") passes.
+ * - Otherwise the check is **brand retention**: the product's name must
+ *   survive translation. Brand tokens come from {@link identifyBrandTokens}
+ *   (coined-looking words, plus words every other locale kept). Flagged when
+ *   *none* of them appear in the localized title: "El Mejor Bloqueador" or
+ *   "広告ブロッカー" for "AdBlock Plus". A title that keeps the brand passes
+ *   however the rest is worded: "AdBlock Plus - Bloqueador de anuncios",
+ *   "AdBlock Plus - 広告ブロッカー", "Estadísticas de Pines de Pinterest".
+ * - A purely descriptive English title with no identifiable brand ("Sort
+ *   Pins") cannot be told apart from an honest translation by string
+ *   similarity - the PRD's Levenshtein cutoff flags every real translation -
+ *   so it is not flagged on similarity alone; only a competitor name can flag
+ *   it. The similarity is still reported.
+ *
+ * `similarity` is brand retention when a brand exists, else the better of
+ * edit-distance similarity and content-word retention.
+ *
+ * @param otherTitles the same extension's titles in the *other* audited
+ *   locales; used to tell brand words (kept everywhere) from descriptive words
+ *   (translated everywhere).
  */
 export function detectDifferentName(
   englishTitle: string,
   localizedTitle: string,
   locale: string,
-  competitorNames: string[]
+  competitorNames: string[],
+  otherTitles: readonly string[] = []
 ): ManipulationFlags['differentName'] {
   const localized = localizedTitle.trim();
   if (localized.length === 0) {
     return { detected: true, similarity: 0, details: 'Localized title is empty' };
   }
 
-  const tokens = brandTokens(englishTitle);
-  const retention = retentionRatio(tokens, localized);
+  const brand = identifyBrandTokens(englishTitle, otherTitles);
   const lev = levenshteinSimilarity(normalize(englishTitle), normalize(localized));
+  const fallbackSimilarity = Math.max(lev, retentionRatio(brandTokens(englishTitle), localized));
+  const brandRetention = brand.length > 0 ? retentionRatio(brand, localized) : null;
+  const similarity = brandRetention ?? fallbackSimilarity;
 
   const competitor = competitorNames.find((name) => containsPhrase(localized, name));
   if (competitor) {
     return {
       detected: true,
-      similarity: Math.max(lev, retention),
+      similarity,
       details: `Title contains competitor name "${competitor}"`,
     };
   }
 
-  if (isLatinScriptLocale(locale)) {
-    const similarity = Math.max(lev, retention);
-    return similarity < NAME_SIMILARITY_THRESHOLD
-      ? {
-          detected: true,
-          similarity,
-          details: `Title "${localized}" shares little with "${englishTitle}" (similarity ${similarity.toFixed(2)})`,
-        }
-      : { detected: false, similarity };
+  if (brandRetention === null) {
+    // No identifiable brand: nothing a translation would be obliged to keep.
+    return { detected: false, similarity };
   }
 
-  // Non-Latin: brand retention only. No brand tokens to check means we cannot
-  // tell, and the conservative answer is "not flagged".
-  if (tokens.length === 0) return { detected: false, similarity: 1 };
-  return retention === 0
-    ? {
-        detected: true,
-        similarity: 0,
-        details: `English brand name "${englishTitle}" is absent from localized title "${localized}"`,
-      }
-    : { detected: false, similarity: retention };
+  if (brandRetention === 0) {
+    const names = brand.map((b) => `"${b}"`).join(', ');
+    return {
+      detected: true,
+      similarity: 0,
+      details: `Brand name ${names} from "${englishTitle}" is absent from the localized title "${localized}"`,
+    };
+  }
+  // Latin-script titles that keep the brand *and* read alike score higher;
+  // for non-Latin scripts only retention is meaningful.
+  return { detected: false, similarity: isLatinScriptLocale(locale) ? Math.max(similarity, lev) : similarity };
 }
 
 // ---------------------------------------------------------------------------
@@ -857,14 +904,22 @@ export function detectKeywordsAtEnd(description: string): ManipulationFlags['key
     (l) => l.trim().length > 0 && l.trim().length <= KEYWORDS_AT_END_MAX_LINE_LENGTH && !isBulletLine(l)
   );
   if (shortLines.length === block.length && shortLines.length >= KEYWORDS_AT_END_MIN_LINES) {
-    return { detected: true, excerpt: excerpt(blockText) };
+    return {
+      detected: true,
+      excerpt: excerpt(blockText),
+      details: `${block.length} short lines (under ${KEYWORDS_AT_END_MAX_LINE_LENGTH} chars, no bullets) after a ${newlinesBefore}-newline gap at the end of the description`,
+    };
   }
 
   // One or two trailing lines that are themselves a comma-separated keyword list.
   if (block.length <= 2 && looksLikeKeywordList(blockText.replace(/\n/g, ', '))) {
     const segments = blockText.split(/[,\n、，]/).map((s) => s.trim()).filter(Boolean);
     if (segments.length >= KEYWORDS_AT_END_MIN_LINES) {
-      return { detected: true, excerpt: excerpt(blockText) };
+      return {
+        detected: true,
+        excerpt: excerpt(blockText),
+        details: `Comma-separated list of ${segments.length} keywords after a ${newlinesBefore}-newline gap at the end of the description`,
+      };
     }
   }
 
@@ -928,7 +983,12 @@ export function detectKeywordsInline(description: string): ManipulationFlags['ke
     if (bestRun.length >= KEYWORDS_INLINE_MIN_SEGMENTS) {
       const avgWords = bestRun.reduce((sum, s) => sum + tokenize(s).length, 0) / bestRun.length;
       if (avgWords >= 2 || bestRun.length >= KEYWORDS_INLINE_MIN_SINGLE_WORD_SEGMENTS) {
-        return { detected: true, excerpt: excerpt(bestRun.join(', ')) };
+        // The excerpt is the line itself, verbatim, so the reader can find it.
+        return {
+          detected: true,
+          excerpt: excerpt(chunk),
+          details: `${bestRun.length} comma-separated short phrases (${avgWords.toFixed(1)} words each on average) in one line`,
+        };
       }
     }
   }
@@ -951,7 +1011,12 @@ export function detectKeywordsInline(description: string): ManipulationFlags['ke
       if (levenshteinSimilarity(a, b) >= TEMPLATE_SENTENCE_SIMILARITY) group.push(sentences[j]);
     }
     if (group.length >= TEMPLATE_SENTENCE_MIN_COUNT) {
-      return { detected: true, excerpt: excerpt(group.join(' ')) };
+      // One sentence per line, each verbatim, so every repeat can be located.
+      return {
+        detected: true,
+        excerpt: excerpt(group.join('\n')),
+        details: `${group.length} near-identical sentences (the same sentence repeated with a keyword swapped)`,
+      };
     }
   }
 
@@ -1090,7 +1155,10 @@ export function analyzeLocaleSet(input: LocaleSetInput): Map<string, Manipulatio
     const isEnglish = baseLanguage(l.locale) === 'en';
 
     if (baseline && !isEnglish) {
-      flags.differentName = detectDifferentName(baseline.title, l.title, l.locale, competitorNames);
+      // The other locales' titles tell brand words (kept everywhere) from
+      // descriptive words (translated everywhere).
+      const otherTitles = locales.filter((o) => o.locale !== l.locale).map((o) => o.title);
+      flags.differentName = detectDifferentName(baseline.title, l.title, l.locale, competitorNames, otherTitles);
       flags.differentShortDesc = detectDifferentShortDesc(baseline.shortDescription, l.shortDescription, l.locale);
       flags.differentDescription = detectDifferentDescription(baseline.fullDescription, l.fullDescription);
     } else if (baseline && isEnglish) {

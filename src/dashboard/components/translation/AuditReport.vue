@@ -89,7 +89,6 @@ function formatDate(dateStr: string): string {
         {{ labelText }}
       </span>
       <div class="min-w-0 flex-1 text-sm text-gray-700">
-        <p class="font-medium text-gray-900">{{ report.extensionName }}</p>
         <p class="text-gray-600">
           Audited {{ formatDate(report.date) }} ·
           {{ report.localeCount }} locale{{ report.localeCount === 1 ? '' : 's' }} ·

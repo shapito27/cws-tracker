@@ -18,6 +18,8 @@ import {
 } from '../../composables/useTranslationAudit';
 import AuditReport from '../translation/AuditReport.vue';
 import LocaleComparisonTable from '../translation/LocaleComparisonTable.vue';
+import ExtensionIcon from '../ExtensionIcon.vue';
+import ExtensionNameLink from '../ExtensionNameLink.vue';
 
 const props = defineProps<{ project: Project }>();
 
@@ -51,6 +53,7 @@ const estimate = computed(() => formatDuration(estimateAuditDurationMs(jobCount.
 const canStart = computed(() => jobCount.value > 0 && !scanBlocked.value && !starting.value);
 
 const activeSummary = computed(() => summaries.value.find((s) => s.extensionId === activeExtId.value) ?? null);
+const activeExtension = computed(() => extensions.value.find((e) => e.id === activeExtId.value) ?? null);
 const anyAudited = computed(() => summaries.value.some((s) => s.date !== null));
 
 function toggleIn(list: string[], value: string): string[] {
@@ -72,9 +75,15 @@ function clearLocales(): void {
   selectedLocales.value = [];
 }
 
-function extensionLabel(ext: Extension): string {
-  const own = ext.id === props.project.ownExtensionId ? ' (own)' : '';
-  return `${ext.name || ext.id}${own}`;
+function isOwn(extensionId: string): boolean {
+  return extensionId === props.project.ownExtensionId;
+}
+
+function onCardKeydown(event: KeyboardEvent, extensionId: string): void {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    viewExtension(extensionId);
+  }
 }
 
 function formatDate(dateStr: string): string {
@@ -224,7 +233,9 @@ watch(
                 :data-testid="`ext-toggle-${ext.id}`"
                 @change="toggleExtension(ext.id)"
               />
-              {{ extensionLabel(ext) }}
+              <ExtensionIcon :icon-url="ext.iconUrl" :name="ext.name || ext.id" size="xs" />
+              <span class="truncate">{{ ext.name || ext.id }}</span>
+              <span v-if="isOwn(ext.id)" class="text-xs text-gray-400">(own)</span>
             </label>
           </div>
         </div>
@@ -317,19 +328,25 @@ watch(
     <template v-else>
       <!-- Per-extension summary cards -->
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="audit-summaries">
-        <button
+        <div
           v-for="s in summaries"
           :key="s.extensionId"
-          class="rounded-lg border bg-white p-4 text-left transition-colors hover:border-blue-300"
+          role="button"
+          tabindex="0"
+          class="cursor-pointer rounded-lg border bg-white p-4 text-left transition-colors hover:border-blue-300"
           :class="s.extensionId === activeExtId ? 'border-blue-400 ring-1 ring-blue-200' : 'border-gray-200'"
           :data-testid="`summary-${s.extensionId}`"
           @click="viewExtension(s.extensionId)"
+          @keydown="onCardKeydown($event, s.extensionId)"
         >
           <div class="flex items-start justify-between gap-2">
-            <p class="min-w-0 truncate text-sm font-medium text-gray-900">
-              {{ s.extensionName }}
-              <span v-if="s.extensionId === project.ownExtensionId" class="text-xs font-normal text-gray-400">(own)</span>
-            </p>
+            <ExtensionNameLink
+              :extension-id="s.extensionId"
+              :name="s.extensionName"
+              :icon-url="s.iconUrl"
+              :project-id="project.id"
+              :own="isOwn(s.extensionId)"
+            />
             <span
               class="shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums"
               :class="scoreBadgeClass(s.label)"
@@ -344,13 +361,21 @@ watch(
             </template>
             <template v-else>Run an audit to check this extension.</template>
           </p>
-        </button>
+        </div>
       </div>
 
       <!-- Active report -->
       <div v-if="activeSummary" class="space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <h3 class="text-base font-semibold text-gray-900">{{ activeSummary.extensionName }}</h3>
+          <ExtensionNameLink
+            :extension-id="activeSummary.extensionId"
+            :name="activeSummary.extensionName"
+            :icon-url="activeExtension?.iconUrl ?? activeSummary.iconUrl"
+            :project-id="project.id"
+            :own="isOwn(activeSummary.extensionId)"
+            size="md"
+            data-testid="active-extension"
+          />
           <div v-if="dates.length > 1" class="flex items-center gap-2 text-sm">
             <label class="text-gray-500">Audit date</label>
             <select
