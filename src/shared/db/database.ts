@@ -477,6 +477,16 @@ export class CWSDatabase extends Dexie {
     return this.scan_logs.orderBy('id').reverse().limit(limit).toArray();
   }
 
+  /**
+   * All scan logs with `timestamp >= sinceIso` (ISO 8601), oldest first, via
+   * the `timestamp` index. Unlike `getRecentScanLogs` there is no row cap:
+   * the Logs page chart aggregates the whole 7-day window from this, so a
+   * busy two days can never push older days out of the picture.
+   */
+  async getScanLogsSince(sinceIso: string): Promise<ScanLog[]> {
+    return this.scan_logs.where('timestamp').aboveOrEqual(sinceIso).toArray();
+  }
+
   async getScanLogsByJob(jobId: number): Promise<ScanLog[]> {
     return this.scan_logs.where('jobId').equals(jobId).toArray();
   }

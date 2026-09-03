@@ -61,8 +61,9 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso);
+/** Render a local YYYY-MM-DD bucket key (see `localDateOf`) as a date header. */
+function formatDate(localDate: string): string {
+  const d = new Date(`${localDate}T00:00:00`);
   if (isNaN(d.getTime())) return 'Unknown date';
   return d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
 }
@@ -281,7 +282,7 @@ function getParsedUrl(logId: number): ParsedRequestParams {
     <div v-else class="space-y-5">
       <div v-for="dateGroup in logGroups" :key="dateGroup.date">
         <!-- Date separator -->
-        <div class="mb-2 text-xs font-medium text-gray-400">{{ formatDate(dateGroup.jobs[0].timestamp) }}</div>
+        <div class="mb-2 text-xs font-medium text-gray-400">{{ formatDate(dateGroup.date) }}</div>
 
         <div class="space-y-2">
           <!-- Job group card -->

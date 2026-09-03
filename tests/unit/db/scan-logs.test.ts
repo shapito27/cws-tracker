@@ -152,6 +152,24 @@ describe('CWSDatabase - Scan Log Methods', () => {
     });
   });
 
+  describe('getScanLogsSince', () => {
+    it('returns logs at or after the cutoff, oldest first, with no row cap', async () => {
+      await db.saveScanLog(makeScanLog({ timestamp: '2026-06-01T12:00:00.000Z', jobDetail: 'too old' }));
+      await db.saveScanLog(makeScanLog({ timestamp: '2026-06-05T00:00:00.000Z', jobDetail: 'at cutoff' }));
+      // Insert newest first so id order and timestamp order disagree.
+      await db.saveScanLog(makeScanLog({ timestamp: '2026-06-07T09:00:00.000Z', jobDetail: 'newest' }));
+      await db.saveScanLog(makeScanLog({ timestamp: '2026-06-06T09:00:00.000Z', jobDetail: 'middle' }));
+
+      const logs = await db.getScanLogsSince('2026-06-05T00:00:00.000Z');
+      expect(logs.map((l) => l.jobDetail)).toEqual(['at cutoff', 'middle', 'newest']);
+    });
+
+    it('returns an empty array when nothing is in range', async () => {
+      await db.saveScanLog(makeScanLog({ timestamp: '2026-06-01T12:00:00.000Z' }));
+      expect(await db.getScanLogsSince('2026-06-02T00:00:00.000Z')).toEqual([]);
+    });
+  });
+
   describe('getScanLogsByJob', () => {
     it('returns only logs for the specified jobId', async () => {
       await db.saveScanLog(makeScanLog({ jobId: 10, jobDetail: 'job-10' }));
