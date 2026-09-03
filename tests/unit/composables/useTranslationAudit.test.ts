@@ -127,6 +127,12 @@ describe('trickFinding', () => {
     expect(trickFinding('es', f, 'differentDescription').detail).toBe('Term overlap 5%');
     f.keywordsInline = { detected: true, excerpt: 'a, b, c' };
     expect(trickFinding('es', f, 'keywordsInline')).toEqual({ locale: 'es', detail: null, excerpt: 'a, b, c' });
+    f.keywordsInline = { detected: true, excerpt: 'a, b, c', details: '5 comma-separated short phrases in one line' };
+    expect(trickFinding('es', f, 'keywordsInline').detail).toBe('5 comma-separated short phrases in one line');
+    f.keywordsAtEnd = { detected: true, excerpt: 'k1\nk2', details: '5 short lines after a 4-newline gap' };
+    expect(trickFinding('es', f, 'keywordsAtEnd')).toEqual({
+      locale: 'es', detail: '5 short lines after a 4-newline gap', excerpt: 'k1\nk2',
+    });
     f.untranslatedEnglish = { detected: true, englishRatio: 0.8 };
     expect(trickFinding('es', f, 'untranslatedEnglish').detail).toBe('80% of the text reads as English');
   });

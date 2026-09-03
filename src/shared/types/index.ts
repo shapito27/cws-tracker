@@ -493,13 +493,21 @@ export interface ManipulationFlags {
   /** Trick 5: Keyword list appended at end of description. */
   keywordsAtEnd: {
     detected: boolean;
-    /** First 200 chars of detected keyword block. */
+    /** First 200 chars of the detected keyword block, verbatim from the description. */
     excerpt?: string;
+    /** Which shape was matched, e.g. "6 short lines after a 4-newline gap". */
+    details?: string;
   };
   /** Trick 6: Keyword stuffing inline within description. */
   keywordsInline: {
     detected: boolean;
+    /**
+     * The flagged text, verbatim from the description so it can be located
+     * and highlighted. One line per matched sentence for template repetition.
+     */
     excerpt?: string;
+    /** Which shape was matched, e.g. "5 comma-separated short phrases in one line". */
+    details?: string;
   };
   /** Trick 7: Description is semantically unrelated to the English version. */
   differentDescription: {

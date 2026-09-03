@@ -2,7 +2,7 @@
 import { ref } from 'vue';
 import type { LocaleReport } from '../../composables/useTranslationAudit';
 import { localeName } from '@/shared/utils/locales';
-import { TRICK_LABELS } from '@/shared/utils/translation-checks';
+import { TRICK_LABELS, type TrickKey } from '@/shared/utils/translation-checks';
 
 defineProps<{
   locales: LocaleReport[];
@@ -25,6 +25,69 @@ function rowClass(row: LocaleReport): string {
   if (!row.localized) return 'text-gray-500';
   if (row.tricks.length === 0) return '';
   return row.score >= 20 ? 'bg-red-50/60' : 'bg-amber-50/60';
+}
+
+/** A run of the full description, marked when it is part of a flagged excerpt. */
+interface TextSegment {
+  text: string;
+  marked: boolean;
+}
+
+/**
+ * The verbatim strings the keyword detectors flagged in this locale's
+ * description: each line of their excerpts (the trailing "…" of a truncated
+ * excerpt is dropped so the prefix still matches).
+ */
+function flaggedFragments(row: LocaleReport): string[] {
+  const flags = row.snapshot.manipulationFlags;
+  const raw = [flags.keywordsAtEnd.excerpt, flags.keywordsInline.excerpt]
+    .filter((e): e is string => typeof e === 'string' && e.length > 0)
+    .flatMap((e) => e.replace(/…$/, '').split('\n'))
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 3);
+  return [...new Set(raw)];
+}
+
+/** Split the full description into segments, marking every flagged fragment. */
+function descriptionSegments(row: LocaleReport): TextSegment[] {
+  const text = row.snapshot.fullDescription;
+  const fragments = flaggedFragments(row);
+  if (fragments.length === 0 || text.length === 0) return [{ text, marked: false }];
+
+  const ranges: Array<[number, number]> = [];
+  for (const fragment of fragments) {
+    let from = 0;
+    while (from < text.length) {
+      const at = text.indexOf(fragment, from);
+      if (at === -1) break;
+      ranges.push([at, at + fragment.length]);
+      from = at + fragment.length;
+    }
+  }
+  if (ranges.length === 0) return [{ text, marked: false }];
+
+  ranges.sort((a, b) => a[0] - b[0]);
+  const segments: TextSegment[] = [];
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (end <= cursor) continue;
+    const s = Math.max(start, cursor);
+    if (s > cursor) segments.push({ text: text.slice(cursor, s), marked: false });
+    segments.push({ text: text.slice(s, end), marked: true });
+    cursor = end;
+  }
+  if (cursor < text.length) segments.push({ text: text.slice(cursor), marked: false });
+  return segments;
+}
+
+/** The detectors' explanations for this locale, for the expanded row. */
+function findings(row: LocaleReport): Array<{ key: TrickKey; label: string; detail: string | null }> {
+  const flags = row.snapshot.manipulationFlags;
+  return row.tricks.map((key) => {
+    const flag = flags[key];
+    const detail = 'details' in flag && typeof flag.details === 'string' ? flag.details : null;
+    return { key, label: TRICK_LABELS[key], detail };
+  });
 }
 </script>
 
@@ -103,9 +166,21 @@ function rowClass(row: LocaleReport): string {
                     <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Short description</p>
                     <p class="mt-1 whitespace-pre-line text-gray-800">{{ row.snapshot.shortDescription || '—' }}</p>
                   </div>
+                  <div v-if="findings(row).length > 0" class="md:col-span-3" data-testid="locale-findings">
+                    <p class="text-xs font-medium uppercase tracking-wide text-gray-500">What was flagged</p>
+                    <ul class="mt-1 space-y-1">
+                      <li v-for="f in findings(row)" :key="f.key" class="flex flex-wrap items-baseline gap-x-2">
+                        <span class="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-800">{{ f.label }}</span>
+                        <span v-if="f.detail" class="text-gray-700">{{ f.detail }}</span>
+                      </li>
+                    </ul>
+                    <p v-if="flaggedFragments(row).length > 0" class="mt-1 text-xs text-gray-500">
+                      The flagged text is <mark class="rounded bg-red-200 px-0.5 text-red-900">highlighted</mark> in the description below.
+                    </p>
+                  </div>
                   <div class="md:col-span-3">
                     <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Full description</p>
-                    <pre class="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-gray-200 bg-white p-3 font-sans text-sm text-gray-800">{{ row.snapshot.fullDescription || '—' }}</pre>
+                    <pre class="mt-1 max-h-72 overflow-auto whitespace-pre-wrap rounded border border-gray-200 bg-white p-3 font-sans text-sm text-gray-800"><template v-for="(seg, i) in descriptionSegments(row)" :key="i"><mark v-if="seg.marked" class="rounded bg-red-200 px-0.5 text-red-900" data-testid="flagged-text">{{ seg.text }}</mark><template v-else>{{ seg.text }}</template></template><template v-if="!row.snapshot.fullDescription">—</template></pre>
                   </div>
                 </div>
               </td>

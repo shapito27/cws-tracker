@@ -15,6 +15,7 @@ import {
   detectCompetitorNames,
   detectDifferentDescription,
   detectDifferentName,
+  identifyBrandTokens,
   detectDifferentShortDesc,
   detectExtendedDescription,
   detectKeywordsAtEnd,
@@ -713,5 +714,153 @@ describe('analyzeLocaleSet', () => {
 
   it('empty locale list: empty result', () => {
     expect(analyzeLocaleSet({ baseline, locales: [], competitorNames: [] }).size).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Brand identification across locales (the "Pinterest Pin Stats" false positive)
+// ---------------------------------------------------------------------------
+
+describe('identifyBrandTokens', () => {
+  const EN = 'Pinterest Pin Stats - Sort Pins';
+  const ES = 'Estadísticas de pines de Pinterest - Ordenar pines';
+  const FR = 'Statistiques des épingles Pinterest - Trier les épingles';
+  const DE = 'Pinterest Pin-Statistiken - Pins sortieren';
+
+  it('with no other locales only coined-looking words count as brand', () => {
+    expect(identifyBrandTokens(EN)).toEqual([]);
+    expect(identifyBrandTokens('uBlock Origin')).toEqual(['uBlock']);
+    expect(identifyBrandTokens('1Password - Password Manager')).toEqual(['1Password']);
+    expect(identifyBrandTokens('AdBlock Plus')).toEqual(['AdBlock']);
+  });
+
+  it('a word kept by most other translated titles is the brand; translated words are not', () => {
+    expect(identifyBrandTokens(EN, [ES, FR, DE])).toEqual(['Pinterest']);
+  });
+
+  it('a word that only one of several locales keeps (partial translation) is not brand', () => {
+    // "Pin"/"Pins" survive only in German.
+    expect(identifyBrandTokens(EN, [ES, FR, DE])).not.toContain('Pins');
+  });
+
+  it('a Latin word inside a non-Latin title is brand evidence on its own', () => {
+    expect(identifyBrandTokens(EN, ['Pinterest ピン統計 - ピンを並べ替え'])).toEqual(['Pinterest']);
+  });
+
+  it('untranslated copies of the English title carry no evidence', () => {
+    expect(identifyBrandTokens(EN, [EN, EN, 'pinterest pin stats - sort pins'])).toEqual([]);
+    // ...even when mixed with a real translation: the copy does not vote.
+    expect(identifyBrandTokens(EN, [EN, ES])).toEqual(['Pinterest']);
+  });
+
+  it('ignores stop words, single characters and empty titles', () => {
+    expect(identifyBrandTokens('The a of', ['The a of x'])).toEqual([]);
+    expect(identifyBrandTokens('', ['x'])).toEqual([]);
+    expect(identifyBrandTokens(EN, ['', '   '])).toEqual([]);
+  });
+});
+
+describe('detectDifferentName with other locales as evidence', () => {
+  const EN = 'Pinterest Pin Stats - Sort Pins';
+  const ES = 'Estadísticas de pines de Pinterest - Ordenar pines';
+  const FR = 'Statistiques des épingles Pinterest - Trier les épingles';
+  const DE = 'Pinterest Pin-Statistiken - Pins sortieren';
+
+  it('an honest Spanish translation that keeps the brand is not flagged', () => {
+    const r = detectDifferentName(EN, ES, 'es', [], [FR, DE]);
+    expect(r.detected).toBe(false);
+    expect(r.similarity).toBe(1);
+  });
+
+  it('a descriptive title with no identifiable brand is never flagged for wording alone', () => {
+    const r = detectDifferentName(EN, ES, 'es', []);
+    expect(r.detected).toBe(false);
+  });
+
+  it('a locale that drops the brand every other locale kept is flagged and names the brand', () => {
+    const r = detectDifferentName(EN, 'ピン統計 - ピンを並べ替え', 'ja', [], [ES, FR, DE]);
+    expect(r.detected).toBe(true);
+    expect(r.similarity).toBe(0);
+    expect(r.details).toContain('"Pinterest"');
+    expect(r.details).toContain(EN);
+  });
+
+  it('a Latin locale that drops the brand is flagged too', () => {
+    const r = detectDifferentName(EN, 'Estadísticas de pines - Ordenar pines', 'es', [], [FR, DE]);
+    expect(r.detected).toBe(true);
+    expect(r.details).toContain('Pinterest');
+  });
+
+  it('competitor names in the title win over brand retention', () => {
+    const r = detectDifferentName(EN, 'Pinterest Pin Stats by Tailwind', 'en', ['Tailwind'], [ES]);
+    expect(r.detected).toBe(true);
+    expect(r.details).toContain('Tailwind');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keyword detectors explain what they caught
+// ---------------------------------------------------------------------------
+
+describe('keyword detector details and verbatim excerpts', () => {
+  it('detectKeywordsAtEnd (short lines) says how many lines and how big the gap was', () => {
+    const r = detectKeywordsAtEnd(`${EN_DESC}\n\n\n\nkeyword1\nkeyword2\nkeyword3\nkeyword4\nkeyword5`);
+    expect(r.detected).toBe(true);
+    expect(r.details).toContain('5 short lines');
+    expect(r.details).toContain('4-newline gap');
+  });
+
+  it('detectKeywordsAtEnd (comma list) says how many keywords', () => {
+    const r = detectKeywordsAtEnd(`${EN_DESC}\n\n\nad blocker, adblock, popup blocker, vpn, proxy, privacy`);
+    expect(r.detected).toBe(true);
+    expect(r.details).toContain('6 keywords');
+    expect(r.excerpt).toBe('ad blocker, adblock, popup blocker, vpn, proxy, privacy');
+  });
+
+  it('detectKeywordsInline (comma run) returns the offending line verbatim so it can be highlighted', () => {
+    const line = 'features: ad blocker, popup blocker, tracker blocker, script blocker, cookie blocker';
+    const r = detectKeywordsInline(`${EN_DESC}\n${line}`);
+    expect(r.detected).toBe(true);
+    expect(r.excerpt).toBe(line);
+    expect(r.details).toContain('comma-separated short phrases');
+    expect(r.details).toContain('in one line');
+  });
+
+  it('detectKeywordsInline (template) lists the repeated sentences one per line', () => {
+    const base = 'Download videos from YouTube with the fastest downloader you can find here.';
+    const text = [
+      base,
+      base.replace('YouTube', 'Facebook'),
+      base.replace('YouTube', 'TikTok'),
+      base.replace('YouTube', 'Vimeo'),
+    ].join(' ');
+    const r = detectKeywordsInline(text);
+    expect(r.detected).toBe(true);
+    expect(r.details).toContain('near-identical sentences');
+    expect(r.excerpt!.split('\n').length).toBeGreaterThanOrEqual(3);
+    expect(r.excerpt).toContain('YouTube');
+  });
+});
+
+describe('analyzeLocaleSet brand evidence', () => {
+  const EN = 'Pinterest Pin Stats - Sort Pins';
+  const baseline = { title: EN, shortDescription: 'See stats for any pin and sort a board by them.', fullDescription: EN_DESC };
+
+  it('honest translations of a descriptive title are not flagged as a different name', () => {
+    const flags = analyzeLocaleSet({
+      baseline,
+      locales: [
+        { locale: 'en', title: EN, shortDescription: baseline.shortDescription, fullDescription: EN_DESC },
+        { locale: 'es', title: 'Estadísticas de pines de Pinterest - Ordenar pines', shortDescription: 'Mira las estadísticas de cualquier pin y ordena un tablero por ellas.', fullDescription: ES_DESC },
+        { locale: 'fr', title: 'Statistiques des épingles Pinterest - Trier les épingles', shortDescription: 'Voir les statistiques de chaque épingle et trier un tableau.', fullDescription: ES_DESC },
+        { locale: 'ja', title: 'ピン統計 - ピンを並べ替え', shortDescription: 'ピンの統計を見てボードを並べ替えます。', fullDescription: JA_DESC },
+      ],
+      competitorNames: [],
+    });
+    expect(flags.get('es')!.differentName.detected).toBe(false);
+    expect(flags.get('fr')!.differentName.detected).toBe(false);
+    // ja dropped "Pinterest", which en/es/fr all kept.
+    expect(flags.get('ja')!.differentName.detected).toBe(true);
+    expect(flags.get('ja')!.differentName.details).toContain('Pinterest');
   });
 });
