@@ -8,13 +8,15 @@ import {
   buildKeywordScanJobs,
   buildAutocompleteScanJobs,
   buildReviewScanJobs,
+  buildTranslationAuditJobs,
   PRIORITY_OWN_LISTING,
   PRIORITY_COMPETITOR_LISTING,
   PRIORITY_KEYWORD_SCAN,
   PRIORITY_AUTOCOMPLETE_SCAN,
   PRIORITY_REVIEW_SCAN,
+  PRIORITY_TRANSLATION_AUDIT,
 } from '@/background/queue-builder';
-import type { Project, Extension, Keyword, QueueJob, ReviewScanPayload } from '@/shared/types';
+import type { Project, Extension, Keyword, QueueJob, ReviewScanPayload, TranslationAuditPayload } from '@/shared/types';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -454,5 +456,53 @@ describe('buildReviewScanJobs', () => {
 
   it('empty input → empty output', () => {
     expect(buildReviewScanJobs([])).toEqual([]);
+  });
+});
+
+describe('buildTranslationAuditJobs', () => {
+  it('creates one translation_audit job per extension x locale, extension-major', () => {
+    const jobs = buildTranslationAuditJobs([EXT_OWN, EXT_COMP1], ['en', 'es', 'ja']);
+    expect(jobs).toHaveLength(6);
+    expect(jobs.every((j) => j.type === 'translation_audit')).toBe(true);
+    const payloads = jobs.map((j) => j.payload as TranslationAuditPayload);
+    expect(payloads.slice(0, 3).every((p) => p.extensionId === EXT_OWN)).toBe(true);
+    expect(payloads.slice(3).every((p) => p.extensionId === EXT_COMP1)).toBe(true);
+    expect(payloads.map((p) => p.locale)).toEqual(['en', 'es', 'ja', 'en', 'es', 'ja']);
+  });
+
+  it('3 extensions x 5 locales = 15 jobs', () => {
+    const jobs = buildTranslationAuditJobs(
+      [EXT_OWN, EXT_COMP1, EXT_COMP2],
+      ['en', 'es', 'fr', 'de', 'ja']
+    );
+    expect(jobs).toHaveLength(15);
+  });
+
+  it('priorities start at PRIORITY_TRANSLATION_AUDIT and increase in request order', () => {
+    const jobs = buildTranslationAuditJobs([EXT_OWN], ['en', 'es']);
+    expect(jobs.map((j) => j.priority)).toEqual([
+      PRIORITY_TRANSLATION_AUDIT,
+      PRIORITY_TRANSLATION_AUDIT + 1,
+    ]);
+    expect(PRIORITY_TRANSLATION_AUDIT).toBeGreaterThan(PRIORITY_REVIEW_SCAN);
+  });
+
+  it('deduplicates extension IDs and locales and drops blanks', () => {
+    const jobs = buildTranslationAuditJobs([EXT_OWN, EXT_OWN, ' ', ''], ['es', 'es', '', ' ja ']);
+    expect(jobs).toHaveLength(2);
+    expect((jobs[1].payload as TranslationAuditPayload).locale).toBe('ja');
+  });
+
+  it('empty extensions or empty locales → no jobs', () => {
+    expect(buildTranslationAuditJobs([], ['es'])).toHaveLength(0);
+    expect(buildTranslationAuditJobs([EXT_OWN], [])).toHaveLength(0);
+  });
+
+  it('stamps the cycle slot and date when provided', () => {
+    const jobs = buildTranslationAuditJobs([EXT_OWN], ['es'], { slot: 2, cycleDate: '2026-09-02' });
+    expect(jobs[0].slot).toBe(2);
+    expect(jobs[0].cycleDate).toBe('2026-09-02');
+    expect(jobs[0].status).toBe('pending');
+    expect(jobs[0].retryCount).toBe(0);
   });
 });

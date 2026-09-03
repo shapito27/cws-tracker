@@ -19,6 +19,7 @@ import {
   scheduleNextDailyScan,
   triggerManualRefresh,
   triggerKeywordRescan,
+  triggerTranslationAudit,
   pauseScanning,
   resumeScanning,
   ALARM_DAILY_SCAN,
@@ -137,6 +138,11 @@ async function handleMessage(
     case 'RESCAN_KEYWORD':
       await triggerKeywordRescan(message.keywordId);
       return { ok: true };
+
+    case 'TRIGGER_TRANSLATION_AUDIT': {
+      const jobs = await triggerTranslationAudit(message.extensionIds ?? [], message.locales ?? []);
+      return { ok: true, jobs };
+    }
 
     case 'PAUSE_SCAN':
       await pauseScanning();

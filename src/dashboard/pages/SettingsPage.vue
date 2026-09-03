@@ -9,6 +9,7 @@ import {
   getVariantSystemPrompt,
   getVariantUserPromptTemplate,
 } from '@/shared/utils/keyword-audit';
+import { AUDIT_LOCALE_OPTIONS } from '@/shared/utils/locales';
 import type { AuditPromptVariant } from '@/shared/types/settings';
 import { db } from '@/shared/db/database';
 import { nextSlotOccurrence, slotScanTime } from '@/shared/utils/scan-slots';
@@ -106,29 +107,8 @@ const VARIANT_OPTIONS: Array<{ value: AuditPromptVariant; label: string; descrip
   { value: 'rubric', label: 'Rubric-Scored', description: 'Quantitative 1-5 scoring rubric with pre-computed deltas for precise factor comparison' },
 ];
 
-// Available locale options for the translation locale selector
-const AVAILABLE_LOCALES: Array<{ code: string; name: string }> = [
-  { code: 'en', name: 'English' },
-  { code: 'es', name: 'Spanish' },
-  { code: 'fr', name: 'French' },
-  { code: 'de', name: 'German' },
-  { code: 'pt_BR', name: 'Portuguese (Brazil)' },
-  { code: 'ja', name: 'Japanese' },
-  { code: 'zh_CN', name: 'Chinese (Simplified)' },
-  { code: 'ko', name: 'Korean' },
-  { code: 'ru', name: 'Russian' },
-  { code: 'ar', name: 'Arabic' },
-  { code: 'hi', name: 'Hindi' },
-  { code: 'it', name: 'Italian' },
-  { code: 'nl', name: 'Dutch' },
-  { code: 'pl', name: 'Polish' },
-  { code: 'tr', name: 'Turkish' },
-  { code: 'th', name: 'Thai' },
-  { code: 'vi', name: 'Vietnamese' },
-  { code: 'id', name: 'Indonesian' },
-  { code: 'sv', name: 'Swedish' },
-  { code: 'da', name: 'Danish' },
-];
+// Available locale options for the translation locale selector (shared with the Translations tab)
+const AVAILABLE_LOCALES = AUDIT_LOCALE_OPTIONS;
 
 /** Tracked-entity counts, for the per-day request estimate below. */
 const extensionCount = ref(0);

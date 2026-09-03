@@ -963,6 +963,129 @@ describe('Scheduler', () => {
     });
   });
 
+  describe('triggerTranslationAudit', () => {
+    it('enqueues one translation_audit job per extension x locale and kicks the queue', async () => {
+      const { triggerTranslationAudit } = await import('@/background/scheduler');
+      await seedProject();
+
+      const deps = createSchedulerDeps();
+      const count = await triggerTranslationAudit(
+        ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'],
+        ['en', 'es', 'ja'],
+        deps
+      );
+
+      expect(count).toBe(6);
+      const jobs = await testDb.queue.where('status').equals('pending').toArray();
+      expect(jobs).toHaveLength(6);
+      expect(jobs.every((j) => j.type === 'translation_audit')).toBe(true);
+      expect(jobs.every((j) => j.cycleDate === today())).toBe(true);
+
+      const alarm = getCalls('alarms.create').find((c) => c.args[0] === 'processQueue');
+      expect(alarm).toBeDefined();
+
+      const progress = getCalls('runtime.sendMessage').find(
+        (c) => (c.args[0] as { type: string }).type === 'SCAN_PROGRESS'
+      );
+      expect(progress).toBeDefined();
+      const msg = progress!.args[0] as { total: number; phase: string; currentJob: string };
+      expect(msg.total).toBe(6);
+      expect(msg.phase).toBe('queued');
+      expect(msg.currentJob).toContain('Translation audit');
+    });
+
+    it('does not clear pending jobs from a scan in progress', async () => {
+      const { triggerTranslationAudit } = await import('@/background/scheduler');
+      await seedProject();
+      await testDb.enqueueJobs([
+        {
+          type: 'listing_scan',
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+          status: 'pending',
+          priority: 10,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: new Date(),
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+      ]);
+
+      await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['es'], createSchedulerDeps());
+
+      const jobs = await testDb.queue.where('status').equals('pending').toArray();
+      expect(jobs).toHaveLength(2);
+      expect(jobs.some((j) => j.type === 'listing_scan')).toBe(true);
+    });
+
+    it('starts a cycle marker only when no cycle is active, and never claims a slot', async () => {
+      const { triggerTranslationAudit } = await import('@/background/scheduler');
+      await seedProject();
+
+      await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['es'], createSchedulerDeps());
+      const started = await settingsManager.get('scanCycleStartedAt');
+      expect(started).not.toBeNull();
+      expect(await settingsManager.get('scanCycleSlotKey')).toBeNull();
+
+      // A second audit while the first is active keeps the original marker.
+      await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['ja'], createSchedulerDeps());
+      expect(await settingsManager.get('scanCycleStartedAt')).toBe(started);
+    });
+
+    it('a manual refresh keeps pending translation_audit jobs while replacing the rest', async () => {
+      const { triggerTranslationAudit, triggerManualRefresh } = await import('@/background/scheduler');
+      await seedProject();
+
+      await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['es', 'ja'], createSchedulerDeps());
+      await triggerManualRefresh(undefined, 'keywords', createSchedulerDeps());
+
+      const pending = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pending.filter((j) => j.type === 'translation_audit')).toHaveLength(2);
+      expect(pending.some((j) => j.type === 'keyword_scan')).toBe(true);
+    });
+
+    it('a pending translation audit does not make the scheduled scan skip its slot', async () => {
+      const { triggerTranslationAudit, handleDailyScanAlarm } = await import('@/background/scheduler');
+      await seedProject();
+      await settingsManager.setMultiple({ dailyScanEnabled: true, dailyScanTime: '03:00', scansPerDay: 1 });
+
+      await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['es', 'ja'], createSchedulerDeps());
+      await handleDailyScanAlarm(createSchedulerDeps());
+
+      const pending = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pending.filter((j) => j.type === 'translation_audit')).toHaveLength(2);
+      expect(pending.some((j) => j.type === 'listing_scan')).toBe(true);
+      // Cycle jobs sort ahead of audit jobs.
+      const audit = pending.filter((j) => j.type === 'translation_audit');
+      const cycle = pending.filter((j) => j.type !== 'translation_audit');
+      expect(Math.max(...cycle.map((j) => j.priority))).toBeLessThan(Math.min(...audit.map((j) => j.priority)));
+    });
+
+    it('returns 0 and enqueues nothing without extensions or locales', async () => {
+      const { triggerTranslationAudit } = await import('@/background/scheduler');
+      await seedProject();
+      expect(await triggerTranslationAudit([], ['es'], createSchedulerDeps())).toBe(0);
+      expect(await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], [], createSchedulerDeps())).toBe(0);
+      expect(await testDb.queue.count()).toBe(0);
+    });
+
+    it('bails out with a SCAN_ERROR when no proxy is configured', async () => {
+      const { triggerTranslationAudit } = await import('@/background/scheduler');
+      await seedProject();
+      await settingsManager.set('proxyUrl', '');
+
+      const count = await triggerTranslationAudit(['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], ['es'], createSchedulerDeps());
+
+      expect(count).toBe(0);
+      expect(await testDb.queue.count()).toBe(0);
+      const err = getCalls('runtime.sendMessage').find(
+        (c) => (c.args[0] as { type: string }).type === 'SCAN_ERROR'
+      );
+      expect(err).toBeDefined();
+    });
+  });
+
   describe('triggerManualRefresh', () => {
     it('clears existing pending jobs before enqueueing new ones', async () => {
       const { triggerManualRefresh } = await import('@/background/scheduler');

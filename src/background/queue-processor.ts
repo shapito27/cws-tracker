@@ -23,6 +23,13 @@ import { SettingsManager } from '@/shared/utils/settings';
 import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
 import { today, epochToDateString } from '@/shared/utils/dates';
 import { findEffectivePrevious, classifyDrop, RANK_NULL_LOOKBACK_DAYS } from '@/shared/utils/rank-history';
+import {
+  analyzeLocaleSet,
+  baseLanguage,
+  detectLanguage,
+  emptyManipulationFlags,
+  isLocaleSupported,
+} from '@/shared/utils/translation-checks';
 import { detectChanges } from '@/background/event-detector';
 import { getListingParser, getSearchParser, getAutocompleteParser, getReviewsParser, ParserError } from '@/background/parsers/index';
 import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension, ParsedReview } from '@/background/parsers/types';
@@ -32,7 +39,9 @@ import type {
   KeywordScanPayload,
   AutocompleteScanPayload,
   ReviewScanPayload,
+  TranslationAuditPayload,
   ListingSnapshot,
+  TranslationSnapshot,
   RankSnapshot,
   AutocompleteSnapshot,
   AutocompleteKeywordSuggestion,
@@ -107,9 +116,21 @@ interface CWSFetchResult {
  * When no proxy is configured, falls back to direct fetch (works in tests
  * via mocked `fetchPage`, but blocked by Chrome CORS in production).
  */
+/**
+ * Query parameters for a CWS page fetch. `hl` selects the store locale of a
+ * detail page (`?hl=ja` returns the Japanese listing) and is what translation
+ * audits use; regular listing scans omit it and get the store default.
+ */
+interface CWSFetchParams {
+  id?: string;
+  q?: string;
+  token?: string;
+  hl?: string;
+}
+
 async function fetchCWSPage(
   type: 'detail' | 'search',
-  params: { id?: string; q?: string; token?: string },
+  params: CWSFetchParams,
   settings: Settings,
   fetchPage: (url: string) => Promise<Response>
 ): Promise<CWSFetchResult> {
@@ -118,6 +139,7 @@ async function fetchCWSPage(
     if (params.id) proxyUrl.searchParams.set('id', params.id);
     if (params.q) proxyUrl.searchParams.set('q', params.q);
     if (params.token) proxyUrl.searchParams.set('token', params.token);
+    if (params.hl) proxyUrl.searchParams.set('hl', params.hl);
     if (settings.proxyApiKey) proxyUrl.searchParams.set('key', settings.proxyApiKey);
 
     const response = await fetchPage(proxyUrl.toString());
@@ -136,11 +158,7 @@ async function fetchCWSPage(
   }
 
   // Direct fetch fallback (works in tests via mocked fetchPage, blocked by CORS in Chrome)
-  const baseUrl = type === 'detail' ? CWS_DETAIL_URL : CWS_SEARCH_URL;
-  const path = type === 'detail' ? params.id! : encodeURIComponent(params.q!);
-  let url = `${baseUrl}${path}`;
-  if (params.token) url += `?token=${encodeURIComponent(params.token)}`;
-  const response = await fetchPage(url);
+  const response = await fetchPage(buildDirectUrl(type, params));
   // Only read body for successful responses or 404 (which listing_scan handles gracefully).
   // For other errors, avoid consuming the body — throw immediately.
   if (!response.ok && response.status !== 404) {
@@ -158,7 +176,7 @@ async function fetchCWSPage(
  */
 function buildRequestUrl(
   type: 'detail' | 'search',
-  params: { id?: string; q?: string; token?: string },
+  params: CWSFetchParams,
   settings: Settings
 ): string {
   if (settings.proxyUrl) {
@@ -166,14 +184,21 @@ function buildRequestUrl(
     if (params.id) proxyUrl.searchParams.set('id', params.id);
     if (params.q) proxyUrl.searchParams.set('q', params.q);
     if (params.token) proxyUrl.searchParams.set('token', params.token);
+    if (params.hl) proxyUrl.searchParams.set('hl', params.hl);
     if (settings.proxyApiKey) proxyUrl.searchParams.set('key', '[REDACTED]');
     return proxyUrl.toString();
   }
+  return buildDirectUrl(type, params);
+}
+
+/** The CWS URL a page would be fetched from without a proxy. */
+function buildDirectUrl(type: 'detail' | 'search', params: CWSFetchParams): string {
   const baseUrl = type === 'detail' ? CWS_DETAIL_URL : CWS_SEARCH_URL;
   const path = type === 'detail' ? params.id! : encodeURIComponent(params.q!);
-  let url = `${baseUrl}${path}`;
-  if (params.token) url += `?token=${encodeURIComponent(params.token)}`;
-  return url;
+  const query: string[] = [];
+  if (params.token) query.push(`token=${encodeURIComponent(params.token)}`);
+  if (params.hl) query.push(`hl=${encodeURIComponent(params.hl)}`);
+  return query.length > 0 ? `${baseUrl}${path}?${query.join('&')}` : `${baseUrl}${path}`;
 }
 
 /**
@@ -194,7 +219,7 @@ async function writeScanLog(log: ScanLog): Promise<void> {
  */
 async function fetchCWSPageWithLogging(
   type: 'detail' | 'search',
-  params: { id?: string; q?: string; token?: string },
+  params: CWSFetchParams,
   settings: Settings,
   fetchPage: (url: string) => Promise<Response>,
   job: QueueJob,
@@ -359,6 +384,9 @@ async function executeJob(
       break;
     case 'review_scan':
       await processReviewScan(job, deps);
+      break;
+    case 'translation_audit':
+      await processTranslationAudit(job, deps);
       break;
     default:
       throw new Error(`Unsupported job type: ${job.type}`);
@@ -1084,6 +1112,152 @@ async function processReviewScan(
 }
 
 /**
+ * Process a translation_audit job (PRD 5.3.6):
+ * 1. Fetch the CWS detail page for one locale (`?hl=<locale>`). The page has
+ *    the same structure in every locale, so the regular listing parser reads it.
+ * 2. Save the localized title / short / full description as a
+ *    TranslationSnapshot for the audit date (upsert per extension+date+locale).
+ * 3. Re-run the manipulation detectors over every locale captured so far for
+ *    this extension and date - most tricks are judged relative to the English
+ *    baseline and to the other locales, so flags are recomputed as each locale
+ *    lands rather than fixed at write time.
+ */
+async function processTranslationAudit(
+  job: QueueJob,
+  deps: ProcessorDeps
+): Promise<void> {
+  const payload = job.payload as TranslationAuditPayload;
+  const { extensionId, locale } = payload;
+
+  const settings = await deps.settings.getWithDefaults();
+  const parser = getListingParser(settings.parserVersion);
+
+  const { html, cwsStatus } = await fetchCWSPageWithLogging(
+    'detail', { id: extensionId, hl: locale }, settings, deps.fetchPage, job
+  );
+
+  if (cwsStatus === 404) {
+    // Extension removed from CWS - same handling as a listing scan.
+    await markExtensionRemoved(extensionId);
+    return;
+  }
+  if (cwsStatus >= 400) {
+    throw new HttpError(cwsStatus, `CWS returned HTTP ${cwsStatus}`);
+  }
+
+  const data = parser.parse(html);
+  const dateStr = jobDate(job);
+  const snapshot: TranslationSnapshot = {
+    extensionId,
+    locale,
+    date: dateStr,
+    title: data.name,
+    shortDescription: data.shortDescription,
+    fullDescription: data.fullDescription,
+    descriptionLength: data.fullDescription.length,
+    detectedLanguage: detectLanguage(`${data.name}\n${data.shortDescription}\n${data.fullDescription}`),
+    manipulationFlags: emptyManipulationFlags(),
+    scannedAt: new Date(),
+    // The page reports the locales the extension ships. A locale outside that
+    // list is served the default listing - not a translation, so not audited.
+    isLocalized: isLocaleSupported(locale, data.availableLocales),
+  };
+
+  await db.saveTranslationSnapshot(snapshot);
+  await recomputeTranslationFlags(extensionId, dateStr);
+}
+
+/**
+ * Recompute manipulation flags for every locale snapshot of an extension on
+ * one audit date and write them back.
+ *
+ * Baseline: the `en` locale snapshot when captured, else the latest regular
+ * listing snapshot (the store-default page, English for the proxy's region).
+ * With no baseline at all, only the standalone detectors run.
+ *
+ * Competitor names come from the other extensions tracked alongside this one
+ * in any project. Names equal to, or contained in, the audited extension's own
+ * name are excluded - "AdBlock" would otherwise be "found" in every listing of
+ * "AdBlock Plus".
+ *
+ * Locales the extension does not ship (`isLocalized === false`) carry the
+ * default listing rather than a translation; they are excluded from the
+ * analysis (and from the cross-locale length median) and keep empty flags.
+ */
+export async function recomputeTranslationFlags(extensionId: string, date: string): Promise<void> {
+  const all = await db.getTranslationSnapshots(extensionId, date);
+  if (all.length === 0) return;
+
+  const snapshots = all.filter((s) => s.isLocalized !== false);
+  for (const s of all) {
+    if (s.isLocalized === false && s.id !== undefined) {
+      await db.updateTranslationFlags(s.id, emptyManipulationFlags());
+    }
+  }
+  if (snapshots.length === 0) return;
+
+  const english = snapshots.find((s) => baseLanguage(s.locale) === 'en');
+  let baseline: { title: string; shortDescription: string; fullDescription: string } | null = english
+    ? { title: english.title, shortDescription: english.shortDescription, fullDescription: english.fullDescription }
+    : null;
+  if (!baseline) {
+    const listing = await db.getLatestListingSnapshot(extensionId);
+    if (listing) {
+      baseline = {
+        title: listing.title,
+        shortDescription: listing.shortDescription,
+        fullDescription: listing.fullDescription,
+      };
+    }
+  }
+
+  const competitorNames = await competitorNamesFor(extensionId);
+
+  const flagsByLocale = analyzeLocaleSet({
+    baseline,
+    locales: snapshots.map((s) => ({
+      locale: s.locale,
+      title: s.title,
+      shortDescription: s.shortDescription,
+      fullDescription: s.fullDescription,
+    })),
+    competitorNames,
+  });
+
+  for (const s of snapshots) {
+    const flags = flagsByLocale.get(s.locale);
+    if (flags && s.id !== undefined) {
+      await db.updateTranslationFlags(s.id, flags);
+    }
+  }
+}
+
+/** Names of the other extensions tracked in the same project(s) as `extensionId`. */
+async function competitorNamesFor(extensionId: string): Promise<string[]> {
+  const own = await db.getExtension(extensionId);
+  const ownName = (own?.name ?? '').trim().toLowerCase();
+
+  const projects = await db.getAllProjects();
+  const otherIds = new Set<string>();
+  for (const p of projects) {
+    const tracked = [p.ownExtensionId, ...p.competitorIds];
+    if (!tracked.includes(extensionId)) continue;
+    for (const id of tracked) if (id !== extensionId) otherIds.add(id);
+  }
+
+  const names: string[] = [];
+  for (const id of otherIds) {
+    const ext = await db.getExtension(id);
+    const name = (ext?.name ?? '').trim();
+    if (name.length < 3) continue;
+    const lower = name.toLowerCase();
+    if (ownName.length > 0 && (lower === ownName || ownName.includes(lower))) continue;
+    names.push(name);
+  }
+  return names;
+}
+
+/**
  * Map a parsed review to a stored Review row. `contentHash` is left blank here;
  * `db.saveReviews` computes and sets it authoritatively.
  */
@@ -1496,6 +1670,16 @@ async function getJobDescription(job: QueueJob): Promise<string> {
       // DB lookup failed — fall through to ID-only description
     }
     return `Reviews: ${payload.extensionId}`;
+  }
+  if (job.type === 'translation_audit') {
+    const payload = job.payload as TranslationAuditPayload;
+    try {
+      const ext = await db.extensions.get(payload.extensionId);
+      if (ext?.name) return `Translation [${payload.locale}]: ${ext.name} (${payload.extensionId})`;
+    } catch {
+      // DB lookup failed — fall through to ID-only description
+    }
+    return `Translation [${payload.locale}]: ${payload.extensionId}`;
   }
   return `Processing ${job.type}`;
 }

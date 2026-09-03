@@ -21,6 +21,7 @@ import type {
   EventRecord,
   QueueJob,
   TranslationSnapshot,
+  ManipulationFlags,
   QueueJobStatus,
   ScanLog,
   AutocompleteSnapshot,
@@ -710,6 +711,63 @@ export class CWSDatabase extends Dexie {
       .equals(extensionId)
       .toArray();
     return new Set(stored.map((r) => r.reviewId));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Translation snapshots (translation audit)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Upsert one localized listing snapshot. A re-run of the same
+   * extension + date + locale replaces the earlier row, so an audit repeated
+   * on the same day never doubles up.
+   */
+  async saveTranslationSnapshot(snapshot: TranslationSnapshot): Promise<number> {
+    return this.transaction('rw', this.translation_snapshots, async () => {
+      const existing = await this.translation_snapshots
+        .where('[extensionId+date]')
+        .equals([snapshot.extensionId, snapshot.date])
+        .filter((s) => s.locale === snapshot.locale)
+        .toArray();
+      if (existing.length > 0) {
+        await this.translation_snapshots.bulkDelete(existing.map((s) => s.id!));
+      }
+      return this.translation_snapshots.add(snapshot);
+    });
+  }
+
+  /** All locale snapshots captured for an extension on one audit date, sorted by locale. */
+  async getTranslationSnapshots(extensionId: string, date: string): Promise<TranslationSnapshot[]> {
+    const rows = await this.translation_snapshots
+      .where('[extensionId+date]')
+      .equals([extensionId, date])
+      .toArray();
+    return rows.sort((a, b) => a.locale.localeCompare(b.locale));
+  }
+
+  /** Distinct audit dates for an extension, newest first. */
+  async getTranslationAuditDates(extensionId: string): Promise<string[]> {
+    const rows = await this.translation_snapshots
+      .where('[extensionId+date]')
+      .between([extensionId, Dexie.minKey], [extensionId, Dexie.maxKey])
+      .toArray();
+    const dates = new Set(rows.map((r) => r.date));
+    return [...dates].sort((a, b) => b.localeCompare(a));
+  }
+
+  /** The most recent audit date for an extension, or `undefined` if never audited. */
+  async getLatestTranslationAuditDate(extensionId: string): Promise<string | undefined> {
+    const dates = await this.getTranslationAuditDates(extensionId);
+    return dates[0];
+  }
+
+  /**
+   * Replace the manipulation flags on an existing snapshot row. Flags are
+   * recomputed for every locale of an extension each time another locale
+   * lands, since most tricks are judged relative to the other locales.
+   */
+  async updateTranslationFlags(id: number, manipulationFlags: ManipulationFlags): Promise<void> {
+    await this.translation_snapshots.update(id, { manipulationFlags });
   }
 
   // ---------------------------------------------------------------------------

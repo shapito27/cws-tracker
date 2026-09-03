@@ -36,6 +36,7 @@ import {
   buildKeywordScanJobs,
   buildAutocompleteScanJobs,
   buildReviewScanJobs,
+  buildTranslationAuditJobs,
 } from '@/background/queue-builder';
 import { processNextJob, type ProcessorDeps } from '@/background/queue-processor';
 import type { ScanType, QueueJob, ScanLogLevel } from '@/shared/types';
@@ -417,18 +418,25 @@ async function runDailyScanCycle(
   // truly-concurrent case where neither has enqueued yet is handled by the
   // synchronous in-flight lock in handleDailyScanAlarm; lastDailyScanDate is
   // stamped only on drain, so it can't be relied on here.
-  const [pendingCount, runningJobs] = await Promise.all([
-    db.getPendingCount(),
+  //
+  // Translation-audit jobs are not part of any cycle and are ignored here: a
+  // manual audit of 150 locale pages takes hours, and it must not cost the day
+  // its scheduled scan. The cycle's jobs sort ahead of audit jobs (priority 60+),
+  // so they run first and the audit simply resumes afterwards.
+  const [pendingJobs, runningJobs] = await Promise.all([
+    db.queue.where('status').equals('pending').toArray(),
     db.getRunningJobs(),
   ]);
-  if (pendingCount > 0 || runningJobs.length > 0) {
+  const pendingCycleJobs = pendingJobs.filter((j) => j.type !== 'translation_audit').length;
+  const runningCycleJobs = runningJobs.filter((j) => j.type !== 'translation_audit').length;
+  if (pendingCycleJobs > 0 || runningCycleJobs > 0) {
     // A slot can be skipped because the previous slot's cycle is still draining
     // — likely when scansPerDay is raised past what a cycle can finish in
     // 24/N hours. Log it, or the missing sample looks like a bug.
     await logSlotEvent(
       'warn',
       `Scan slot ${key} skipped: the previous cycle is still running ` +
-        `(${pendingCount} pending, ${runningJobs.length} in flight). ` +
+        `(${pendingCycleJobs} pending, ${runningCycleJobs} in flight). ` +
         `Lower scansPerDay or queueDelayMs if this recurs.`
     );
     return;
@@ -548,10 +556,12 @@ export async function triggerManualRefresh(
   // Guard: a proxy is required to scan. Bail before touching the queue.
   if (!(await ensureProxyConfigured(deps.settings, true))) return;
 
-  // Clear all pending jobs from queue
+  // Clear all pending jobs from queue - except a translation audit in progress,
+  // which the user started separately and would otherwise lose without notice.
   const pendingJobs = await db.queue.where('status').equals('pending').toArray();
-  if (pendingJobs.length > 0) {
-    await db.queue.bulkDelete(pendingJobs.map((j) => j.id!));
+  const replaceable = pendingJobs.filter((j) => j.type !== 'translation_audit');
+  if (replaceable.length > 0) {
+    await db.queue.bulkDelete(replaceable.map((j) => j.id!));
   }
 
   // Clear the processQueue alarm
@@ -692,6 +702,73 @@ export async function triggerKeywordRescan(
   chrome.alarms.create(ALARM_PROCESS_QUEUE, {
     delayInMinutes: MIN_ALARM_DELAY_MINUTES,
   });
+}
+
+/**
+ * Start a translation audit (PRD 5.3.6): one `translation_audit` job per
+ * extension x locale, appended to the queue.
+ *
+ * Unlike {@link triggerManualRefresh} this does NOT clear pending jobs - an
+ * audit is a separate, manual investigation and must not cancel a scan that is
+ * draining. It claims no slot (`scanCycleSlotKey` stays null): a translation
+ * audit never satisfies a scheduled scan. The cycle-start marker is set only
+ * when no cycle is active, so the progress strip counts these jobs without
+ * resetting an in-flight cycle's counts.
+ *
+ * Every job carries the same `cycleDate` (today at trigger time) so an audit
+ * that runs past midnight still reports as one audit on one date.
+ *
+ * @returns the number of jobs enqueued; 0 when there was nothing to do or no
+ *   proxy is configured (a SCAN_ERROR is broadcast in that case).
+ */
+export async function triggerTranslationAudit(
+  extensionIds: string[],
+  locales: string[],
+  deps: SchedulerDeps = { settings: defaultSettings }
+): Promise<number> {
+  // Guard: a proxy is required to scan.
+  if (!(await ensureProxyConfigured(deps.settings, true))) return 0;
+
+  const s = await deps.settings.getWithDefaults();
+  const now = new Date();
+  const jobs = buildTranslationAuditJobs(extensionIds, locales, {
+    slot: currentSlot(s.dailyScanTime, s.scansPerDay, now),
+    cycleDate: toDateString(now),
+  });
+  if (jobs.length === 0) return 0;
+
+  const activeCycle = await deps.settings.get('scanCycleStartedAt');
+  if (!activeCycle) {
+    await deps.settings.setMultiple({
+      scanCycleStartedAt: new Date().toISOString(),
+      scanCycleSlotKey: null,
+    });
+  }
+
+  await db.enqueueJobs(jobs);
+
+  // Notify the dashboard immediately so the audit tab reflects the queued work
+  // before the 1-minute alarm fires.
+  const pending = await db.getPendingCount();
+  const nextProcessingAt = new Date(Date.now() + MIN_ALARM_DELAY_MINUTES * 60_000).toISOString();
+  try {
+    chrome.runtime.sendMessage({
+      type: 'SCAN_PROGRESS',
+      completed: 0,
+      total: Math.max(pending, jobs.length),
+      currentJob: `Translation audit queued (${jobs.length} locale pages)…`,
+      nextProcessingAt,
+      phase: 'queued',
+    });
+  } catch {
+    // Dashboard may not be open — ignore.
+  }
+
+  chrome.alarms.create(ALARM_PROCESS_QUEUE, {
+    delayInMinutes: MIN_ALARM_DELAY_MINUTES,
+  });
+
+  return jobs.length;
 }
 
 /**

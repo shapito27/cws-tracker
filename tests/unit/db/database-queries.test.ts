@@ -922,6 +922,57 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
   });
 
   // -------------------------------------------------------------------------
+  // Translation snapshots
+  // -------------------------------------------------------------------------
+
+  describe('translation snapshots', () => {
+    it('saveTranslationSnapshot inserts and returns an id', async () => {
+      const id = await db.saveTranslationSnapshot(makeTranslationSnapshot({ locale: 'es' }));
+      expect(typeof id).toBe('number');
+      expect(await db.translation_snapshots.count()).toBe(1);
+    });
+
+    it('saveTranslationSnapshot upserts per extension + date + locale', async () => {
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ locale: 'es', title: 'Old' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ locale: 'es', title: 'New' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ locale: 'ja', title: 'JA' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ locale: 'es', date: '2026-01-16', title: 'Next day' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ locale: 'es', extensionId: EXT_ID_B, title: 'Other ext' }));
+
+      const rows = await db.getTranslationSnapshots(EXT_ID_A, '2026-01-15');
+      expect(rows.map((r) => r.locale)).toEqual(['es', 'ja']);
+      expect(rows[0].title).toBe('New');
+      expect(await db.translation_snapshots.count()).toBe(4);
+    });
+
+    it('getTranslationSnapshots returns an empty array when nothing was captured', async () => {
+      expect(await db.getTranslationSnapshots(EXT_ID_A, '2026-01-15')).toEqual([]);
+    });
+
+    it('getTranslationAuditDates lists distinct dates newest first, per extension', async () => {
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ date: '2026-01-15', locale: 'es' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ date: '2026-01-15', locale: 'ja' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ date: '2026-02-01', locale: 'es' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ date: '2025-12-01', locale: 'es' }));
+      await db.saveTranslationSnapshot(makeTranslationSnapshot({ date: '2026-03-01', locale: 'es', extensionId: EXT_ID_B }));
+
+      expect(await db.getTranslationAuditDates(EXT_ID_A)).toEqual(['2026-02-01', '2026-01-15', '2025-12-01']);
+      expect(await db.getLatestTranslationAuditDate(EXT_ID_A)).toBe('2026-02-01');
+      expect(await db.getLatestTranslationAuditDate(EXT_ID_B)).toBe('2026-03-01');
+      expect(await db.getLatestTranslationAuditDate('nope')).toBeUndefined();
+    });
+
+    it('updateTranslationFlags replaces the flags on one row', async () => {
+      const id = await db.saveTranslationSnapshot(makeTranslationSnapshot({ locale: 'es' }));
+      const flags: ManipulationFlags = { ...emptyFlags, keywordsAtEnd: { detected: true, excerpt: 'kw1 kw2' } };
+      await db.updateTranslationFlags(id, flags);
+      const row = await db.translation_snapshots.get(id);
+      expect(row?.manipulationFlags.keywordsAtEnd).toEqual({ detected: true, excerpt: 'kw1 kw2' });
+      expect(row?.title).toBe('Test');
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // pruneOldSnapshots
   // -------------------------------------------------------------------------
 

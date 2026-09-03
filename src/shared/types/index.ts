@@ -19,6 +19,7 @@ export type {
   PauseScanMessage,
   ResumeScanMessage,
   CancelScanMessage,
+  TriggerTranslationAuditMessage,
   ServiceWorkerMessage,
   DashboardMessage,
   ScanType,
@@ -503,8 +504,9 @@ export interface ManipulationFlags {
   /** Trick 7: Description is semantically unrelated to the English version. */
   differentDescription: {
     detected: boolean;
-    /** Keyword overlap ratio (Jaccard similarity). */
+    /** Cognate-aware term overlap coefficient (0-1). */
     similarity: number;
+    details?: string;
   };
   /** Trick 8: Content left in English for a non-English locale. */
   untranslatedEnglish: {
@@ -536,6 +538,18 @@ export interface TranslationSnapshot {
   detectedLanguage: string | null;
   manipulationFlags: ManipulationFlags;
   scannedAt: Date;
+  /**
+   * Whether the extension declares this locale among its supported locales.
+   *
+   * CWS serves the *default* listing for a locale the developer never
+   * localized, so that text is the developer's default copy, not a translation.
+   * Running the detectors on it would flag every unlocalized locale as
+   * "untranslated English" and inflate the score of an honest developer who
+   * simply ships one language. Such rows keep empty flags and are shown as
+   * "default listing". Absent on rows written before this field existed;
+   * treated as `true`.
+   */
+  isLocalized?: boolean;
 }
 
 // ---------------------------------------------------------------------------

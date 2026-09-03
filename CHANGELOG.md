@@ -2,6 +2,30 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.39.0] - 2026-09-02
+
+### Added
+- **Translation manipulation detection (translation audit).** A new **Translations** tab on the project page fetches each selected extension's Chrome Web Store listing in each selected locale (`?hl=<locale>` through the proxy) and checks the localized title, short description and full description for the tricks used to game store search through translations:
+  1. **Different extension name** - Latin-script locales by edit distance / brand-word retention, non-Latin locales by whether the English brand words survive ("AdBlock Plus - 広告ブロッカー" passes, "広告ブロッカー" is flagged), plus competitor names in the title. *High.*
+  2. **Different short description** - empty, replaced by a keyword list, left in English but different from the English listing, or padded far beyond the English length. *Medium.*
+  3. **Competitor names in text** - whole-phrase matches and one-edit fuzzy matches (8+ chars, first letter must agree) against the other extensions tracked in the project. *High.*
+  4. **Considerably longer description** - more than 2x the median length of the *other* locales. *High.*
+  5. **Keyword list at end of description** - 3+ newlines followed by 5+ short non-bullet lines, or a trailing comma-separated keyword line. *High.*
+  6. **Keyword stuffing inside description** - runs of comma-separated short phrases, or the same sentence repeated with one keyword swapped. *Medium.*
+  7. **Unrelated description** - cognate-aware overlap of the Latin-script terms (brand names, tech terms) shared with the English listing. *High.*
+  8. **Untranslated English** - share of Latin letters (non-Latin locales) or English vs. target-language function words (Latin locales) above 70%. *Medium.*
+  - Each locale gets a weighted **0-100 manipulation score**; the extension's overall score is its worst locale plus 5 per further flagged locale. The tab shows a summary card per extension, a breakdown by trick with severity badges and expandable per-locale findings (with the flagged excerpt), a locale-vs-locale comparison table (title, short description, description length, detected language, flags; click a row for the full text), a date picker for past audits, and **Export JSON** for evidence.
+  - **Manual only, never scheduled.** Pick extensions and locales (defaults from Settings → Translation audit), see the request count and time estimate, and run. Jobs are appended to the queue without cancelling a scan in progress and never claim a scan slot. One CWS request per extension x locale at the normal queue delay: 15 locales x 10 extensions is ~150 requests, about 2.5 hours at the default 60s delay.
+  - Flags are recomputed for every locale of an extension each time another locale lands, so the report fills in while the audit runs. The English baseline is the `en` locale when it is in the selection, otherwise the latest regular listing snapshot.
+  - **Locales the extension does not ship are not audited.** CWS serves the default listing for an unsupported locale, so its text is the developer's default copy, not a translation; auditing it would flag every unlocalized locale as "untranslated English" and inflate an honest single-language developer's score. The listing's own locale list decides (`isLocalized` on the snapshot); such rows show as "default listing / not audited" in the table and are counted separately in the summary and the JSON export.
+  - A running audit does not block the scheduled scan: the daily cycle's "previous cycle still running" guard ignores pending `translation_audit` jobs (cycle jobs sort ahead of them and the audit resumes afterwards), and a manual "Refresh Now" no longer discards a pending audit.
+
+### Notes
+- These are **text heuristics, not semantic judgements** - every detector is deliberately conservative, and the tab says so. A fluent, same-length translation that describes a different product cannot be told apart from an honest one without reading it (the PRD's optional AI-assisted comparison is not part of this release).
+- Uses the existing `translation_snapshots` table (present since schema v1) and the existing `translation_audit` job type and `translationLocales` setting; **no schema bump**. Snapshots are upserted per extension + date + locale. Included in export/backup and in extension deletion / retention pruning as before.
+- **Proxy:** the detail endpoint is called with an `hl` query parameter (`GET /detail?id=&hl=`), which the companion proxy already documents. Detail pages have the same structure in every locale, so the `listing-v1` parser reads them unchanged (verified against the saved `es` and `ja` fixtures).
+- New: `shared/utils/translation-checks.ts` (detectors, scoring), `shared/utils/locales.ts` (locale list shared by Settings and the tab), `dashboard/composables/useTranslationAudit.ts`, `components/translation/{AuditReport,LocaleComparisonTable}.vue`, `components/project/TranslationsTab.vue`; `TRIGGER_TRANSLATION_AUDIT` message; `buildTranslationAuditJobs` / `triggerTranslationAudit`.
+
 ## [0.38.4] - 2026-09-02
 
 ### Fixed

@@ -33,6 +33,13 @@ export const PRIORITY_AUTOCOMPLETE_SCAN = 40;
 /** Priority for review scans (after autocomplete scans). */
 export const PRIORITY_REVIEW_SCAN = 50;
 
+/**
+ * Priority base for translation audit jobs (manual only, after everything a
+ * scan cycle enqueues). Each job adds its ordinal so locales drain in the
+ * order they were requested, extension by extension.
+ */
+export const PRIORITY_TRANSLATION_AUDIT = 60;
+
 /** Default maximum retries for queue jobs. */
 const DEFAULT_MAX_RETRIES = 3;
 
@@ -216,6 +223,33 @@ export function buildReviewScanJobs(
   return unique.map((id) => withCycle(createReviewScanJob(id, now), cycle));
 }
 
+/**
+ * Build translation_audit jobs: one per extension x locale (PRD 5.3.6).
+ *
+ * Manual only - never part of the daily cycle. Jobs are ordered extension-major
+ * so one extension's locales land together and its report completes early,
+ * rather than every extension staying half-audited until the very end.
+ * Duplicate IDs / locales are deduplicated; blanks are dropped.
+ */
+export function buildTranslationAuditJobs(
+  extensionIds: string[],
+  locales: string[],
+  cycle?: ScanCycleContext
+): QueueJob[] {
+  const now = new Date();
+  const uniqueExtensions = [...new Set(extensionIds.map((id) => id.trim()).filter((id) => id.length > 0))];
+  const uniqueLocales = [...new Set(locales.map((l) => l.trim()).filter((l) => l.length > 0))];
+  const jobs: QueueJob[] = [];
+  let order = 0;
+  for (const extensionId of uniqueExtensions) {
+    for (const locale of uniqueLocales) {
+      jobs.push(withCycle(createTranslationAuditJob(extensionId, locale, PRIORITY_TRANSLATION_AUDIT + order, now), cycle));
+      order += 1;
+    }
+  }
+  return jobs;
+}
+
 /** Stamp a job with its scan cycle, if one was supplied. */
 function withCycle(job: QueueJob, cycle?: ScanCycleContext): QueueJob {
   if (!cycle) return job;
@@ -272,6 +306,26 @@ function createAutocompleteScanJob(
     payload: { keywordId: keyword.id!, keyword: keyword.text },
     status: 'pending',
     priority: PRIORITY_AUTOCOMPLETE_SCAN,
+    retryCount: 0,
+    maxRetries: DEFAULT_MAX_RETRIES,
+    scheduledAt,
+    startedAt: null,
+    completedAt: null,
+    error: null,
+  };
+}
+
+function createTranslationAuditJob(
+  extensionId: string,
+  locale: string,
+  priority: number,
+  scheduledAt: Date
+): QueueJob {
+  return {
+    type: 'translation_audit',
+    payload: { extensionId, locale },
+    status: 'pending',
+    priority,
     retryCount: 0,
     maxRetries: DEFAULT_MAX_RETRIES,
     scheduledAt,
