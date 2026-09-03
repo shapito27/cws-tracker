@@ -6,10 +6,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
 import { db } from '@/shared/db/database';
-import { useScanLogs, groupLogsByJob, isSummaryLog } from '@/dashboard/composables/useScanLogs';
+import { useScanLogs, groupLogsByJob, isSummaryLog, localDateOf } from '@/dashboard/composables/useScanLogs';
 import type { SavedScanLog } from '@/dashboard/composables/useScanLogs';
 import type { ScanLog, ScanLogLevel } from '@/shared/types';
-import { daysAgo } from '@/shared/utils/dates';
+import { daysAgo, toDateString } from '@/shared/utils/dates';
+
+/** ISO timestamp for a wall-clock time on a local YYYY-MM-DD date. */
+function localIso(date: string, hh: number, mm: number): string {
+  return new Date(`${date}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00`).toISOString();
+}
 
 function makeLog(partial: Partial<ScanLog> & { timestamp: string; level: ScanLogLevel; durationMs: number }): ScanLog {
   return {
@@ -135,6 +140,76 @@ describe('useScanLogs weeklyStats', () => {
     const todayBucket = weeklyStats.value.find((d) => d.date === today)!;
     expect(todayBucket.infoCount).toBe(1);
     expect(todayBucket.errorCount).toBe(1);
+  });
+
+  it('counts every request in the window even when the list cap (500 rows) is exceeded', async () => {
+    // Older day first so its rows have the lowest ids and are the first ones
+    // the id-ordered list query drops.
+    const old = daysAgo(5);
+    await db.scan_logs.bulkAdd([
+      makeLog({ timestamp: `${old}T12:00:00.000Z`, level: 'info', durationMs: 100 }),
+      makeLog({ timestamp: `${old}T12:01:00.000Z`, level: 'error', durationMs: 300 }),
+    ]);
+    // 260 requests + 260 summary rows today = 520 rows, more than the list loads.
+    const today = daysAgo(0);
+    const rows: ScanLog[] = [];
+    for (let i = 0; i < 260; i++) {
+      rows.push(makeLog({ timestamp: `${today}T10:00:00.000Z`, level: 'info', durationMs: 200 }));
+      rows.push({
+        ...makeLog({ timestamp: `${today}T10:00:01.000Z`, level: 'info', durationMs: 0 }),
+        jobDetail: 'Page 1 for "x": 30 results, 1/1 tracked found, continuing',
+        kind: 'summary',
+      });
+    }
+    await db.scan_logs.bulkAdd(rows);
+
+    const { loadLogs, logs, weeklyStats } = useScanLogs();
+    await loadLogs();
+
+    expect(logs.value).toHaveLength(500); // the list is still capped...
+    const oldBucket = weeklyStats.value.find((d) => d.date === old)!;
+    expect(oldBucket.infoCount).toBe(1); // ...but the chart still sees the older day
+    expect(oldBucket.errorCount).toBe(1);
+    expect(oldBucket.avgDurationMs).toBe(200);
+    const todayBucket = weeklyStats.value.find((d) => d.date === today)!;
+    expect(todayBucket.infoCount).toBe(260);
+    expect(todayBucket.avgDurationMs).toBe(200);
+  });
+
+  it('buckets by local calendar date, not the UTC date of the ISO timestamp', async () => {
+    const today = daysAgo(0);
+    const yesterday = daysAgo(1);
+    // Just after local midnight today and just before local midnight
+    // yesterday: in a non-UTC zone at least one of these has a different UTC
+    // date than its local date.
+    await db.saveScanLog(makeLog({ timestamp: localIso(today, 0, 30), level: 'info', durationMs: 100 }));
+    await db.saveScanLog(makeLog({ timestamp: localIso(today, 23, 30), level: 'warn', durationMs: 300 }));
+    await db.saveScanLog(makeLog({ timestamp: localIso(yesterday, 23, 30), level: 'error', durationMs: 500 }));
+
+    const { loadLogs, weeklyStats } = useScanLogs();
+    await loadLogs();
+
+    const todayBucket = weeklyStats.value.find((d) => d.date === today)!;
+    expect(todayBucket.infoCount).toBe(1);
+    expect(todayBucket.warnCount).toBe(1);
+    expect(todayBucket.errorCount).toBe(0);
+    expect(todayBucket.avgDurationMs).toBe(200);
+    const yesterdayBucket = weeklyStats.value.find((d) => d.date === yesterday)!;
+    expect(yesterdayBucket.errorCount).toBe(1);
+    expect(yesterdayBucket.infoCount + yesterdayBucket.warnCount).toBe(0);
+  });
+
+  it('includes the whole oldest charted day, from local midnight', async () => {
+    const oldest = daysAgo(6);
+    await db.saveScanLog(makeLog({ timestamp: localIso(oldest, 0, 5), level: 'info', durationMs: 100 }));
+    await db.saveScanLog(makeLog({ timestamp: localIso(daysAgo(7), 23, 55), level: 'info', durationMs: 100 }));
+
+    const { loadLogs, weeklyStats } = useScanLogs();
+    await loadLogs();
+
+    expect(weeklyStats.value[0].date).toBe(oldest);
+    expect(weeklyStats.value[0].infoCount).toBe(1);
+    expect(weeklyStats.value.reduce((sum, d) => sum + d.infoCount, 0)).toBe(1);
   });
 
   it('excludes synthetic summary logs from the daily request counts and average', async () => {
@@ -286,14 +361,39 @@ describe('groupLogsByJob', () => {
     expect(page2.summaryText).toBe('Page 2 HTTP 429 for "x"'); // no success prefix to strip
   });
 
-  it('buckets jobs spanning two days into separate date groups', () => {
+  it('buckets jobs spanning two local days into separate date groups', () => {
     const logs: SavedScanLog[] = [
-      makeSaved({ jobId: 2, timestamp: '2026-06-08T00:10:00.000Z', jobType: 'listing_scan', durationMs: 100, jobDetail: 'Listing: today' }),
-      makeSaved({ jobId: 1, timestamp: '2026-06-07T23:50:00.000Z', jobType: 'listing_scan', durationMs: 100, jobDetail: 'Listing: yesterday' }),
+      makeSaved({ jobId: 2, timestamp: localIso('2026-06-08', 0, 10), jobType: 'listing_scan', durationMs: 100, jobDetail: 'Listing: today' }),
+      makeSaved({ jobId: 1, timestamp: localIso('2026-06-07', 23, 50), jobType: 'listing_scan', durationMs: 100, jobDetail: 'Listing: yesterday' }),
     ];
     const groups = groupLogsByJob(logs);
     expect(groups).toHaveLength(2);
     expect(groups[0].date).toBe('2026-06-08');
     expect(groups[1].date).toBe('2026-06-07');
+  });
+
+  it('keeps one local day in one date group even when its UTC date differs', () => {
+    // 00:10 and 23:50 local on the same day straddle UTC midnight in most
+    // zones; the page must not render the same "Jun 8" header twice.
+    const logs: SavedScanLog[] = [
+      makeSaved({ jobId: 2, timestamp: localIso('2026-06-08', 23, 50), jobType: 'listing_scan', durationMs: 100, jobDetail: 'Listing: late' }),
+      makeSaved({ jobId: 1, timestamp: localIso('2026-06-08', 0, 10), jobType: 'listing_scan', durationMs: 100, jobDetail: 'Listing: early' }),
+    ];
+    const groups = groupLogsByJob(logs);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].date).toBe('2026-06-08');
+    expect(groups[0].jobs).toHaveLength(2);
+  });
+});
+
+describe('localDateOf', () => {
+  it('returns the local calendar date of an ISO timestamp', () => {
+    const now = new Date(2026, 5, 8, 0, 10); // local
+    expect(localDateOf(now.toISOString())).toBe(toDateString(now));
+    expect(localDateOf(now.toISOString())).toBe('2026-06-08');
+  });
+
+  it('falls back to the literal date prefix for an unparseable timestamp', () => {
+    expect(localDateOf('2026-06-08Tgarbage')).toBe('2026-06-08');
   });
 });

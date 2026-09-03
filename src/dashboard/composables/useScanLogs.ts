@@ -1,9 +1,10 @@
 /**
  * Composable for loading, grouping, and filtering scan logs.
  *
- * Loads all recent scan logs from IndexedDB (max 500, 7-day retention keeps
- * volume small) and provides client-side filtering by level and job type plus
- * job-oriented grouping for the Logs page.
+ * Loads the newest scan logs from IndexedDB for the list (max 500) and
+ * provides client-side filtering by level and job type plus job-oriented
+ * grouping for the Logs page. The 7-day chart is fed by a separate, uncapped
+ * query over the whole window so the list cap never hides a day.
  *
  * A keyword scan emits one log per HTTP request plus a synthetic per-page
  * `kind: 'summary'` log (results / tracked-found / stop reason). The grouping
@@ -15,7 +16,7 @@
 import { ref, computed } from 'vue';
 import type { ScanLog, ScanLogLevel } from '@/shared/types';
 import { db } from '@/shared/db/database';
-import { daysAgo } from '@/shared/utils/dates';
+import { daysAgo, toDateString } from '@/shared/utils/dates';
 
 const MAX_LOGS = 500;
 const STATS_WINDOW_DAYS = 7;
@@ -68,13 +69,37 @@ export interface LogJobGroup {
   entries: LogRequestEntry[];
 }
 
-/** Job groups bucketed by calendar date (YYYY-MM-DD). */
+/** Job groups bucketed by local calendar date (YYYY-MM-DD, see `localDateOf`). */
 export interface LogDateGroup {
   date: string;
   jobs: LogJobGroup[];
 }
 
 const SEVERITY_RANK: Record<ScanLogLevel, number> = { info: 0, warn: 1, error: 2 };
+
+/** One real (non-summary) request reduced to what the daily chart needs. */
+interface DailyStatSample {
+  /** Local calendar date (YYYY-MM-DD) the request happened on. */
+  date: string;
+  level: ScanLogLevel;
+  durationMs: number;
+}
+
+/**
+ * Local calendar date (YYYY-MM-DD) of an ISO timestamp.
+ *
+ * Log timestamps are stored as UTC ISO strings, so `timestamp.slice(0, 10)`
+ * is the *UTC* date. The Logs page shows local times and local date headers,
+ * and the chart's day buckets are built from the local `daysAgo()`, so every
+ * bucketing decision has to use the local date too - otherwise a request at
+ * 01:00 local in a UTC+ zone lands under "yesterday", the same local day
+ * renders as two date headers, and the chart shifts counts across midnight.
+ * An unparseable timestamp falls back to its literal date prefix.
+ */
+export function localDateOf(timestamp: string): string {
+  const d = new Date(timestamp);
+  return isNaN(d.getTime()) ? timestamp.slice(0, 10) : toDateString(d);
+}
 
 /** Matches the successful per-page summary jobDetail, e.g. `Page 2 for "kw": ...`. */
 const SUMMARY_DETAIL_RE = /^Page \d+ for "/;
@@ -175,7 +200,7 @@ export function groupLogsByJob(logs: SavedScanLog[]): LogDateGroup[] {
   let currentDate = '';
   for (const run of segmentByJob(logs)) {
     const group = buildJobGroup(run);
-    const date = group.timestamp.slice(0, 10);
+    const date = localDateOf(group.timestamp);
     if (date !== currentDate) {
       currentDate = date;
       dateGroups.push({ date, jobs: [] });
@@ -187,6 +212,8 @@ export function groupLogsByJob(logs: SavedScanLog[]): LogDateGroup[] {
 
 export function useScanLogs() {
   const logs = ref<SavedScanLog[]>([]);
+  /** Every real request in the chart window, independent of the list's row cap. */
+  const statsSamples = ref<DailyStatSample[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
   const filterLevel = ref<ScanLogLevel | 'all'>('all');
@@ -213,28 +240,29 @@ export function useScanLogs() {
   const logGroups = computed<LogDateGroup[]>(() => groupLogsByJob(filteredLogs.value));
 
   /**
-   * Per-day request stats over the last 7 calendar days (chronological,
+   * Per-day request stats over the last 7 local calendar days (chronological,
    * oldest → today). Missing days are zero-filled so the chart x-axis is
-   * always full. Intentionally derived from all loaded `logs` (not
-   * `filteredLogs`) so the level/jobType filters on the list don't
-   * distort the overall health view. Synthetic `summary` logs are excluded
-   * so counts reflect real requests and the 0ms diagnostics don't deflate
-   * the average duration.
+   * always full. Derived from `statsSamples` - a separate, uncapped query over
+   * the whole window - NOT from the list's `logs`, which is capped at
+   * `MAX_LOGS` newest rows: a couple of busy days (a translation audit alone
+   * is 100+ requests plus their summary rows) would otherwise fill the cap
+   * and every older day would silently chart as zero. It is also independent
+   * of `filteredLogs` so the level/jobType filters on the list don't distort
+   * the overall health view. Synthetic `summary` logs are excluded so counts
+   * reflect real requests and the 0ms diagnostics don't deflate the average.
    */
   const weeklyStats = computed<DailyRequestStat[]>(() => {
     const buckets = new Map<string, { info: number; warn: number; error: number; totalDuration: number; count: number }>();
     for (let i = STATS_WINDOW_DAYS - 1; i >= 0; i--) {
       buckets.set(daysAgo(i), { info: 0, warn: 0, error: 0, totalDuration: 0, count: 0 });
     }
-    for (const log of logs.value) {
-      if (isSummaryLog(log)) continue;
-      const date = log.timestamp.slice(0, 10);
-      const bucket = buckets.get(date);
+    for (const sample of statsSamples.value) {
+      const bucket = buckets.get(sample.date);
       if (!bucket) continue;
-      if (log.level === 'info') bucket.info++;
-      else if (log.level === 'warn') bucket.warn++;
-      else if (log.level === 'error') bucket.error++;
-      bucket.totalDuration += log.durationMs;
+      if (sample.level === 'info') bucket.info++;
+      else if (sample.level === 'warn') bucket.warn++;
+      else if (sample.level === 'error') bucket.error++;
+      bucket.totalDuration += sample.durationMs;
       bucket.count++;
     }
     const out: DailyRequestStat[] = [];
@@ -279,14 +307,26 @@ export function useScanLogs() {
     loading.value = true;
     error.value = null;
     try {
-      const raw = await db.getRecentScanLogs(MAX_LOGS);
+      // Chart window starts at local midnight of the oldest charted day; the
+      // ISO cutoff is what the (UTC) timestamp index is compared against.
+      const windowStartIso = new Date(`${daysAgo(STATS_WINDOW_DAYS - 1)}T00:00:00`).toISOString();
+      const [raw, windowLogs] = await Promise.all([
+        db.getRecentScanLogs(MAX_LOGS),
+        db.getScanLogsSince(windowStartIso),
+      ]);
       // Filter to only logs with a persisted id (should always be the case)
       logs.value = raw.filter((l): l is SavedScanLog => l.id !== undefined);
+      // Keep only what the chart needs - the window can hold thousands of
+      // rows with response bodies attached.
+      statsSamples.value = windowLogs
+        .filter((l) => !isSummaryLog(l))
+        .map((l) => ({ date: localDateOf(l.timestamp), level: l.level, durationMs: l.durationMs }));
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       error.value = msg;
       console.error('Failed to load scan logs:', e);
       logs.value = [];
+      statsSamples.value = [];
     } finally {
       loading.value = false;
     }

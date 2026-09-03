@@ -2,6 +2,12 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.39.1] - 2026-09-03
+
+### Fixed
+- **Logs chart dropped older days.** The 7-day request chart was aggregated from the same 500-row list query as the log table, so a couple of busy days (a translation audit is 100+ requests plus their summary rows) filled the cap and every older day silently charted as zero even though its logs were still stored. The chart now aggregates a separate, uncapped query over the whole window (`getScanLogsSince` on the `timestamp` index); the table keeps its 500-row cap.
+- **Duplicate date headers / off-by-one days near midnight.** Log timestamps are UTC ISO strings, but the page renders local times and the chart's day buckets are local dates. Grouping used the UTC date prefix, so in any non-UTC zone a request between local midnight and UTC midnight landed under the wrong day: the same local day rendered as two "Sep 3, 2026" headers and the chart shifted counts across midnight. Both the table grouping and the chart now bucket by the local calendar date (`localDateOf`), and the header is rendered from the bucket key. Tests now run these paths in Tokyo and Los Angeles as well as UTC.
+
 ## [0.39.0] - 2026-09-02
 
 ### Added
