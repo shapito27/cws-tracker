@@ -93,6 +93,7 @@ describe('detectRankChanges across intraday samples', () => {
       fetchPage: vi.fn(),
       sendMessage: vi.fn(),
       settings: new SettingsManager(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     const events = await db.events.toArray();
@@ -115,6 +116,7 @@ describe('detectRankChanges across intraday samples', () => {
       fetchPage: vi.fn(),
       sendMessage: vi.fn(),
       settings: new SettingsManager(),
+      sleep: vi.fn().mockResolvedValue(undefined),
     });
 
     const [event] = await db.events.toArray();
@@ -124,7 +126,12 @@ describe('detectRankChanges across intraday samples', () => {
 
   it('re-running one slot replaces only that slot\'s events', async () => {
     const { detectRankChanges } = await import('@/background/queue-processor');
-    const deps = { fetchPage: vi.fn(), sendMessage: vi.fn(), settings: new SettingsManager() };
+    const deps = {
+      fetchPage: vi.fn(),
+      sendMessage: vi.fn(),
+      settings: new SettingsManager(),
+      sleep: vi.fn().mockResolvedValue(undefined),
+    };
 
     await db.saveRankSnapshots([snap('2026-08-19', '06:00:00', 9, 0)]);
 
@@ -157,7 +164,12 @@ describe('detectRankChanges across intraday samples', () => {
 describe('drop debounce stays day-based', () => {
   it('does not confirm an Out from consecutive nulls within one day', async () => {
     const { detectRankChanges } = await import('@/background/queue-processor');
-    const deps = { fetchPage: vi.fn(), sendMessage: vi.fn(), settings: new SettingsManager() };
+    const deps = {
+      fetchPage: vi.fn(),
+      sendMessage: vi.fn(),
+      settings: new SettingsManager(),
+      sleep: vi.fn().mockResolvedValue(undefined),
+    };
 
     // Yesterday ranked #5, then three nulls today.
     await db.saveRankSnapshots([snap('2026-08-19', '06:00:00', 5, 0)]);
@@ -176,7 +188,12 @@ describe('drop debounce stays day-based', () => {
 
   it('confirms an Out once a null lands on a later day', async () => {
     const { detectRankChanges } = await import('@/background/queue-processor');
-    const deps = { fetchPage: vi.fn(), sendMessage: vi.fn(), settings: new SettingsManager() };
+    const deps = {
+      fetchPage: vi.fn(),
+      sendMessage: vi.fn(),
+      settings: new SettingsManager(),
+      sleep: vi.fn().mockResolvedValue(undefined),
+    };
 
     await db.saveRankSnapshots([snap('2026-08-19', '06:00:00', 5, 0)]);
     const firstNull = snap('2026-08-20', '06:00:00', null, 0);

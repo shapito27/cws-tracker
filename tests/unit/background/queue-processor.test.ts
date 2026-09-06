@@ -141,6 +141,8 @@ function createDeps(overrides: Partial<ProcessorDeps> = {}): ProcessorDeps {
     fetchPage: vi.fn().mockResolvedValue(new Response(MOCK_LISTING_HTML, { status: 200 })),
     sendMessage: vi.fn(),
     settings: new SettingsManager(),
+    // Pagination pacing is real time in production; tests must not sleep it.
+    sleep: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -1129,6 +1131,51 @@ describe('Queue Processor', () => {
     });
   });
 
+  describe('calculatePaginationDelay', () => {
+    it('paces pages with the configured queue delay, not a flat 2s', async () => {
+      const { calculatePaginationDelay } = await import('@/background/queue-processor');
+      const { DEFAULT_SETTINGS } = await import('@/shared/utils/settings');
+      const delay = calculatePaginationDelay({
+        ...DEFAULT_SETTINGS,
+        queueDelayMs: 30_000,
+        queueJitterMs: 0,
+      });
+      expect(delay).toBe(30_000);
+    });
+
+    it('applies jitter around the configured delay', async () => {
+      const { calculatePaginationDelay } = await import('@/background/queue-processor');
+      const { DEFAULT_SETTINGS } = await import('@/shared/utils/settings');
+      const config = { ...DEFAULT_SETTINGS, queueDelayMs: 30_000, queueJitterMs: 10_000 };
+      const samples = Array.from({ length: 50 }, () => calculatePaginationDelay(config));
+      for (const sample of samples) {
+        expect(sample).toBeGreaterThanOrEqual(20_000);
+        expect(sample).toBeLessThanOrEqual(40_000);
+      }
+      expect(new Set(samples).size).toBeGreaterThan(1);
+    });
+
+    it('caps at 2 minutes so a job never approaches the stale-running window', async () => {
+      const { calculatePaginationDelay } = await import('@/background/queue-processor');
+      const { DEFAULT_SETTINGS } = await import('@/shared/utils/settings');
+      const delay = calculatePaginationDelay({
+        ...DEFAULT_SETTINGS,
+        queueDelayMs: 300_000,
+        queueJitterMs: 60_000,
+      });
+      expect(delay).toBe(120_000);
+    });
+
+    it('never negative when jitter exceeds the base delay', async () => {
+      const { calculatePaginationDelay } = await import('@/background/queue-processor');
+      const { DEFAULT_SETTINGS } = await import('@/shared/utils/settings');
+      const config = { ...DEFAULT_SETTINGS, queueDelayMs: 1_000, queueJitterMs: 30_000 };
+      for (let i = 0; i < 50; i++) {
+        expect(calculatePaginationDelay(config)).toBeGreaterThanOrEqual(0);
+      }
+    });
+  });
+
   describe('classifyError', () => {
     it('HttpError 429 → retriable', async () => {
       const { classifyError, HttpError } = await import('@/background/queue-processor');
@@ -1381,6 +1428,61 @@ describe('Queue Processor', () => {
       expect(logs[3].jobDetail).toContain('Page 2');
       expect(logs[3].pageNumber).toBe(2);
     }, 10_000);
+
+    it('keyword_scan pagination: waits the configured delay between pages', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      const { getSearchParser } = await import('@/background/parsers/index');
+      await seedProject();
+      const settings = new SettingsManager();
+      await settings.setMultiple({ queueDelayMs: 45_000, queueJitterMs: 0 });
+      await testDb.enqueueJobs([makeKeywordJob()]);
+
+      // Page 1 finds only the competitor, so pagination continues to page 2.
+      let parseCallCount = 0;
+      vi.mocked(getSearchParser).mockReturnValue({
+        version: 'v1',
+        parse: () => {
+          parseCallCount++;
+          return {
+            results: [
+              {
+                extensionId:
+                  parseCallCount === 1
+                    ? 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                    : 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                name: 'Test Extension',
+                iconUrl: 'https://example.com/icon.png',
+                rating: 4.5,
+                ratingCount: 100,
+                shortDescription: 'A test',
+                userCount: 10000,
+                category: 'productivity',
+                isFeatured: false,
+                position: 1,
+              },
+            ],
+            totalCount: 30,
+            nextPageToken: parseCallCount === 1 ? 'page2-token' : null,
+          };
+        },
+      });
+
+      const order: string[] = [];
+      const fetchPage = vi.fn().mockImplementation(() => {
+        order.push('fetch');
+        return Promise.resolve(new Response('mock-search-results', { status: 200 }));
+      });
+      const sleep = vi.fn().mockImplementation((ms: number) => {
+        order.push(`sleep:${ms}`);
+        return Promise.resolve();
+      });
+      const deps = createDeps({ fetchPage, sleep, settings });
+
+      await processNextJob(deps);
+
+      // No delay before page 1; exactly one delay, before page 2.
+      expect(order).toEqual(['fetch', 'sleep:45000', 'fetch']);
+    });
 
     it('HTTP 404 on listing_scan: writes warn-level log (not error)', async () => {
       const { processNextJob } = await import('@/background/queue-processor');

@@ -119,6 +119,8 @@ function createSchedulerDeps(overrides?: Partial<SchedulerDeps>): SchedulerDeps 
     ),
     sendMessage: vi.fn(),
     settings: settingsManager,
+    // Pagination pacing is real time in production; tests must not sleep it.
+    sleep: vi.fn().mockResolvedValue(undefined),
   };
   return {
     settings: settingsManager,

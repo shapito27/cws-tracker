@@ -192,6 +192,8 @@ function createProcessorDeps(overrides: Partial<ProcessorDeps> = {}): ProcessorD
     fetchPage: vi.fn().mockResolvedValue(new Response('mock-html', { status: 200 })),
     sendMessage: vi.fn(),
     settings: new SettingsManager(),
+    // Pagination pacing is real time in production; tests must not sleep it.
+    sleep: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
