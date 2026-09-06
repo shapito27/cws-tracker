@@ -97,11 +97,31 @@ const MIN_ALARM_DELAY_MS = 30_000;
 /** Maximum number of search result pages to fetch per keyword scan. */
 const MAX_SEARCH_PAGES = 3;
 
-/** Base delay between pagination requests in milliseconds. */
-const PAGINATION_DELAY_BASE_MS = 2_000;
+/**
+ * Ceiling on one pagination sleep inside a keyword scan.
+ *
+ * Pagination is paced by the user's `queueDelayMs`/`queueJitterMs` like every
+ * other CWS request (see {@link calculatePaginationDelay}), but unlike the
+ * inter-job gap - a `chrome.alarms` delay with nothing running - this one is
+ * slept *inside* a job that stays `running` for its whole duration. The
+ * scheduler treats a job `running` past its stale window (15 min) as abandoned
+ * by a dead worker and re-queues it, which against a live job means the same
+ * search executing twice at once. The Settings slider goes to 300s, and jitter
+ * on top of that would put a three-page scan (2 sleeps + 3 fetches of up to
+ * `FETCH_TIMEOUT_MS`) past that window. At this cap the worst case is
+ * 2 x 120s + 3 x 90s = 8.5 min - comfortably inside it - while the default 60s
+ * and the 30s minimum pass through untouched.
+ */
+const MAX_PAGINATION_DELAY_MS = 120_000;
 
-/** Jitter range for pagination delay in milliseconds. */
-const PAGINATION_JITTER_MS = 1_000;
+/**
+ * How long to sleep between keep-alive pings while waiting inside a job.
+ *
+ * Chrome terminates an idle MV3 worker after 30s, and a pending `setTimeout`
+ * is not activity - only an event or a `chrome.*` API call resets that timer.
+ * Comfortably under 30s so a ping always lands before the worker is reclaimed.
+ */
+const KEEP_ALIVE_INTERVAL_MS = 20_000;
 
 /**
  * Hard ceiling on a single CWS/proxy request.
@@ -307,6 +327,8 @@ export interface ProcessorDeps {
   fetchPage: (url: string) => Promise<Response>;
   sendMessage: (message: unknown) => void;
   settings: SettingsManager;
+  /** Wait inside a running job (pagination pacing). Injectable for tests. */
+  sleep: (ms: number) => Promise<void>;
 }
 
 /**
@@ -337,6 +359,7 @@ const defaultDeps: ProcessorDeps = {
     }
   },
   settings: new SettingsManager(),
+  sleep: paginationDelay,
 };
 
 // ---------------------------------------------------------------------------
@@ -638,10 +661,10 @@ async function processKeywordScan(
   let totalCount = 0;
 
   for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
-    // Delay with jitter between pagination requests (not before page 1)
+    // Pace pagination like any other CWS request: the configured delay with
+    // jitter, never a flat gap, and never before page 1.
     if (page > 0) {
-      const jitter = (Math.random() * 2 - 1) * PAGINATION_JITTER_MS;
-      await paginationDelay(Math.max(0, PAGINATION_DELAY_BASE_MS + jitter));
+      await deps.sleep(calculatePaginationDelay(settings));
     }
 
     const params: { q: string; token?: string } = { q: keyword };
@@ -1658,6 +1681,22 @@ async function calculateNormalDelay(settings: SettingsManager): Promise<number> 
 }
 
 /**
+ * Delay between two pagination requests of one keyword scan.
+ *
+ * Pages 2 and 3 of a search are CWS requests like any other, so they are paced
+ * by the same `queueDelayMs +/- queueJitterMs` the queue puts between jobs - a
+ * scan that fired three searches ~2s apart ignored the pace the user set (and
+ * the Settings copy that promises "Minimum 30 seconds between CWS requests").
+ * Capped at {@link MAX_PAGINATION_DELAY_MS}, which the reachable settings only
+ * exceed at the slow end of the slider.
+ */
+export function calculatePaginationDelay(config: Settings): number {
+  const jitter = (Math.random() * 2 - 1) * config.queueJitterMs;
+  const delay = Math.max(0, config.queueDelayMs + jitter);
+  return Math.min(delay, MAX_PAGINATION_DELAY_MS);
+}
+
+/**
  * Calculate retry backoff delay: min(baseDelay * 2^retryCount, MAX_BACKOFF_MS).
  * Retry 1 = 2 min, Retry 2 = 4 min, Retry 3 = 8 min (per PRD 6.2).
  */
@@ -1667,11 +1706,50 @@ export function calculateRetryDelay(retryCount: number): number {
 }
 
 /**
- * Short delay for pagination within a single keyword scan job.
- * Uses setTimeout since the SW stays alive during active job processing.
+ * Wait inside a single job execution (pagination pacing).
+ *
+ * `setTimeout` is allowed here - like the {@link FETCH_TIMEOUT_MS} abort timer
+ * - because it schedules nothing that has to survive a worker restart: it lives
+ * entirely inside one job. What it cannot rely on is the worker staying awake.
+ * A fetch keeps the worker alive; a pending timer does not, and Chrome reclaims
+ * an idle worker after 30s - shorter than the delays this now waits. So the
+ * wait is split into sub-idle-timeout chunks with a `chrome.*` call between
+ * them, which is what resets Chrome's idle timer.
  */
 function paginationDelay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    let remaining = ms;
+
+    const step = (): void => {
+      if (remaining <= 0) {
+        resolve();
+        return;
+      }
+      const chunk = Math.min(remaining, KEEP_ALIVE_INTERVAL_MS);
+      remaining -= chunk;
+      setTimeout(() => {
+        if (remaining > 0) keepWorkerAlive();
+        step();
+      }, chunk);
+    };
+
+    step();
+  });
+}
+
+/**
+ * Reset Chrome's service-worker idle timer with a trivial extension API call.
+ * Best-effort: outside a worker (tests, dashboard) there is nothing to keep
+ * alive, and a failure here must never break the job that is waiting.
+ */
+function keepWorkerAlive(): void {
+  try {
+    void Promise.resolve(chrome?.runtime?.getPlatformInfo?.()).catch(() => {
+      // A failed ping is not worth failing the job over.
+    });
+  } catch {
+    // Not in an extension worker - nothing to keep alive.
+  }
 }
 
 // ---------------------------------------------------------------------------

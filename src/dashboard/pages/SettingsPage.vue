@@ -183,6 +183,15 @@ const extensionVersion = computed(() => {
 });
 
 /**
+ * Worst-case pages a keyword search fetches. Mirrors `MAX_SEARCH_PAGES` in
+ * `background/queue-processor.ts` (the dashboard must not import from the
+ * service worker). Each page is a separate CWS request paced by this same
+ * delay, so a keyword costs up to this many searches plus one autocomplete
+ * request - a scan stops early once every tracked extension is found.
+ */
+const MAX_SEARCH_PAGES_PER_KEYWORD = 3;
+
+/**
  * Rough cost of the configured schedule, per day.
  *
  * Raising scansPerDay multiplies CWS request volume, and the resulting scan
@@ -190,14 +199,19 @@ const extensionVersion = computed(() => {
  * because the previous cycle is still draining. Showing the arithmetic up front
  * is cheaper than letting someone discover it from a warning in the logs.
  *
+ * Counted at the worst case: under-stating it here means the overrun warning
+ * stays silent for a schedule that does skip slots, which is the failure this
+ * paragraph exists to prevent.
+ *
  * Reviews only run on the day's first slot, so they are counted once.
  */
 const scanBudget = computed(() => {
-  const perSlot = extensionCount.value + keywordCount.value * 2;
+  const perKeyword = MAX_SEARCH_PAGES_PER_KEYWORD + 1;
+  const perSlot = extensionCount.value + keywordCount.value * perKeyword;
   const requests = perSlot * localScansPerDay.value + extensionCount.value;
   if (requests === 0) return null;
 
-  // One job per queue delay, floored at Chrome's 30-second alarm minimum.
+  // One request per queue delay, floored at Chrome's 30-second alarm minimum.
   const minutesPerRequest = Math.max(localQueueDelay.value / 60, 0.5);
   const totalMinutes = Math.round(requests * minutesPerRequest);
   const perSlotMinutes = Math.round((perSlot + extensionCount.value) * minutesPerRequest);
@@ -465,7 +479,7 @@ onUnmounted(() => {
               Daily Auto-Scan is off, so this setting has no effect yet.
             </p>
             <p v-if="scanBudget" class="mt-1 text-xs" :class="scanBudget.overruns ? 'text-amber-700' : 'text-gray-500'">
-              About {{ scanBudget.requests }} requests/day, roughly
+              Up to {{ scanBudget.requests }} requests/day, roughly
               {{ scanBudget.totalHours }}h of scanning.
               <template v-if="scanBudget.overruns">
                 A single round already takes longer than the

@@ -2,6 +2,16 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.40.2] - 2026-09-06
+
+### Fixed
+- **Search pagination ignored the Request Delay: pages 1, 2 and 3 of a keyword went out ~2 seconds apart.** A keyword scan fetches up to three search pages, and the gap between them was a hardcoded 2s ± 1s that predated the setting — so a configured 30s delay produced three CWS requests in about three seconds, then waited 30s before the next keyword. Every extra page is an ordinary CWS request, so pagination is now paced by the same `queueDelayMs` ± `queueJitterMs` as the queue itself, which is what the Settings copy ("Minimum 30 seconds between CWS requests") has always promised.
+- The pagination wait is capped at 2 minutes. Unlike the gap between jobs — a `chrome.alarms` delay with nothing running — this one is slept *inside* a job that stays `running` for its whole duration, and the scheduler re-queues a job still `running` after 15 minutes as one a dead worker abandoned. At the slider's slowest setting (5m + jitter) a three-page scan would have crossed that line and run the same search twice. The default 60s and the 30s minimum pass through untouched.
+- The wait no longer risks the service worker being reclaimed mid-scan. A pending `setTimeout` is not activity, and Chrome kills an idle MV3 worker after 30 seconds — the shortest delay this now waits. The wait is split into sub-30s chunks with a trivial `chrome.*` call between them, which is what resets Chrome's idle timer.
+
+### Changed
+- The Settings request-budget estimate counts pagination. It assumed one request per keyword search; those extra pages used to be nearly free and now each costs a full delay, so the estimate (and the "a single round takes longer than the gap between scans" warning that depends on it) counted up to two-thirds of a keyword scan's real cost as zero. It now counts the worst case — under-stating it means the warning stays silent for a schedule that really does skip slots — and reads "Up to N requests/day".
+
 ## [0.40.1] - 2026-09-06
 
 ### Fixed

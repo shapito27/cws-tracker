@@ -48,7 +48,12 @@ function reviewsFetch(): ReturnType<typeof vi.fn> {
 }
 
 function makeDeps(fetchPage: ReturnType<typeof vi.fn>) {
-  return { fetchPage, sendMessage: vi.fn(), settings: new SettingsManager() };
+  return {
+    fetchPage,
+    sendMessage: vi.fn(),
+    settings: new SettingsManager(),
+    sleep: vi.fn().mockResolvedValue(undefined),
+  };
 }
 
 describe('processReviewScan', () => {
