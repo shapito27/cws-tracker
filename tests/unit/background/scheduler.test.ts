@@ -378,6 +378,98 @@ describe('Scheduler', () => {
     });
   });
 
+  describe('request delay honours the configured setting', () => {
+    it('arms the next job at the configured 30s delay, not a doubled minute', async () => {
+      // queueDelayMs accepts 30s and the Settings slider offers it, but every
+      // delay below a minute used to be clamped up to one — so a 30-second
+      // request delay produced requests 61 seconds apart. Chrome's real floor
+      // is 0.5 minutes.
+      const { handleProcessQueueAlarm, ALARM_PROCESS_QUEUE } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({ queueDelayMs: 30_000, queueJitterMs: 0 });
+      await testDb.enqueueJobs([
+        {
+          type: 'listing_scan',
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+          status: 'pending',
+          priority: 10,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: new Date(Date.now() - 1000),
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+        {
+          type: 'keyword_scan',
+          payload: { keywordId: 1, keyword: 'ad blocker' },
+          status: 'pending',
+          priority: 30,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: new Date(Date.now() - 1000),
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+      ]);
+
+      await handleProcessQueueAlarm(createSchedulerDeps());
+
+      const armed = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_PROCESS_QUEUE);
+      expect(armed).toHaveLength(1);
+      expect((armed[0].args[1] as { delayInMinutes: number }).delayInMinutes).toBe(0.5);
+    });
+
+    it('never asks Chrome for less than its 0.5-minute floor', async () => {
+      // A delay below the floor would be refused and warned about by Chrome.
+      const { handleProcessQueueAlarm, ALARM_PROCESS_QUEUE } = await import('@/background/scheduler');
+
+      await seedProject();
+      // Written directly: the validator rejects anything under 30s, but a
+      // restored backup can carry one.
+      await settingsManager.setMultiple({ queueJitterMs: 0 });
+      await chrome.storage.local.set({
+        settings: {
+          ...(await settingsManager.getWithDefaults()),
+          queueDelayMs: 1_000,
+        },
+      });
+      await testDb.enqueueJobs([
+        {
+          type: 'listing_scan',
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+          status: 'pending',
+          priority: 10,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: new Date(Date.now() - 1000),
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+        {
+          type: 'keyword_scan',
+          payload: { keywordId: 1, keyword: 'ad blocker' },
+          status: 'pending',
+          priority: 30,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: new Date(Date.now() - 1000),
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+      ]);
+
+      await handleProcessQueueAlarm(createSchedulerDeps());
+
+      const armed = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_PROCESS_QUEUE);
+      expect((armed[0].args[1] as { delayInMinutes: number }).delayInMinutes).toBe(0.5);
+    });
+  });
+
   describe('purgeExpiredCycleJobs', () => {
     function jobAt(scheduledAt: Date, overrides: Record<string, unknown> = {}) {
       return {
@@ -1604,10 +1696,13 @@ describe('Scheduler', () => {
       const msg = progressMsg!.args[0] as { nextProcessingAt?: string; completed: number };
       expect(msg.completed).toBe(0);
       expect(msg.nextProcessingAt).toBeDefined();
-      // Timestamp should be ~1 minute in the future
+      // ~30 seconds out: Chrome's alarm floor, which is what the first
+      // processQueue alarm is armed at. Was asserted as ~1 minute, which is
+      // twice Chrome's actual limit and silently doubled the user's configured
+      // request delay.
       const nextTime = new Date(msg.nextProcessingAt!).getTime();
-      expect(nextTime).toBeGreaterThanOrEqual(beforeTime + 55_000);
-      expect(nextTime).toBeLessThanOrEqual(beforeTime + 65_000);
+      expect(nextTime).toBeGreaterThanOrEqual(beforeTime + 25_000);
+      expect(nextTime).toBeLessThanOrEqual(beforeTime + 35_000);
     });
 
     it('starts processing immediately by creating processQueue alarm', async () => {

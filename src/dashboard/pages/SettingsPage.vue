@@ -197,8 +197,8 @@ const scanBudget = computed(() => {
   const requests = perSlot * localScansPerDay.value + extensionCount.value;
   if (requests === 0) return null;
 
-  // One job per queue delay, floored at the 1-minute MV3 alarm minimum.
-  const minutesPerRequest = Math.max(localQueueDelay.value / 60, 1);
+  // One job per queue delay, floored at Chrome's 30-second alarm minimum.
+  const minutesPerRequest = Math.max(localQueueDelay.value / 60, 0.5);
   const totalMinutes = Math.round(requests * minutesPerRequest);
   const perSlotMinutes = Math.round((perSlot + extensionCount.value) * minutesPerRequest);
   const slotGapHours = 24 / localScansPerDay.value;
