@@ -119,9 +119,28 @@ const STALE_RUNNING_JOB_MS = 15 * 60_000;
  * bound it also let a *stalled* cycle block every future slot indefinitely —
  * one broken alarm chain and the extension quietly stops scanning for good.
  * Progress is measured by the last job the cycle completed, so a slow but
- * healthy cycle (jobs are a minute apart) is never mistaken for a dead one.
+ * healthy cycle (jobs are a minute apart by default) is never mistaken for a
+ * dead one.
+ *
+ * This is the floor, not the whole answer: see {@link staleCycleWindowMs}. The
+ * gap between two healthy jobs is `queueDelayMs ± queueJitterMs`, and the
+ * settings validator sets a minimum for those but no maximum — only the
+ * Settings UI caps them, and a restored backup does not go through the UI. A
+ * configured pace slower than a fixed window would make every healthy cycle
+ * look dead and get its jobs discarded, so the window is derived from the pace.
  */
 const STALE_CYCLE_PROGRESS_MS = 30 * 60_000;
+
+/**
+ * How long the queue may go without finishing a job before the cycle is
+ * written off: the 30-minute floor, or three healthy inter-job gaps, whichever
+ * is longer.
+ */
+function staleCycleWindowMs(settings: Settings): number {
+  const gapMs = (settings.queueDelayMs ?? 0) + (settings.queueJitterMs ?? 0);
+  const paced = Number.isFinite(gapMs) ? gapMs * 3 : 0;
+  return Math.max(STALE_CYCLE_PROGRESS_MS, paced);
+}
 
 // ---------------------------------------------------------------------------
 // Dependencies (injectable for testing)
@@ -643,8 +662,8 @@ async function isQueueMakingProgress(
   leftovers: QueueJob[],
   now: Date
 ): Promise<boolean> {
-  const startedAtIso = await settings.get('scanCycleStartedAt');
-  const startedAt = startedAtIso ? new Date(startedAtIso).getTime() : 0;
+  const s = await settings.getWithDefaults();
+  const startedAt = s.scanCycleStartedAt ? new Date(s.scanCycleStartedAt).getTime() : 0;
 
   const finished = await db.queue
     .where('status')
@@ -671,7 +690,7 @@ async function isQueueMakingProgress(
     newestScheduledAt,
     newestStartedAt
   );
-  return now.getTime() - lastProgressAt < STALE_CYCLE_PROGRESS_MS;
+  return now.getTime() - lastProgressAt < staleCycleWindowMs(s);
 }
 
 async function runDailyScanCycle(
@@ -799,9 +818,20 @@ export async function handleProcessQueueAlarm(
   const { settings, processorDeps } = deps;
 
   // Reset any 'running' jobs to 'pending' (service worker may have restarted).
-  // Safe to do unconditionally: only one processQueue alarm can exist at a time
-  // (chrome.alarms.create replaces by name), and the watchdog explicitly
-  // refuses to arm one while a job is in flight.
+  //
+  // Unconditional, because on this path a `running` job almost always means an
+  // abandoned one: the chain marks each job completed or failed before arming
+  // the next alarm, so a healthy chain never finds one here.
+  //
+  // The exception, and it is a real one: triggerManualRefresh /
+  // triggerKeywordRescan / triggerTranslationAudit all arm this alarm without
+  // checking for a job in flight, so clicking "Refresh Now" mid-fetch can have
+  // the next firing reset and re-dequeue a job that is still executing. The
+  // cost is one duplicate CWS request — the snapshot upserts are transactional
+  // and scoped to the same slot, so both writers converge on the same row
+  // rather than corrupting it. Making this age-gated instead would trade that
+  // for a much slower recovery on the common abandoned-job path, which is the
+  // worse deal. (FETCH_TIMEOUT_MS bounds how long that overlap can last.)
   await db.resetRunningJobs();
 
   // Process next job

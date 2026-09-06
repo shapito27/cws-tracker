@@ -98,6 +98,24 @@ const PAGINATION_DELAY_BASE_MS = 2_000;
 /** Jitter range for pagination delay in milliseconds. */
 const PAGINATION_JITTER_MS = 1_000;
 
+/**
+ * Hard ceiling on a single CWS/proxy request.
+ *
+ * Without one, a bare `fetch` can hang indefinitely — a stalled proxy or a
+ * dropped connection whose OS-level timeout is minutes away — and an in-flight
+ * fetch keeps the MV3 worker alive, so the job stays `running` with nobody to
+ * end it. That breaks the assumption the scheduler's recovery rests on: it
+ * treats a job `running` past `STALE_RUNNING_JOB_MS` as abandoned by a dead
+ * worker and re-queues it, which against a *live* slow fetch means the same job
+ * executing twice at once — duplicate CWS requests and two writers racing on
+ * one snapshot row. Bounding the request makes "running for a quarter of an
+ * hour" mean what the scheduler assumes it means.
+ *
+ * Comfortably above a slow CWS response and comfortably below the 15-minute
+ * staleness window, even for a keyword scan that fetches three pages.
+ */
+const FETCH_TIMEOUT_MS = 90_000;
+
 // ---------------------------------------------------------------------------
 // CWS Fetch (proxy-aware)
 // ---------------------------------------------------------------------------
@@ -286,8 +304,26 @@ export interface ProcessorDeps {
   settings: SettingsManager;
 }
 
+/**
+ * `fetch` with {@link FETCH_TIMEOUT_MS} enforced via AbortController.
+ *
+ * The timer is a `setTimeout`, which is allowed here for the same reason
+ * `paginationDelay` is: it lives entirely inside one job execution, during
+ * which the worker is kept alive by the request itself. It is not scheduling —
+ * nothing here has to survive a worker restart.
+ */
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const defaultDeps: ProcessorDeps = {
-  fetchPage: (url: string) => fetch(url),
+  fetchPage: fetchWithTimeout,
   sendMessage: (message: unknown) => {
     try {
       chrome.runtime.sendMessage(message);
@@ -1541,6 +1577,9 @@ export function classifyError(error: unknown): ErrorKind {
     return 'retriable';
   }
   if (error instanceof ParserError) return 'retriable';
+  // AbortError: the request hit FETCH_TIMEOUT_MS. Worth retrying — a stalled
+  // proxy or a dropped connection usually is not the next request's problem.
+  if (error instanceof DOMException && error.name === 'AbortError') return 'retriable';
   if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('network'))) {
     return 'retriable';
   }

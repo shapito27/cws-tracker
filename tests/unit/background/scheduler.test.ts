@@ -512,6 +512,58 @@ describe('Scheduler', () => {
       expect(jobs.some((j) => j.type === 'listing_scan')).toBe(true);
     });
 
+    it('does not write off a healthy cycle running at a very slow configured pace', async () => {
+      // queueDelayMs has a validated minimum but no maximum, and a restored
+      // backup does not pass through the Settings UI that caps it. A fixed
+      // 30-minute staleness window would make every cycle at a 20-minute pace
+      // look dead and discard its jobs.
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 1,
+        queueDelayMs: 20 * 60_000,
+        queueJitterMs: 60_000,
+      });
+
+      const now = new Date(2026, 8, 6, 12, 0);
+      // Last job finished 40 minutes ago — two healthy gaps at this pace.
+      await settingsManager.set(
+        'scanCycleStartedAt',
+        new Date(now.getTime() - 3 * 60 * 60_000).toISOString()
+      );
+      const liveId = await testDb.queue.add({
+        type: 'keyword_scan',
+        payload: { keywordId: 1, keyword: 'ad blocker' },
+        status: 'pending',
+        priority: 30,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(now.getTime() - 3 * 60 * 60_000),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      });
+      await testDb.queue.add({
+        type: 'listing_scan',
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'completed',
+        priority: 10,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(now.getTime() - 3 * 60 * 60_000),
+        startedAt: null,
+        completedAt: new Date(now.getTime() - 40 * 60_000),
+        error: null,
+      });
+
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      expect(await testDb.queue.get(liveId)).toBeDefined();
+    });
+
     it('still defers to a cycle that is merely slow', async () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');
 
