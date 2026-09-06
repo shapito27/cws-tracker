@@ -64,8 +64,23 @@ export const ALARM_PROCESS_QUEUE = 'processQueue';
  */
 export const ALARM_QUEUE_WATCHDOG = 'queueWatchdog';
 
-/** Minimum delay for chrome.alarms (1 minute per MV3 rules). */
-const MIN_ALARM_DELAY_MINUTES = 1;
+/**
+ * Chrome's floor for `chrome.alarms` delays, in minutes.
+ *
+ * Chrome "limits alarms to at most once every 30 seconds but may delay them an
+ * arbitrary amount more. That is, setting `delayInMinutes` or `periodInMinutes`
+ * to less than `0.5` will not be honored and will cause a warning."
+ *
+ * This was 1 — twice the real limit — which quietly overrode the user's
+ * setting: `queueDelayMs` accepts 30s (and the Settings slider offers it), but
+ * every delay below a minute was clamped up to one, so a 30-second request
+ * delay produced requests 61 seconds apart. The floor exists to keep us from
+ * asking Chrome for something it will refuse; it must not be stricter than what
+ * Chrome actually refuses.
+ *
+ * Chrome may still fire later than asked, so this is a floor, never a promise.
+ */
+const MIN_ALARM_DELAY_MINUTES = 0.5;
 
 /** Completed job cleanup: 7 days. */
 const COMPLETED_RETENTION_DAYS = 7;

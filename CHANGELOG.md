@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.40.1] - 2026-09-06
+
+### Fixed
+- **The Request Delay setting was silently doubled: 30s produced one request every 61 seconds.** Chrome's alarm floor is `delayInMinutes: 0.5` — "Chrome limits alarms to at most once every 30 seconds… setting `delayInMinutes` or `periodInMinutes` to less than `0.5` will not be honored and will cause a warning." The scheduler's `MIN_ALARM_DELAY_MINUTES` was `1`, twice that, so every configured delay below a minute was clamped up to one. `queueDelayMs` accepts 30s and the Settings slider offers it, so the setting was accepted, displayed, and then overridden. The floor now matches Chrome's actual limit, and the dashboard's "next request in Ns" countdown (`MIN_ALARM_DELAY_MS`) and the Settings request-budget estimate were both carrying the same wrong minute and now agree with it. At 30s a manual "Refresh Now" also starts in 30 seconds instead of 60.
+
 ## [0.40.0] - 2026-09-06
 
 ### Fixed

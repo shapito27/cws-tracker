@@ -86,8 +86,13 @@ const RETRY_BASE_DELAY_MS = 120_000;
 /** Maximum length of response body preview stored in scan logs. */
 const SCAN_LOG_PREVIEW_LENGTH = 2000;
 
-/** Minimum alarm delay in ms (1 minute per MV3 rules). */
-const MIN_ALARM_DELAY_MS = 60_000;
+/**
+ * Chrome's floor for `chrome.alarms` delays, in ms. Mirrors
+ * `MIN_ALARM_DELAY_MINUTES` in the scheduler — the two must agree, or the
+ * "next request in Ns" countdown the dashboard shows disagrees with when the
+ * alarm actually fires.
+ */
+const MIN_ALARM_DELAY_MS = 30_000;
 
 /** Maximum number of search result pages to fetch per keyword scan. */
 const MAX_SEARCH_PAGES = 3;
