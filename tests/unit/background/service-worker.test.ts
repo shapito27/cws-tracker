@@ -20,6 +20,7 @@ import { resetChromeMock, getCalls, chromeMock } from '../../mocks/chrome';
 const mockSetupAlarms = vi.fn().mockResolvedValue(undefined);
 const mockHandleDailyScanAlarm = vi.fn().mockResolvedValue(undefined);
 const mockHandleProcessQueueAlarm = vi.fn().mockResolvedValue(undefined);
+const mockHandleQueueWatchdogAlarm = vi.fn().mockResolvedValue(undefined);
 const mockHandleBrowserStartup = vi.fn().mockResolvedValue(undefined);
 const mockHandleSettingsChange = vi.fn().mockResolvedValue(undefined);
 const mockScheduleNextDailyScan = vi.fn().mockResolvedValue(undefined);
@@ -32,6 +33,7 @@ vi.mock('@/background/scheduler', () => ({
   setupAlarms: (...args: unknown[]) => mockSetupAlarms(...args),
   handleDailyScanAlarm: (...args: unknown[]) => mockHandleDailyScanAlarm(...args),
   handleProcessQueueAlarm: (...args: unknown[]) => mockHandleProcessQueueAlarm(...args),
+  handleQueueWatchdogAlarm: (...args: unknown[]) => mockHandleQueueWatchdogAlarm(...args),
   handleBrowserStartup: (...args: unknown[]) => mockHandleBrowserStartup(...args),
   handleSettingsChange: (...args: unknown[]) => mockHandleSettingsChange(...args),
   scheduleNextDailyScan: (...args: unknown[]) => mockScheduleNextDailyScan(...args),
@@ -41,6 +43,7 @@ vi.mock('@/background/scheduler', () => ({
   resumeScanning: (...args: unknown[]) => mockResumeScanning(...args),
   ALARM_DAILY_SCAN: 'dailyScan',
   ALARM_PROCESS_QUEUE: 'processQueue',
+  ALARM_QUEUE_WATCHDOG: 'queueWatchdog',
 }));
 
 // Mock db for cancelScan
@@ -80,6 +83,7 @@ describe('Service Worker Entry Point', () => {
       setupAlarms: (...args: unknown[]) => mockSetupAlarms(...args),
       handleDailyScanAlarm: (...args: unknown[]) => mockHandleDailyScanAlarm(...args),
       handleProcessQueueAlarm: (...args: unknown[]) => mockHandleProcessQueueAlarm(...args),
+  handleQueueWatchdogAlarm: (...args: unknown[]) => mockHandleQueueWatchdogAlarm(...args),
       handleBrowserStartup: (...args: unknown[]) => mockHandleBrowserStartup(...args),
       handleSettingsChange: (...args: unknown[]) => mockHandleSettingsChange(...args),
       scheduleNextDailyScan: (...args: unknown[]) => mockScheduleNextDailyScan(...args),
@@ -89,6 +93,7 @@ describe('Service Worker Entry Point', () => {
       resumeScanning: (...args: unknown[]) => mockResumeScanning(...args),
       ALARM_DAILY_SCAN: 'dailyScan',
       ALARM_PROCESS_QUEUE: 'processQueue',
+  ALARM_QUEUE_WATCHDOG: 'queueWatchdog',
     }));
 
     vi.mock('@/shared/db/database', () => {
@@ -213,6 +218,17 @@ describe('Service Worker Entry Point', () => {
 
       await vi.waitFor(() => {
         expect(mockHandleProcessQueueAlarm).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    it('routes the queueWatchdog alarm to handleQueueWatchdogAlarm', async () => {
+      await loadServiceWorker();
+
+      chromeMock.alarms.create('queueWatchdog', { periodInMinutes: 5 });
+      chromeMock.alarms._fire('queueWatchdog');
+
+      await vi.waitFor(() => {
+        expect(mockHandleQueueWatchdogAlarm).toHaveBeenCalledTimes(1);
       });
     });
 

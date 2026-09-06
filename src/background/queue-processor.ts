@@ -31,6 +31,7 @@ import {
   isLocaleSupported,
 } from '@/shared/utils/translation-checks';
 import { detectChanges } from '@/background/event-detector';
+import { buildReviewScanJobs } from '@/background/queue-builder';
 import { getListingParser, getSearchParser, getAutocompleteParser, getReviewsParser, ParserError } from '@/background/parsers/index';
 import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension, ParsedReview } from '@/background/parsers/types';
 import type {
@@ -96,6 +97,24 @@ const PAGINATION_DELAY_BASE_MS = 2_000;
 
 /** Jitter range for pagination delay in milliseconds. */
 const PAGINATION_JITTER_MS = 1_000;
+
+/**
+ * Hard ceiling on a single CWS/proxy request.
+ *
+ * Without one, a bare `fetch` can hang indefinitely — a stalled proxy or a
+ * dropped connection whose OS-level timeout is minutes away — and an in-flight
+ * fetch keeps the MV3 worker alive, so the job stays `running` with nobody to
+ * end it. That breaks the assumption the scheduler's recovery rests on: it
+ * treats a job `running` past `STALE_RUNNING_JOB_MS` as abandoned by a dead
+ * worker and re-queues it, which against a *live* slow fetch means the same job
+ * executing twice at once — duplicate CWS requests and two writers racing on
+ * one snapshot row. Bounding the request makes "running for a quarter of an
+ * hour" mean what the scheduler assumes it means.
+ *
+ * Comfortably above a slow CWS response and comfortably below the 15-minute
+ * staleness window, even for a keyword scan that fetches three pages.
+ */
+const FETCH_TIMEOUT_MS = 90_000;
 
 // ---------------------------------------------------------------------------
 // CWS Fetch (proxy-aware)
@@ -285,8 +304,26 @@ export interface ProcessorDeps {
   settings: SettingsManager;
 }
 
+/**
+ * `fetch` with {@link FETCH_TIMEOUT_MS} enforced via AbortController.
+ *
+ * The timer is a `setTimeout`, which is allowed here for the same reason
+ * `paginationDelay` is: it lives entirely inside one job execution, during
+ * which the worker is kept alive by the request itself. It is not scheduling —
+ * nothing here has to survive a worker restart.
+ */
+async function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const defaultDeps: ProcessorDeps = {
-  fetchPage: (url: string) => fetch(url),
+  fetchPage: fetchWithTimeout,
   sendMessage: (message: unknown) => {
     try {
       chrome.runtime.sendMessage(message);
@@ -312,7 +349,18 @@ export async function processNextJob(
   const job = await db.dequeueNext();
 
   if (job === null) {
-    return { hasMore: false, delayMs: 0 };
+    // `dequeueNext` only returns jobs whose `scheduledAt` has arrived, so a null
+    // here does NOT mean the queue is empty — every remaining job may simply be
+    // sitting in its retry backoff (up to 10 minutes). Reporting that as "no
+    // more work" ended the cycle early: the scheduler stamped the slot as done,
+    // stopped re-arming the processing alarm, and the backed-off jobs stayed
+    // pending forever — which then tripped the "previous cycle still running"
+    // guard on every later slot, silently costing every subsequent scan.
+    const nextAt = await db.getNextPendingScheduledAt();
+    if (nextAt === null) {
+      return { hasMore: false, delayMs: 0 };
+    }
+    return { hasMore: true, delayMs: Math.max(0, nextAt.getTime() - Date.now()) };
   }
 
   // Read the scan cycle start so stats only count jobs from the current cycle
@@ -481,6 +529,62 @@ async function processListingScan(
 
   // Update extension metadata
   await updateExtensionMetadata(extensionId, listingData);
+
+  // Fetch the new reviews when the count moved (see queueReviewFollowUp).
+  await queueReviewFollowUp(job, extensionId, previousSnapshot ?? null, snapshot);
+}
+
+/**
+ * Queue a `review_scan` when a listing scan shows the review count has moved.
+ *
+ * Scheduled review scans only run on the day's first slot: they are the most
+ * expensive job type and re-fetching the whole review list every slot would
+ * multiply request volume for nothing. But the listing scan that runs on
+ * *every* slot already reports the review count for free, so a later slot can
+ * check that number and pull the reviews only when there is something new to
+ * pull. Without this, a review left at 11:00 was not captured until the next
+ * day's first slot.
+ *
+ * Deliberately conservative:
+ * - Slot 0 already scans reviews as part of the cycle — skip.
+ * - Needs a previous sample to compare against, and only a *rise* counts.
+ *   A falling count means a review was deleted; there is nothing new to fetch
+ *   and the next scheduled scan reconciles it.
+ * - Never queues a second scan when one is already pending or running for this
+ *   extension, so a run of slots each adding a review cannot pile up.
+ */
+async function queueReviewFollowUp(
+  job: QueueJob,
+  extensionId: string,
+  previousSnapshot: ListingSnapshot | null,
+  snapshot: ListingSnapshot
+): Promise<void> {
+  if (jobSlot(job) === 0) return;
+  if (!previousSnapshot) return;
+  if (snapshot.reviewCount <= previousSnapshot.reviewCount) return;
+
+  try {
+    const queued = await db.queue
+      .where('status')
+      .anyOf('pending', 'running')
+      .toArray();
+    const alreadyQueued = queued.some(
+      (j) =>
+        j.type === 'review_scan' &&
+        (j.payload as ReviewScanPayload).extensionId === extensionId
+    );
+    if (alreadyQueued) return;
+
+    const [followUp] = buildReviewScanJobs([extensionId], {
+      slot: jobSlot(job),
+      cycleDate: jobDate(job),
+    });
+    if (!followUp) return;
+    await db.enqueueJobs([followUp]);
+  } catch (error) {
+    // A follow-up is an optimisation, never a reason to fail the listing scan.
+    console.warn('[CWS Tracker] Failed to queue review follow-up:', error);
+  }
 }
 
 /**
@@ -1473,6 +1577,9 @@ export function classifyError(error: unknown): ErrorKind {
     return 'retriable';
   }
   if (error instanceof ParserError) return 'retriable';
+  // AbortError: the request hit FETCH_TIMEOUT_MS. Worth retrying — a stalled
+  // proxy or a dropped connection usually is not the next request's problem.
+  if (error instanceof DOMException && error.name === 'AbortError') return 'retriable';
   if (error instanceof TypeError && (error.message.includes('fetch') || error.message.includes('network'))) {
     return 'retriable';
   }

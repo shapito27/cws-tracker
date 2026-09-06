@@ -15,6 +15,7 @@ import { SettingsManager, isProxyConfigured } from '@/shared/utils/settings';
 import { today, toDateString } from '@/shared/utils/dates';
 import {
   currentSlot,
+  currentSlotOccurrence,
   nextDailyScanTimestamp,
   nextSlotOccurrence,
   slotDateFor,
@@ -25,6 +26,7 @@ import {
 // it too, but these names are part of the scheduler's established surface.
 export {
   currentSlot,
+  currentSlotOccurrence,
   nextDailyScanTimestamp,
   nextSlotOccurrence,
   slotDateFor,
@@ -49,6 +51,18 @@ import type { ScanErrorMessage } from '@/shared/types/messages';
 
 export const ALARM_DAILY_SCAN = 'dailyScan';
 export const ALARM_PROCESS_QUEUE = 'processQueue';
+
+/**
+ * Periodic self-heal alarm. See {@link handleQueueWatchdogAlarm}.
+ *
+ * `processQueue` is a one-shot alarm re-armed by the handler that consumes it,
+ * so anything that stops that handler from finishing — an MV3 worker
+ * termination mid-fetch, most often — breaks the chain permanently: the queue
+ * stalls, its leftover jobs then trip the "previous cycle still running" guard,
+ * and every later slot is skipped. Nothing short of a browser restart recovered
+ * from that. This alarm is the recovery.
+ */
+export const ALARM_QUEUE_WATCHDOG = 'queueWatchdog';
 
 /** Minimum delay for chrome.alarms (1 minute per MV3 rules). */
 const MIN_ALARM_DELAY_MINUTES = 1;
@@ -76,6 +90,57 @@ const SLOT_JITTER_MINUTES = 20;
  * in-flight guard skips it and the day ends up with fewer scans, not more.
  */
 const CATCH_UP_MIN_LEAD_MS = 30 * 60_000;
+
+/** How often the watchdog checks that the queue and schedule are still alive. */
+const WATCHDOG_PERIOD_MINUTES = 5;
+
+/**
+ * Extra grace beyond one slot interval before a queued cycle job is written off
+ * as stale. Covers a cycle that legitimately runs a little past its own slot.
+ */
+const JOB_EXPIRY_GRACE_MS = 60 * 60_000;
+
+/**
+ * How long a job may sit in `running` before it is assumed abandoned.
+ *
+ * A job is only ever `running` while the worker executes it, and no single CWS
+ * fetch survives anywhere near this long, so anything older than this is the
+ * residue of a terminated worker. Comfortably above the longest retry backoff
+ * (10 minutes) plus a job, so a live cycle is never disturbed.
+ */
+const STALE_RUNNING_JOB_MS = 15 * 60_000;
+
+/**
+ * How long a scan cycle may go without completing a job before it is written
+ * off as dead.
+ *
+ * The in-flight guard in {@link runDailyScanCycle} exists to stop a slot from
+ * piling its jobs on top of a cycle that is still draining. Without an upper
+ * bound it also let a *stalled* cycle block every future slot indefinitely —
+ * one broken alarm chain and the extension quietly stops scanning for good.
+ * Progress is measured by the last job the cycle completed, so a slow but
+ * healthy cycle (jobs are a minute apart by default) is never mistaken for a
+ * dead one.
+ *
+ * This is the floor, not the whole answer: see {@link staleCycleWindowMs}. The
+ * gap between two healthy jobs is `queueDelayMs ± queueJitterMs`, and the
+ * settings validator sets a minimum for those but no maximum — only the
+ * Settings UI caps them, and a restored backup does not go through the UI. A
+ * configured pace slower than a fixed window would make every healthy cycle
+ * look dead and get its jobs discarded, so the window is derived from the pace.
+ */
+const STALE_CYCLE_PROGRESS_MS = 30 * 60_000;
+
+/**
+ * How long the queue may go without finishing a job before the cycle is
+ * written off: the 30-minute floor, or three healthy inter-job gaps, whichever
+ * is longer.
+ */
+function staleCycleWindowMs(settings: Settings): number {
+  const gapMs = (settings.queueDelayMs ?? 0) + (settings.queueJitterMs ?? 0);
+  const paced = Number.isFinite(gapMs) ? gapMs * 3 : 0;
+  return Math.max(STALE_CYCLE_PROGRESS_MS, paced);
+}
 
 // ---------------------------------------------------------------------------
 // Dependencies (injectable for testing)
@@ -238,6 +303,21 @@ export async function setupAlarms(
   deps: SchedulerDeps = { settings: defaultSettings }
 ): Promise<void> {
   await scheduleNextDailyScan(deps);
+  ensureQueueWatchdog();
+}
+
+/**
+ * Arm the periodic watchdog alarm.
+ *
+ * Idempotent: `chrome.alarms.create` replaces an alarm of the same name, and
+ * re-creating a periodic alarm only shifts its next fire time by at most one
+ * period, so calling this from every lifecycle entry point is safe.
+ */
+export function ensureQueueWatchdog(): void {
+  chrome.alarms.create(ALARM_QUEUE_WATCHDOG, {
+    delayInMinutes: WATCHDOG_PERIOD_MINUTES,
+    periodInMinutes: WATCHDOG_PERIOD_MINUTES,
+  });
 }
 
 /**
@@ -261,12 +341,16 @@ export async function isDailyScanDue(
   const slot = currentSlot(s.dailyScanTime, s.scansPerDay, now);
   const slotDate = slotDateFor(s.dailyScanTime, s.scansPerDay, now);
 
-  // Only catch up a slot belonging to today. Before the day's first slot time
-  // the current slot is the previous day's last one, and a slot missed before
-  // midnight stays missed — catching it up now would record it against the
-  // wrong day. This is also what keeps scansPerDay: 1 behaving exactly as the
-  // single daily scan did.
-  if (slotDate !== toDateString(now)) return false;
+  // Only catch up a slot that was actually due *today*. A slot missed before
+  // midnight stays missed — running it now would record it against the wrong
+  // day. Note this is the slot's own occurrence, not its slot-day: with
+  // dailyScanTime 10:00 and scansPerDay 4, the 04:00 slot fires today but
+  // belongs to yesterday's slot-day, and it is very much still catchable at
+  // 05:00. Gating on the slot-day instead (as this did) made every after-
+  // midnight slot permanently uncatchable. At scansPerDay: 1 the two rules
+  // agree, so single-daily-scan behaviour is unchanged.
+  const occurredAt = currentSlotOccurrence(s.dailyScanTime, s.scansPerDay, now);
+  if (toDateString(new Date(occurredAt)) !== toDateString(now)) return false;
 
   if (s.lastScanSlotKey === slotKey(slotDate, slot)) return false;
 
@@ -294,19 +378,33 @@ export async function handleBrowserStartup(
   // scheduling that can skip it.
   await migrateLegacyScanState(deps.settings);
 
-  // Resume an interrupted scan first: if jobs are still queued from a cycle that
-  // did not finish (browser closed or extension reloaded mid-scan), kick the
-  // processor to continue it and do NOT start a second cycle on top — that
-  // interrupted cycle is "today's" scan and will stamp lastDailyScanDate when it
-  // drains. Just re-arm the next scheduled run.
-  const [pending, running] = await Promise.all([
-    db.getPendingCount(),
-    db.getRunningJobs(),
-  ]);
-  if (pending > 0 || running.length > 0) {
+  ensureQueueWatchdog();
+
+  // Nothing can still be executing on a cold start, so any job left `running`
+  // belongs to a worker that no longer exists. Put those back before counting.
+  await db.resetRunningJobs();
+
+  // Drop anything stranded long enough that running it would record today's
+  // data against a past date — the browser may have been closed for days.
+  await purgeExpiredCycleJobs(deps.settings, now);
+
+  // Resume an interrupted scan: if jobs are still queued from a cycle that did
+  // not finish (browser closed or extension reloaded mid-scan), kick the
+  // processor to continue it.
+  const pendingJobs = await db.queue.where('status').equals('pending').toArray();
+  if (pendingJobs.length > 0) {
     chrome.alarms.create(ALARM_PROCESS_QUEUE, {
       delayInMinutes: MIN_ALARM_DELAY_MINUTES,
     });
+  }
+
+  // An unfinished *cycle* is today's scan: let it drain rather than starting a
+  // second one on top of it. Translation-audit jobs belong to no cycle — an
+  // audit can sit in the queue for hours — so they must not suppress the
+  // catch-up the way they used to, which is how a single queued audit could
+  // cost every missed slot for as long as it ran.
+  const cycleJobPending = pendingJobs.some((j) => j.type !== 'translation_audit');
+  if (cycleJobPending) {
     await scheduleNextDailyScan(deps, now);
     return;
   }
@@ -315,9 +413,161 @@ export async function handleBrowserStartup(
     // Missed today's scheduled scan (browser was closed, or the extension was
     // reloaded/updated after the scheduled time) — run it now. handleDailyScanAlarm
     // re-arms the next alarm in its finally block.
-    await handleDailyScanAlarm(deps);
+    await handleDailyScanAlarm(deps, now);
   } else {
     // Not due (already ran today, or before today's scan time) — just arm.
+    await scheduleNextDailyScan(deps, now);
+  }
+}
+
+/**
+ * Drop queued cycle jobs whose slot has been overtaken by a later one.
+ *
+ * Every job carries the `cycleDate` and `slot` its snapshots are recorded
+ * under, so a cycle that crosses midnight still reports as one day. Without an
+ * expiry that same mechanism silently corrupts history: a cycle stranded by a
+ * broken alarm chain drains whenever the queue is next kicked — days later —
+ * and writes *today's* measurements into that old date. What the user sees is a
+ * rank-change event stamped now, a stale day growing a second intraday sample,
+ * and nothing at all in today's column.
+ *
+ * Running such a job is never worth it. Its slot has already been superseded by
+ * a later one that scans the same things at the right time, so the only thing
+ * it can still do is misattribute data. Age is measured from `scheduledAt`,
+ * which retries push forward — a job actively working through its backoff is
+ * not stale.
+ *
+ * `translation_audit` jobs are exempt: they belong to no cycle, they record
+ * their own audit date, and one audit legitimately sits in the queue for hours.
+ *
+ * @returns how many jobs were discarded.
+ */
+export async function purgeExpiredCycleJobs(
+  settings: SettingsManager = defaultSettings,
+  now: Date = new Date()
+): Promise<number> {
+  const s = await settings.getWithDefaults();
+  const slots = Math.min(4, Math.max(1, Math.floor(s.scansPerDay) || 1));
+  const maxAgeMs = (24 / slots) * 60 * 60_000 + JOB_EXPIRY_GRACE_MS;
+  const cutoff = now.getTime() - maxAgeMs;
+
+  const candidates = await db.queue
+    .where('status')
+    .anyOf('pending', 'running')
+    .toArray();
+  const expired = candidates.filter(
+    (job) =>
+      job.type !== 'translation_audit' &&
+      job.scheduledAt instanceof Date &&
+      job.scheduledAt.getTime() < cutoff
+  );
+  if (expired.length === 0) return 0;
+
+  const ids = expired.map((j) => j.id).filter((id): id is number => id !== undefined);
+  if (ids.length > 0) await db.queue.bulkDelete(ids);
+
+  // The markers describe a cycle that no longer has any jobs. Left behind, the
+  // drain of whatever else is in the queue (an audit, say) would stamp this
+  // dead cycle's slot key into `lastScanSlotKey` as if it had completed.
+  const survivingCycleJobs = candidates.some(
+    (job) => job.type !== 'translation_audit' && !ids.includes(job.id!)
+  );
+  if (!survivingCycleJobs) {
+    await settings.setMultiple({ scanCycleStartedAt: null, scanCycleSlotKey: null });
+  }
+
+  const oldest = expired.reduce(
+    (min, j) => (j.scheduledAt.getTime() < min ? j.scheduledAt.getTime() : min),
+    expired[0].scheduledAt.getTime()
+  );
+  const hours = Math.round((now.getTime() - oldest) / 3_600_000);
+  await logSlotEvent(
+    'warn',
+    `Discarded ${expired.length} stranded scan job(s), the oldest queued ${hours}h ago. ` +
+      `Running them now would have recorded today's data against their original scan date.`
+  );
+  return expired.length;
+}
+
+/**
+ * Handle the periodic watchdog alarm: make sure the queue and the schedule are
+ * both still moving, and restart them when they are not.
+ *
+ * Everything here is a recovery path, not a normal one. In a healthy install it
+ * finds nothing to do on every single fire. It exists because every other
+ * mechanism in the scheduler is a *chain* — one-shot alarms that re-arm
+ * themselves — and MV3 terminates service workers at will, including in the
+ * middle of a CWS fetch. When that happens the link is simply lost, and before
+ * this alarm existed the only thing that reconnected it was a browser restart.
+ *
+ * Order matters: recover abandoned jobs first (so the pending count below is
+ * accurate), then restart processing, then the schedule.
+ */
+export async function handleQueueWatchdogAlarm(
+  deps: SchedulerDeps = { settings: defaultSettings },
+  now: Date = new Date()
+): Promise<void> {
+  // 1. Jobs a terminated worker left mid-flight.
+  const requeued = await db.requeueStaleRunningJobs(
+    new Date(now.getTime() - STALE_RUNNING_JOB_MS)
+  );
+  if (requeued > 0) {
+    await logSlotEvent(
+      'warn',
+      `Watchdog re-queued ${requeued} job(s) abandoned by a terminated service worker.`
+    );
+  }
+
+  // 2. Jobs stranded so long that running them would misattribute the data.
+  await purgeExpiredCycleJobs(deps.settings, now);
+
+  // 3. A broken processing chain. Only when nothing is actually in flight: a
+  //    job that started moments ago means the chain is alive and arming a
+  //    second alarm would run two jobs at once.
+  const [pendingJobs, stillRunning, processQueueArmed] = await Promise.all([
+    db.queue.where('status').equals('pending').toArray(),
+    db.getRunningJobs(),
+    chrome.alarms.get(ALARM_PROCESS_QUEUE),
+  ]);
+  if (pendingJobs.length > 0 && stillRunning.length === 0 && !processQueueArmed) {
+    await logSlotEvent(
+      'warn',
+      `Watchdog restarted the queue: ${pendingJobs.length} job(s) pending with no processing alarm armed.`
+    );
+    chrome.alarms.create(ALARM_PROCESS_QUEUE, {
+      delayInMinutes: MIN_ALARM_DELAY_MINUTES,
+    });
+  }
+
+  // 4. The schedule itself. A slot whose alarm never arrived (worker killed
+  //    between fires, machine asleep past the fire time, alarm lost on an
+  //    extension reload) is run now, within one watchdog period of its time —
+  //    the catch-up used to happen only on browser startup, so on a machine
+  //    that stays awake for days a missed slot was simply never made up.
+  const s = await deps.settings.getWithDefaults();
+  if (!s.dailyScanEnabled) return;
+
+  // Never attempt catch-up while a cycle is actually draining. `isDailyScanDue`
+  // reads `lastScanSlotKey`, which is stamped only when a cycle *finishes*, so
+  // the slot that is running right now still reads as "not run" for its whole
+  // duration. Without this guard every watchdog tick of a perfectly healthy
+  // 45-minute scan re-entered handleDailyScanAlarm, bounced off the in-flight
+  // guard and logged "Scan slot … skipped … Lower scansPerDay or queueDelayMs" —
+  // nine false alarms per scan, telling the user to undo the setting that works.
+  // (`handleBrowserStartup` has always had this check; the watchdog skipped it.)
+  // Translation-audit jobs are excluded for the usual reason: they belong to no
+  // cycle and must not stand in for a scan.
+  const cycleWorkInFlight =
+    pendingJobs.some((j) => j.type !== 'translation_audit') ||
+    stillRunning.some((j) => j.type !== 'translation_audit');
+
+  if (!cycleWorkInFlight && (await isDailyScanDue(deps, now))) {
+    await handleDailyScanAlarm(deps, now);
+    return;
+  }
+
+  const dailyArmed = await chrome.alarms.get(ALARM_DAILY_SCAN);
+  if (!dailyArmed) {
     await scheduleNextDailyScan(deps, now);
   }
 }
@@ -389,6 +639,60 @@ export async function handleDailyScanAlarm(
  * Assumes auto-scan is enabled (checked by the caller). Does not schedule the
  * next dailyScan alarm — that is the caller's responsibility.
  */
+/**
+ * Whether the work already in the queue is still alive, or is the residue of a
+ * cycle that died.
+ *
+ * Liveness is measured in signals, never in the age of the cycle: a cycle of
+ * 200 jobs a minute apart legitimately runs for hours, so a plain timeout would
+ * cut healthy cycles short. Any of these means "alive":
+ *
+ * - the cycle was marked started recently;
+ * - a job completed or failed recently (the queue is draining);
+ * - a leftover job is scheduled recently or in the future — freshly enqueued
+ *   work (a one-off keyword re-scan appends jobs without a cycle marker at all)
+ *   and a job waiting out its retry backoff both look like this;
+ * - a job started executing recently — the strongest signal of all, and the one
+ *   that keeps the caller from deleting a job out from under the processor.
+ *
+ * Only when none of them holds has the queue genuinely stopped moving.
+ */
+async function isQueueMakingProgress(
+  settings: SettingsManager,
+  leftovers: QueueJob[],
+  now: Date
+): Promise<boolean> {
+  const s = await settings.getWithDefaults();
+  const startedAt = s.scanCycleStartedAt ? new Date(s.scanCycleStartedAt).getTime() : 0;
+
+  const finished = await db.queue
+    .where('status')
+    .anyOf('completed', 'failed')
+    .toArray();
+  const lastFinishedAt = finished.reduce((latest, job) => {
+    const at = job.completedAt ? job.completedAt.getTime() : 0;
+    return at > latest ? at : latest;
+  }, 0);
+
+  const newestScheduledAt = leftovers.reduce((latest, job) => {
+    const at = job.scheduledAt ? job.scheduledAt.getTime() : 0;
+    return at > latest ? at : latest;
+  }, 0);
+
+  const newestStartedAt = leftovers.reduce((latest, job) => {
+    const at = job.startedAt ? job.startedAt.getTime() : 0;
+    return at > latest ? at : latest;
+  }, 0);
+
+  const lastProgressAt = Math.max(
+    Number.isNaN(startedAt) ? 0 : startedAt,
+    lastFinishedAt,
+    newestScheduledAt,
+    newestStartedAt
+  );
+  return now.getTime() - lastProgressAt < staleCycleWindowMs(s);
+}
+
 async function runDailyScanCycle(
   settings: SettingsManager,
   now: Date = new Date()
@@ -427,19 +731,36 @@ async function runDailyScanCycle(
     db.queue.where('status').equals('pending').toArray(),
     db.getRunningJobs(),
   ]);
-  const pendingCycleJobs = pendingJobs.filter((j) => j.type !== 'translation_audit').length;
-  const runningCycleJobs = runningJobs.filter((j) => j.type !== 'translation_audit').length;
-  if (pendingCycleJobs > 0 || runningCycleJobs > 0) {
-    // A slot can be skipped because the previous slot's cycle is still draining
-    // — likely when scansPerDay is raised past what a cycle can finish in
-    // 24/N hours. Log it, or the missing sample looks like a bug.
+  const leftoverCycleJobs = pendingJobs.filter((j) => j.type !== 'translation_audit');
+  const inFlightCycleJobs = runningJobs.filter((j) => j.type !== 'translation_audit');
+  if (leftoverCycleJobs.length > 0 || inFlightCycleJobs.length > 0) {
+    if (await isQueueMakingProgress(settings, [...leftoverCycleJobs, ...inFlightCycleJobs], now)) {
+      // A slot can be skipped because the previous slot's cycle is still
+      // draining — likely when scansPerDay is raised past what a cycle can
+      // finish in 24/N hours. Log it, or the missing sample looks like a bug.
+      await logSlotEvent(
+        'warn',
+        `Scan slot ${key} skipped: the previous cycle is still running ` +
+          `(${leftoverCycleJobs.length} pending, ${inFlightCycleJobs.length} in flight). ` +
+          `Lower scansPerDay or queueDelayMs if this recurs.`
+      );
+      return;
+    }
+
+    // The previous cycle is not draining, it is dead — nothing has completed in
+    // STALE_CYCLE_PROGRESS_MS. Deferring to it again would hand it the current
+    // slot too, and the one after that, indefinitely: a single broken alarm
+    // chain used to stop scanning permanently and silently. Clear its remains
+    // and take the slot.
     await logSlotEvent(
       'warn',
-      `Scan slot ${key} skipped: the previous cycle is still running ` +
-        `(${pendingCycleJobs} pending, ${runningCycleJobs} in flight). ` +
-        `Lower scansPerDay or queueDelayMs if this recurs.`
+      `Scan slot ${key}: discarded ${leftoverCycleJobs.length + inFlightCycleJobs.length} ` +
+        `job(s) from a stalled previous cycle and started a fresh one.`
     );
-    return;
+    const abandoned = [...leftoverCycleJobs, ...inFlightCycleJobs]
+      .map((j) => j.id)
+      .filter((id): id is number => id !== undefined);
+    if (abandoned.length > 0) await db.queue.bulkDelete(abandoned);
   }
 
   // Run queue cleanup (relative to the cycle's `now`, which is injectable for tests)
@@ -496,7 +817,21 @@ export async function handleProcessQueueAlarm(
 ): Promise<void> {
   const { settings, processorDeps } = deps;
 
-  // Reset any 'running' jobs to 'pending' (service worker may have restarted)
+  // Reset any 'running' jobs to 'pending' (service worker may have restarted).
+  //
+  // Unconditional, because on this path a `running` job almost always means an
+  // abandoned one: the chain marks each job completed or failed before arming
+  // the next alarm, so a healthy chain never finds one here.
+  //
+  // The exception, and it is a real one: triggerManualRefresh /
+  // triggerKeywordRescan / triggerTranslationAudit all arm this alarm without
+  // checking for a job in flight, so clicking "Refresh Now" mid-fetch can have
+  // the next firing reset and re-dequeue a job that is still executing. The
+  // cost is one duplicate CWS request — the snapshot upserts are transactional
+  // and scoped to the same slot, so both writers converge on the same row
+  // rather than corrupting it. Making this age-gated instead would trade that
+  // for a much slower recovery on the common abandoned-job path, which is the
+  // worse deal. (FETCH_TIMEOUT_MS bounds how long that overlap can last.)
   await db.resetRunningJobs();
 
   // Process next job

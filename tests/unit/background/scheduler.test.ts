@@ -178,6 +178,440 @@ describe('Scheduler', () => {
     await settingsManager.set('proxyUrl', 'https://proxy.test');
   });
 
+  // -------------------------------------------------------------------------
+  // Queue watchdog (0.39.3)
+  // -------------------------------------------------------------------------
+
+  describe('handleQueueWatchdogAlarm', () => {
+    function pendingJob(overrides: Record<string, unknown> = {}) {
+      return {
+        type: 'listing_scan' as const,
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'pending' as const,
+        priority: 10,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+        ...overrides,
+      };
+    }
+
+    it('setupAlarms arms the periodic watchdog', async () => {
+      const { setupAlarms, ALARM_QUEUE_WATCHDOG } = await import('@/background/scheduler');
+
+      await setupAlarms(createSchedulerDeps());
+
+      const calls = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_QUEUE_WATCHDOG);
+      expect(calls).toHaveLength(1);
+      expect((calls[0].args[1] as { periodInMinutes?: number }).periodInMinutes).toBe(5);
+    });
+
+    it('re-queues a job a terminated service worker left running', async () => {
+      const { handleQueueWatchdogAlarm } = await import('@/background/scheduler');
+
+      const now = new Date(2026, 8, 6, 12, 0);
+      await testDb.enqueueJobs([
+        pendingJob({
+          status: 'running',
+          startedAt: new Date(now.getTime() - 60 * 60_000),
+        }),
+      ]);
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), now);
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs[0].status).toBe('pending');
+      expect(jobs[0].startedAt).toBeNull();
+    });
+
+    it('leaves a job that is genuinely in flight alone', async () => {
+      const { handleQueueWatchdogAlarm, ALARM_PROCESS_QUEUE } = await import('@/background/scheduler');
+
+      const now = new Date(2026, 8, 6, 12, 0);
+      await testDb.enqueueJobs([
+        pendingJob({ status: 'running', startedAt: new Date(now.getTime() - 5_000) }),
+        pendingJob(),
+      ]);
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), now);
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs.filter((j) => j.status === 'running')).toHaveLength(1);
+      // No second processing alarm on top of the live one.
+      expect(
+        getCalls('alarms.create').filter((c) => c.args[0] === ALARM_PROCESS_QUEUE)
+      ).toHaveLength(0);
+    });
+
+    it('restarts a broken processing chain: pending jobs, no alarm armed', async () => {
+      const { handleQueueWatchdogAlarm, ALARM_PROCESS_QUEUE } = await import('@/background/scheduler');
+
+      await testDb.enqueueJobs([pendingJob()]);
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), new Date(2026, 8, 6, 12, 0));
+
+      expect(
+        getCalls('alarms.create').filter((c) => c.args[0] === ALARM_PROCESS_QUEUE)
+      ).toHaveLength(1);
+    });
+
+    it('does not re-arm the processing alarm when one is already armed', async () => {
+      const { handleQueueWatchdogAlarm, ALARM_PROCESS_QUEUE } = await import('@/background/scheduler');
+
+      await testDb.enqueueJobs([pendingJob()]);
+      chromeMock.alarms.create(ALARM_PROCESS_QUEUE, { delayInMinutes: 1 });
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), new Date(2026, 8, 6, 12, 0));
+
+      expect(
+        getCalls('alarms.create').filter((c) => c.args[0] === ALARM_PROCESS_QUEUE)
+      ).toHaveLength(1); // only the one the test armed
+    });
+
+    it('runs a slot whose alarm never arrived, without waiting for a browser restart', async () => {
+      const { handleQueueWatchdogAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+
+      // 12:00 — the 10:00 slot was due two hours ago and never ran.
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), new Date(2026, 8, 6, 12, 0));
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs.length).toBeGreaterThan(0);
+      expect(jobs.every((j) => j.slot === 0)).toBe(true);
+    });
+
+    it('leaves a healthy draining cycle alone instead of logging a false "skipped"', async () => {
+      // `lastScanSlotKey` is stamped only when a cycle *finishes*, so the slot
+      // running right now reads as "not run" for its whole duration. Without a
+      // guard, every watchdog tick of a healthy 45-minute scan re-entered
+      // handleDailyScanAlarm, bounced off the in-flight guard and logged
+      // "Scan slot … skipped … Lower scansPerDay" — nine false alarms per scan.
+      const { handleQueueWatchdogAlarm, slotKey } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+
+      // The 10:00 cycle started 10 minutes ago and is still draining.
+      const now = new Date(2026, 8, 6, 10, 10);
+      await settingsManager.setMultiple({
+        scanCycleStartedAt: new Date(now.getTime() - 10 * 60_000).toISOString(),
+        scanCycleSlotKey: slotKey('2026-09-06', 0),
+      });
+      await testDb.enqueueJobs([
+        pendingJob({ scheduledAt: new Date(now.getTime() - 5 * 60_000), slot: 0, cycleDate: '2026-09-06' }),
+        pendingJob({ scheduledAt: new Date(now.getTime() - 5 * 60_000), slot: 0, cycleDate: '2026-09-06' }),
+      ]);
+      const before = await testDb.queue.count();
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), now);
+
+      // No second cycle piled on, and nothing telling the user to lower a
+      // setting that is working.
+      expect(await testDb.queue.count()).toBe(before);
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs.filter((l) => l.jobDetail.includes('skipped'))).toHaveLength(0);
+    });
+
+    it('re-arms a missing dailyScan alarm', async () => {
+      const { handleQueueWatchdogAlarm, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
+
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 1,
+        lastScanSlotKey: '2026-09-06#0',
+      });
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), new Date(2026, 8, 6, 12, 0));
+
+      expect(
+        getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN)
+      ).toHaveLength(1);
+    });
+  });
+
+  describe('handleBrowserStartup with a queued translation audit', () => {
+    it('still catches up a missed slot', async () => {
+      const { handleBrowserStartup } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 1,
+      });
+      // An audit of 150 locale pages can sit in the queue for hours. It belongs
+      // to no cycle, so it must not stand in for today's scan.
+      await testDb.enqueueJobs([
+        {
+          type: 'translation_audit',
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', locale: 'de' },
+          status: 'pending',
+          priority: 60,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: new Date(),
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+      ]);
+
+      await handleBrowserStartup(createSchedulerDeps(), new Date(2026, 8, 6, 12, 0));
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs.some((j) => j.type === 'listing_scan')).toBe(true);
+      expect(jobs.some((j) => j.type === 'translation_audit')).toBe(true);
+    });
+  });
+
+  describe('purgeExpiredCycleJobs', () => {
+    function jobAt(scheduledAt: Date, overrides: Record<string, unknown> = {}) {
+      return {
+        type: 'keyword_scan' as const,
+        payload: { keywordId: 1, keyword: 'ad blocker' },
+        status: 'pending' as const,
+        priority: 30,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt,
+        startedAt: null,
+        completedAt: null,
+        error: null,
+        slot: 0,
+        cycleDate: '2026-09-04',
+        ...overrides,
+      };
+    }
+
+    it('discards a job stranded past its slot, so today is not written into a past date', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const now = new Date(2026, 8, 6, 13, 0);
+      // Queued for the Sep 4 cycle: two days stale, four slots superseded.
+      const strandedId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 4, 10, 0))
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(1);
+      expect(await testDb.queue.get(strandedId)).toBeUndefined();
+    });
+
+    it('keeps a job from the cycle that is currently draining', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const now = new Date(2026, 8, 6, 13, 0);
+      // Queued at the 10:00 slot three hours ago — well inside the 6h spacing.
+      const liveId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 6, 10, 0), { cycleDate: '2026-09-06' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(0);
+      expect(await testDb.queue.get(liveId)).toBeDefined();
+    });
+
+    it('keeps a cycle that crossed midnight at scansPerDay: 1', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '22:00', scansPerDay: 1 });
+
+      const now = new Date(2026, 8, 6, 2, 0);
+      const liveId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 5, 22, 0), { cycleDate: '2026-09-05' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(0);
+      expect(await testDb.queue.get(liveId)).toBeDefined();
+    });
+
+    it('never discards a translation audit, which belongs to no cycle', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const auditId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 3, 10, 0), {
+          type: 'translation_audit',
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', locale: 'de' },
+          priority: 60,
+        })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, new Date(2026, 8, 6, 13, 0))).toBe(0);
+      expect(await testDb.queue.get(auditId)).toBeDefined();
+    });
+
+    it('the watchdog discards stranded jobs instead of draining them into a past date', async () => {
+      const { handleQueueWatchdogAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+      const strandedId = await testDb.queue.add(jobAt(new Date(2026, 8, 4, 10, 0)));
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), new Date(2026, 8, 6, 13, 0));
+
+      expect(await testDb.queue.get(strandedId)).toBeUndefined();
+      // With the stranded cycle gone, the current slot is free to run.
+      const jobs = await testDb.queue.toArray();
+      expect(jobs.every((j) => j.cycleDate === '2026-09-06')).toBe(true);
+    });
+  });
+
+  describe('stalled cycle recovery', () => {
+    it('takes the slot when the previous cycle stopped moving', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 1,
+      });
+
+      // A cycle that started hours ago, completed nothing, and whose jobs were
+      // due hours ago: a broken alarm chain, not a slow scan.
+      const now = new Date(2026, 8, 6, 12, 0);
+      const longAgo = new Date(now.getTime() - 6 * 60 * 60_000);
+      await settingsManager.set('scanCycleStartedAt', longAgo.toISOString());
+      const stalledId = await testDb.queue.add({
+        type: 'keyword_scan',
+        payload: { keywordId: 1, keyword: 'ad blocker' },
+        status: 'pending',
+        priority: 30,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: longAgo,
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      });
+
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      // The stalled job is gone and a fresh cycle was enqueued in its place.
+      expect(await testDb.queue.get(stalledId)).toBeUndefined();
+      const jobs = await testDb.queue.toArray();
+      expect(jobs.length).toBeGreaterThan(0);
+      expect(jobs.some((j) => j.type === 'listing_scan')).toBe(true);
+    });
+
+    it('does not write off a healthy cycle running at a very slow configured pace', async () => {
+      // queueDelayMs has a validated minimum but no maximum, and a restored
+      // backup does not pass through the Settings UI that caps it. A fixed
+      // 30-minute staleness window would make every cycle at a 20-minute pace
+      // look dead and discard its jobs.
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 1,
+        queueDelayMs: 20 * 60_000,
+        queueJitterMs: 60_000,
+      });
+
+      const now = new Date(2026, 8, 6, 12, 0);
+      // Last job finished 40 minutes ago — two healthy gaps at this pace.
+      await settingsManager.set(
+        'scanCycleStartedAt',
+        new Date(now.getTime() - 3 * 60 * 60_000).toISOString()
+      );
+      const liveId = await testDb.queue.add({
+        type: 'keyword_scan',
+        payload: { keywordId: 1, keyword: 'ad blocker' },
+        status: 'pending',
+        priority: 30,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(now.getTime() - 3 * 60 * 60_000),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+      });
+      await testDb.queue.add({
+        type: 'listing_scan',
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'completed',
+        priority: 10,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date(now.getTime() - 3 * 60 * 60_000),
+        startedAt: null,
+        completedAt: new Date(now.getTime() - 40 * 60_000),
+        error: null,
+      });
+
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      expect(await testDb.queue.get(liveId)).toBeDefined();
+    });
+
+    it('still defers to a cycle that is merely slow', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 1,
+      });
+
+      // Started hours ago, but a job completed a minute ago — it is draining.
+      const now = new Date(2026, 8, 6, 12, 0);
+      const longAgo = new Date(now.getTime() - 6 * 60 * 60_000);
+      await settingsManager.set('scanCycleStartedAt', longAgo.toISOString());
+      await testDb.enqueueJobs([
+        {
+          type: 'keyword_scan',
+          payload: { keywordId: 1, keyword: 'ad blocker' },
+          status: 'pending',
+          priority: 30,
+          retryCount: 0,
+          maxRetries: 3,
+          scheduledAt: longAgo,
+          startedAt: null,
+          completedAt: null,
+          error: null,
+        },
+      ]);
+      await testDb.queue.add({
+        type: 'listing_scan',
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'completed',
+        priority: 10,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: longAgo,
+        startedAt: null,
+        completedAt: new Date(now.getTime() - 60_000),
+        error: null,
+      });
+
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      const pending = await testDb.queue.where('status').equals('pending').toArray();
+      expect(pending).toHaveLength(1);
+    });
+  });
+
   describe('setupAlarms', () => {
     it('arms a one-shot dailyScan alarm at the configured time when auto-scan is enabled', async () => {
       const { setupAlarms, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
@@ -324,6 +758,33 @@ describe('Scheduler', () => {
       await settingsManager.set('dailyScanTime', '11:00'); // enabled stays false
       const now = new Date(2026, 5, 24, 13, 0, 0);
       expect(await isDailyScanDue(createSchedulerDeps(), now)).toBe(false);
+    });
+
+    it('true for an after-midnight slot that fired earlier today', async () => {
+      // Slots at 10:00 / 16:00 / 22:00 / 04:00. At 05:00 the current slot is
+      // the 04:00 one; it belongs to yesterday's slot-day but happened today,
+      // so it is very much catchable. Gating on the slot-day made every
+      // after-midnight slot permanently uncatchable.
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+      expect(await isDailyScanDue(createSchedulerDeps(), new Date(2026, 8, 6, 5, 0))).toBe(true);
+    });
+
+    it('false for yesterday\'s only slot seen after midnight', async () => {
+      // scansPerDay: 1 must behave exactly as the single daily scan did — a
+      // slot missed before midnight stays missed rather than being recorded
+      // against the wrong day.
+      const { isDailyScanDue } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 1,
+      });
+      expect(await isDailyScanDue(createSchedulerDeps(), new Date(2026, 8, 6, 3, 0))).toBe(false);
     });
   });
 

@@ -381,13 +381,57 @@ export class CWSDatabase extends Dexie {
 
   async resetRunningJobs(): Promise<number> {
     const running = await this.queue.where('status').equals('running').toArray();
-    const ids = running.map((j) => j.id!);
+    return this.requeueJobs(running.map((j) => j.id!));
+  }
+
+  /**
+   * Put the given jobs back in the pending queue.
+   *
+   * `scheduledAt` is deliberately left alone: a job requeued after the service
+   * worker died should run as soon as the queue reaches it, and a job that was
+   * mid-retry keeps the backoff it had already earned.
+   */
+  async requeueJobs(ids: number[]): Promise<number> {
     if (ids.length === 0) return 0;
     await this.queue
       .where('id')
       .anyOf(ids)
       .modify({ status: 'pending' as QueueJobStatus, startedAt: null });
     return ids.length;
+  }
+
+  /**
+   * Requeue jobs that have been `running` since before `cutoff`.
+   *
+   * A job only stays `running` when the service worker was terminated while
+   * executing it (MV3 kills workers freely, and the alarm that would have
+   * scheduled the next job dies with it). Recovering by age rather than
+   * unconditionally means a job that is genuinely in flight right now is never
+   * yanked out from under the processor.
+   */
+  async requeueStaleRunningJobs(cutoff: Date): Promise<number> {
+    const running = await this.queue.where('status').equals('running').toArray();
+    const stale = running.filter(
+      (j) => !j.startedAt || j.startedAt.getTime() <= cutoff.getTime()
+    );
+    return this.requeueJobs(stale.map((j) => j.id!));
+  }
+
+  /**
+   * The earliest `scheduledAt` among pending jobs, or null when none are
+   * pending.
+   *
+   * Used to tell "the queue is empty" apart from "every pending job is still in
+   * its retry backoff". Conflating the two ended the scan cycle early and
+   * abandoned the backed-off jobs, which then blocked every later slot.
+   */
+  async getNextPendingScheduledAt(): Promise<Date | null> {
+    const pending = await this.queue.where('status').equals('pending').toArray();
+    if (pending.length === 0) return null;
+    return pending.reduce(
+      (earliest, job) => (job.scheduledAt < earliest ? job.scheduledAt : earliest),
+      pending[0].scheduledAt
+    );
   }
 
   async getPendingCount(): Promise<number> {

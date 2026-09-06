@@ -738,7 +738,7 @@ describe('Queue Processor', () => {
       expect(ext!.iconUrl).toBe('https://example.com/icon.png');
     });
 
-    it('job with scheduledAt in the future: skipped', async () => {
+    it('job with scheduledAt in the future: not run, but still reported as pending work', async () => {
       const { processNextJob } = await import('@/background/queue-processor');
       await seedProject();
       await testDb.enqueueJobs([
@@ -750,8 +750,135 @@ describe('Queue Processor', () => {
       const deps = createDeps();
       const result = await processNextJob(deps);
 
+      // The job is not executed yet, but the cycle is NOT finished: reporting
+      // hasMore:false here made the scheduler stamp the slot as complete and
+      // stop re-arming, abandoning every job still in its retry backoff.
+      expect(result.hasMore).toBe(true);
+      expect(result.delayMs).toBeGreaterThan(0);
+      expect(result.delayMs).toBeLessThanOrEqual(600_000);
+      const jobs = await testDb.queue.toArray();
+      expect(jobs[0].status).toBe('pending');
+    });
+
+    it('empty queue: reports no more work', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+
+      const result = await processNextJob(createDeps());
+
       expect(result.hasMore).toBe(false);
       expect(result.delayMs).toBe(0);
+    });
+  });
+
+  describe('review follow-up on a changed review count', () => {
+    async function seedPreviousSnapshot(reviewCount: number): Promise<void> {
+      await testDb.saveListingSnapshot({
+        extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        date: '2026-09-06',
+        slot: 0,
+        scannedAt: new Date(Date.now() - 60_000),
+        title: 'Test Extension',
+        shortDescription: 'A test extension',
+        fullDescription: 'Full description here',
+        rating: 4.5,
+        ratingCount: reviewCount,
+        reviewCount,
+        userCount: '10,000+',
+        userCountNumeric: 10000,
+        version: '1.0.0',
+        lastUpdated: '2026-01-15',
+        size: '1.5MiB',
+        permissions: ['storage'],
+        hostPermissions: [],
+        permissionRiskScore: 0,
+        badgeFlags: {},
+        screenshotCount: 3,
+        hasPromoVideo: false,
+        translationCount: 5,
+        availableLocales: ['en'],
+        category: 'productivity',
+        developerName: 'Test Dev',
+        developerEmail: null,
+        websiteUrl: null,
+        developerVerified: false,
+        listingQualityScore: null,
+      });
+    }
+
+    async function reviewJobsQueued(): Promise<number> {
+      const jobs = await testDb.queue.toArray();
+      return jobs.filter((j) => j.type === 'review_scan').length;
+    }
+
+    it('queues a review scan when a later slot sees the count rise', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      // The mocked parser reports reviewCount: 100.
+      await seedPreviousSnapshot(95);
+      await testDb.enqueueJobs([
+        makeListingJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', { slot: 2, cycleDate: '2026-09-06' }),
+      ]);
+
+      await processNextJob(createDeps());
+
+      expect(await reviewJobsQueued()).toBe(1);
+      const followUp = (await testDb.queue.toArray()).find((j) => j.type === 'review_scan')!;
+      expect(followUp.slot).toBe(2);
+      expect(followUp.cycleDate).toBe('2026-09-06');
+    });
+
+    it('does not queue one when the count is unchanged', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await seedPreviousSnapshot(100);
+      await testDb.enqueueJobs([
+        makeListingJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', { slot: 2, cycleDate: '2026-09-06' }),
+      ]);
+
+      await processNextJob(createDeps());
+
+      expect(await reviewJobsQueued()).toBe(0);
+    });
+
+    it('does not queue one on slot 0, which already scans reviews', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await seedPreviousSnapshot(95);
+      await testDb.enqueueJobs([
+        makeListingJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', { slot: 0, cycleDate: '2026-09-06' }),
+      ]);
+
+      await processNextJob(createDeps());
+
+      expect(await reviewJobsQueued()).toBe(0);
+    });
+
+    it('does not stack a second follow-up while one is still queued', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await seedPreviousSnapshot(95);
+      await testDb.enqueueJobs([
+        makeListingJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', { slot: 2, cycleDate: '2026-09-06' }),
+        makeListingJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', { slot: 3, cycleDate: '2026-09-06' }),
+      ]);
+
+      await processNextJob(createDeps());
+      await processNextJob(createDeps());
+
+      expect(await reviewJobsQueued()).toBe(1);
+    });
+
+    it('does not queue one when there is no earlier sample to compare against', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([
+        makeListingJob('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', { slot: 2, cycleDate: '2026-09-06' }),
+      ]);
+
+      await processNextJob(createDeps());
+
+      expect(await reviewJobsQueued()).toBe(0);
     });
   });
 

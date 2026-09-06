@@ -201,9 +201,17 @@ function createProcessorDeps(overrides: Partial<ProcessorDeps> = {}): ProcessorD
  *
  * Order within a cycle is randomized (see `buildDailyScanJobs`), so a test can
  * no longer process "the first N jobs" and know which ones it got. Jobs that
- * fail are rescheduled into the future and so drop out of this loop rather than
- * spinning. `maxIterations` is a runaway guard, not an expected bound.
+ * fail are rescheduled into the future; the loop stops once nothing is due
+ * rather than spinning on them. (`processNextJob` keeps reporting `hasMore` for
+ * backed-off jobs — in production the scheduler waits out the backoff and comes
+ * back — so the due check, not `hasMore` alone, is what ends this loop.)
+ * `maxIterations` is a runaway guard, not an expected bound.
  */
+async function anyJobDue(): Promise<boolean> {
+  const pending = await testDb.queue.where('status').equals('pending').toArray();
+  return pending.some((job) => job.scheduledAt.getTime() <= Date.now());
+}
+
 async function drainQueue(
   processNextJob: (deps: ProcessorDeps) => Promise<{ hasMore: boolean }>,
   deps: ProcessorDeps,
@@ -212,6 +220,7 @@ async function drainQueue(
   for (let i = 0; i < maxIterations; i++) {
     const { hasMore } = await processNextJob(deps);
     if (!hasMore) return;
+    if (!(await anyJobDue())) return;
   }
   throw new Error(`drainQueue did not settle within ${maxIterations} iterations`);
 }
