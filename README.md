@@ -14,9 +14,9 @@ running locally in your browser, with your data never leaving the machine.
 [![Vue 3](https://img.shields.io/badge/Vue-3_·_script_setup-42b883?logo=vuedotjs&logoColor=white)](https://vuejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Vite](https://img.shields.io/badge/Vite-5_+_CRXJS-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
-[![Tests](https://img.shields.io/badge/tests-1%2C249_passing-success?logo=vitest&logoColor=white)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1%2C656_passing-success?logo=vitest&logoColor=white)](#testing)
 [![License: PolyForm NC](https://img.shields.io/badge/license-PolyForm_Noncommercial-blue)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-0.34.0-informational)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.40.2-informational)](./CHANGELOG.md)
 
 <br/>
 
@@ -36,8 +36,10 @@ running locally in your browser, with your data never leaving the machine.
   - [Autocomplete / search-suggestion tracking](#-autocomplete--search-suggestion-tracking)
   - [Listing quality & optimization](#-listing-quality--optimization)
   - [Reviews & reputation](#-reviews--reputation)
+  - [Translation manipulation audit](#-translation-manipulation-audit)
   - [AI-powered keyword audit](#-ai-powered-keyword-audit)
   - [Change detection & event timeline](#-change-detection--event-timeline)
+  - [Scan scheduling & sampling](#-scan-scheduling--sampling)
   - [Your data stays yours](#-your-data-stays-yours)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
@@ -66,6 +68,7 @@ dashboard then renders the history as charts, diffs, comparison tables, and AI a
 | **Benchmark your listing** against rivals | A composite 0–100 quality score with per-component breakdown and prioritized fix recommendations |
 | **Understand *why* you're losing** a keyword | An LLM-powered audit that compares both listings and explains the gap |
 | **Find keywords you're missing** | Gap analysis, keyword-difficulty estimation, density matrices, and autocomplete-suggestion mining |
+| **Catch a rival gaming store search through translations** | A manual translation audit that fetches a listing in up to 20 locales and scores eight documented manipulation tricks, with the flagged text quoted verbatim |
 | **Own your data** | Everything lives in your browser's IndexedDB; full JSON import/export; no accounts, no servers |
 
 ---
@@ -78,13 +81,13 @@ human, survives service-worker death, and resumes exactly where it stopped.
 
 ```mermaid
 flowchart LR
-    A["chrome.alarms<br/>(daily + queue tick)"] --> B["Queue Builder<br/>1 job / extension<br/>1 job / keyword"]
+    A["chrome.alarms<br/>(scan slot · queue tick<br/>· 5-min watchdog)"] --> B["Queue Builder<br/>1 job / extension<br/>1 job / keyword"]
     B --> C[("IndexedDB queue<br/>(Dexie)")]
     C --> D["Queue Processor<br/>one job at a time"]
     D -->|fetch via| P["Cloudflare Worker<br/>proxy (own repo)"]
     P -->|HTML / RPC| W(("Chrome<br/>Web Store"))
     W --> P --> D
-    D --> E["Versioned parsers<br/>listing · search · autocomplete"]
+    D --> E["Versioned parsers<br/>listing · search<br/>autocomplete · reviews"]
     E --> F["Event detector<br/>(snapshot diff)"]
     F --> G[("IndexedDB<br/>snapshots · events")]
     G --> H["Vue 3 Dashboard<br/>charts · diffs · AI audit"]
@@ -94,11 +97,14 @@ flowchart LR
 
 **The scan loop, step by step:**
 
-1. A `dailyScan` **alarm** fires (or you hit *Refresh*). The **queue builder** creates
-   one `listing_scan` job per unique extension (deduplicated across projects), one
-   `keyword_scan` per keyword, and one `autocomplete_scan` per keyword.
-2. Jobs are persisted to an IndexedDB **queue** with priority ordering (your listing →
-   competitor listings → keyword scans → autocomplete).
+1. A `dailyScan` **alarm** fires for the next *scan slot* (or you hit *Refresh*). The
+   **queue builder** creates one `listing_scan` job per unique extension (deduplicated
+   across projects), one `keyword_scan` and one `autocomplete_scan` per keyword, and — on
+   the day's first slot only — one `review_scan` per extension.
+2. Jobs are persisted to an IndexedDB **queue**, tagged with the `cycleDate` and `slot`
+   they belong to, and **shuffled** within the cycle so the gap between sampling a
+   listing and sampling its rank varies in size and sign instead of being a fixed
+   scheduling artifact.
 3. The **queue processor** dequeues exactly one job, fetches the page through the
    **proxy** (required — the store blocks direct extension-origin requests via CORS),
    and parses it with a **versioned parser**.
@@ -106,12 +112,22 @@ flowchart LR
    change events. Snapshots and events land in IndexedDB.
 5. The processor schedules the next queue tick with a base delay **plus jitter**, then
    the loop repeats. One keyword search returns positions for *all* tracked extensions
-   at once, so a scan is `1 request per keyword`, not per keyword-per-extension.
+   at once, so a scan is `1 request per keyword`, not per keyword-per-extension. Every
+   CWS request is paced by the same configured delay — including the 2nd and 3rd
+   **pagination** pages of a keyword search.
 
 > **Resilience by design.** The queue lives in IndexedDB, not memory. On service-worker
 > startup any `running` jobs are reset to `pending`, so a scan interrupted by SW
 > termination simply continues. The next alarm is always scheduled *after* a job
 > completes, never before.
+>
+> Because every alarm here is a one-shot re-armed by the handler that consumes it — and
+> MV3 kills workers mid-fetch — a periodic **watchdog** (every 5 minutes) is the thing
+> that reconnects a broken chain: it re-queues jobs a dead worker abandoned in `running`,
+> re-arms the processing alarm when work is pending and nothing is in flight, runs a
+> **missed slot** it finds due, and re-arms a missing `dailyScan` alarm. Jobs stranded
+> past their own slot are discarded rather than drained days late, which would have
+> written today's measurements into a past date.
 
 ---
 
@@ -134,6 +150,9 @@ building a daily history of their listing.
   counts, and a keyword-density matrix — with your tracked keywords highlighted in-line.
 - **Permission risk scoring** — a 0–100 risk score per extension from weighted Chrome
   permissions, surfaced as color-coded bars so you can see who is over-asking.
+- **Developer website** — the domain behind each listing, shown on the listing card.
+  It is untrusted third-party text on its way into an `href`, so it is linked only when
+  it parses as an `http(s)` URL with a dotted hostname and no embedded credentials.
 - **Extensions overview table** — every tracked extension's metrics over time, with a
   **Daily/Weekly step toggle** and day-over-day / week-over-week deltas.
 
@@ -153,7 +172,9 @@ building a daily history of their listing.
 - **Unstable-rank detection** — CWS search results are genuinely noisy (an extension can
   oscillate between #10, #20, and out-of-top-30 within minutes), so a single dropped
   scan is flagged as a debounced amber **"Unstable"** with a one-click **Re-scan**, and
-  only escalates to a real **"Out"** after a second consecutive confirming miss.
+  only escalates to a real **"Out"** after a second consecutive confirming miss. The
+  debounce counts **days, not scans**: raising the scan cadence must not quietly redefine
+  what an "Out" means, so multi-sample days are rolled up before it is applied.
 - **Keyword analysis** — a frequency matrix (how often each keyword appears in each
   rival's title/short/full text), **gap analysis** (keywords competitors use that you
   don't), and **difficulty estimation** (0–100, derived from the rating, user count, and
@@ -206,6 +227,47 @@ language) and keep them current as they change:
 - **Voice-of-customer keywords** — the terms users actually use, mined from review text.
 - **Review events** — new/edited reviews and developer replies land on the event timeline.
 
+### 🌍 Translation manipulation audit
+
+A listing can be honest in English and something else entirely in Japanese. The
+**Translations** tab fetches an extension's store page in each selected locale
+(`?hl=<locale>`, 20 available, 15 on by default) and checks the localized title, short
+description, and full description for the tricks used to game store search through
+translations:
+
+| # | Trick | Severity |
+| :---: | --- | :---: |
+| 1 | **Different extension name** — brand words dropped, or a competitor's name in the title | High |
+| 2 | **Different short description** — empty, a keyword list, left in English, or padded far beyond the English one | Medium |
+| 3 | **Competitor names in text** — whole-phrase and one-edit fuzzy matches against the other extensions in the project | High |
+| 4 | **Considerably longer description** — more than 2× the median length of the *other* locales | High |
+| 5 | **Keyword list at end of description** — a block of short non-bullet lines, or a trailing comma-separated line | High |
+| 6 | **Keyword stuffing inside description** — runs of comma-separated short phrases, or one sentence repeated with a keyword swapped | Medium |
+| 7 | **Unrelated description** — cognate-aware overlap with the English listing's Latin-script terms | High |
+| 8 | **Untranslated English** — Latin-letter share, or English vs. target-language function words, above 70% | Medium |
+
+- Each locale gets a weighted **0–100 manipulation score**; the extension's score is its
+  worst locale plus 5 per further flagged locale.
+- Every finding says **why it fired** and quotes the offending text **verbatim**, which
+  the comparison table then highlights inside the full description.
+- **Locale-vs-locale comparison table** (title, short description, description length,
+  detected language, flags — click a row for the full text), a date picker for past
+  audits, and **Export JSON** for evidence.
+- **Locales the extension doesn't ship are not audited.** CWS serves the default listing
+  for an unsupported locale, so it is marked "default listing" rather than flagged as
+  untranslated English — otherwise every single-language developer would score as a
+  manipulator.
+- **Manual only, never scheduled.** Pick extensions and locales, see the request count
+  and time estimate, and run. One request per extension × locale at the normal queue
+  delay (15 locales × 10 extensions ≈ 150 requests, ~2.5 h at the default 60 s), appended
+  to the queue without cancelling a scan in progress and never claiming a scan slot.
+
+> These are **text heuristics, not semantic judgements**, and deliberately conservative —
+> the tab says so. An honest translation shares only ~30% of its characters with the
+> English source, so a naive edit-distance cutoff flags everything; the name check
+> therefore infers which words are the brand from evidence across the other locales and
+> flags **brand loss**, never wording.
+
 ### 🤖 AI-powered keyword audit
 
 For any keyword where a competitor outranks you, click **"Why higher?"** to run a
@@ -237,19 +299,58 @@ charts:
 
 `title_change` · `description_change` · `version_change` · `permission_change` ·
 `rating_milestone` · `user_milestone` · `translation_change` · `screenshot_change` ·
-`badge_change` · `rank_change` · `size_change`
+`badge_change` · `rank_change` · `size_change` · `review_new` · `review_edited` ·
+`review_reply`
+
+**Changes are intervals, not instants.** A change found by polling is never observed
+happening — all you know is that it had not happened at one scan and had at the next. So
+every event carries the last observation where the old value still held and the first
+carrying the new one, and is rendered as that window and its width
+("Jul 10 11:47 → Jul 13 14:49, somewhere in ~75h"). Rank-chart annotations are shaded
+bands spanning the window rather than a line at midnight. Records written before this
+have no window and are marked imprecise instead of being drawn as if they were bounded.
 
 Expand any text or permission event to see a **word-level diff** (additions in green,
 removals struck through in red) or a **permission diff** with the matching Chrome install
 warnings — so a "permissions changed" event tells you *exactly* what new access a rival
 just requested.
 
+### ⏱️ Scan scheduling & sampling
+
+- **1–4 scans a day.** `scansPerDay` divides the day into evenly spaced *slots* anchored
+  at your scan time, each with up to 20 minutes of jitter so the sampling times are not
+  themselves perfectly regular. More samples narrow the change intervals above — three
+  scans a day bound a change to about 8 hours instead of 24.
+- **The schedule is visible.** Settings lists the computed slot times with the next one
+  highlighted, and says plainly when auto-scan is off and the setting is therefore inert.
+  A **"Scans Today"** stat (`2 of 4`) counts the slots that actually produced data.
+- **Intraday view.** Charts and tables still show **one point per day — the day's last
+  sample**, so multi-sample days stay comparable with existing history. Where a day's
+  samples disagreed, the chart adds faint best/worst markers, the tooltip lists each
+  sample with its time, and table cells carry a sample-count superscript. An "Intraday"
+  toggle switches cells to the day's range, and appears only when the visible range
+  actually contains a multi-sample day.
+- **Request budget.** Settings estimates requests per day (counting search pagination)
+  and warns when a single round cannot finish before the next slot is due.
+- **Scan Logs page** — every request with its method, URL, query-parameter table, and
+  full response body, plus slot lifecycle entries: which slots ran, which were skipped,
+  and why. API keys are redacted.
+
 ### 🔒 Your data stays yours
 
 - **Local-first.** Every snapshot, event, and setting lives in your browser
   (`IndexedDB` + `chrome.storage.local`). No account, no backend, no telemetry.
-- **Full JSON import/export** of all projects, extensions, keywords, snapshots, events,
-  and settings — atomic, transactional, round-trip-safe.
+- **Full JSON import/export** of all projects, extensions, keywords, snapshots, reviews,
+  events, and settings — atomic, transactional, round-trip-safe. Restoring the backup's
+  *settings* (proxy URL, API keys, schedule) is a separate opt-in checkbox, **off by
+  default**, so a restore cannot quietly overwrite working credentials with stale ones.
+  Import replaces all data wholesale, so it warns first when the file is over 7 days old
+  or contains no projects.
+- **`unlimitedStorage`.** Without it the database sits in Chrome's best-effort bucket,
+  which Chrome may evict wholesale under disk pressure — taking every snapshot with it
+  while `chrome.storage.local` survives, so settings look intact and the tracking history
+  is simply gone. A failed database *read* is also shown as an explicit error with a
+  retry, never as an empty "no projects" state that reads like data loss.
 - **Bring-your-own-proxy.** The scanning proxy is a free, one-click-deployable Cloudflare
   Worker in its own repo ([`shapito27/cws-tracker-proxy`](https://github.com/shapito27/cws-tracker-proxy))
   that you host. API keys are redacted from all scan logs.
@@ -297,8 +398,8 @@ core:
   IndexedDB), and pure utilities. No browser-specific APIs beyond IndexedDB.
 
 **Parsers are versioned and fixture-tested.** Each implements a `ListingParser`,
-`SearchParser`, or `AutocompleteParser` interface; a `ParserFactory` selects the version
-from settings. When the store changes its markup, a *new* version is added rather than
+`SearchParser`, `AutocompleteParser`, or `ReviewsParser` interface; a `ParserFactory`
+selects the version from settings. When the store changes its markup, a *new* version is added rather than
 mutating the old one, and parsers are tested against saved CWS HTML fixtures — never
 mocked internally, never hitting the live network in tests.
 
@@ -312,7 +413,7 @@ mocked internally, never hitting the live network in tests.
 | **Bundler** | Vite 5 + `@crxjs/vite-plugin` (MV3 HMR) |
 | **Styling** | Tailwind CSS v4 (`@tailwindcss/vite` plugin) |
 | **Charts** | ApexCharts via `vue3-apexcharts` (split into its own chunk) |
-| **Database** | Dexie.js v4 over IndexedDB (schema v4) |
+| **Database** | Dexie.js v4 over IndexedDB (schema v5) |
 | **Settings** | `chrome.storage.local` |
 | **AI** | OpenAI API (user-provided key, optional runtime permission) |
 | **Proxy** | Cloudflare Worker ([separate repo](https://github.com/shapito27/cws-tracker-proxy)) |
@@ -407,7 +508,7 @@ reference.
 
 ## Testing
 
-**1,249 tests across 48 files**, run with Vitest against `fake-indexeddb` and jsdom — no
+**1,656 tests across 65 files**, run with Vitest against `fake-indexeddb` and jsdom — no
 real Chrome Web Store network calls, ever. Parser tests run against saved HTML/RPC
 fixtures, and an integration suite exercises the complete scan cycle, including
 service-worker restart mid-scan, fetch retries with exponential backoff, 404 handling,
