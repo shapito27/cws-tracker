@@ -289,6 +289,42 @@ describe('Scheduler', () => {
       expect(jobs.every((j) => j.slot === 0)).toBe(true);
     });
 
+    it('leaves a healthy draining cycle alone instead of logging a false "skipped"', async () => {
+      // `lastScanSlotKey` is stamped only when a cycle *finishes*, so the slot
+      // running right now reads as "not run" for its whole duration. Without a
+      // guard, every watchdog tick of a healthy 45-minute scan re-entered
+      // handleDailyScanAlarm, bounced off the in-flight guard and logged
+      // "Scan slot … skipped … Lower scansPerDay" — nine false alarms per scan.
+      const { handleQueueWatchdogAlarm, slotKey } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+
+      // The 10:00 cycle started 10 minutes ago and is still draining.
+      const now = new Date(2026, 8, 6, 10, 10);
+      await settingsManager.setMultiple({
+        scanCycleStartedAt: new Date(now.getTime() - 10 * 60_000).toISOString(),
+        scanCycleSlotKey: slotKey('2026-09-06', 0),
+      });
+      await testDb.enqueueJobs([
+        pendingJob({ scheduledAt: new Date(now.getTime() - 5 * 60_000), slot: 0, cycleDate: '2026-09-06' }),
+        pendingJob({ scheduledAt: new Date(now.getTime() - 5 * 60_000), slot: 0, cycleDate: '2026-09-06' }),
+      ]);
+      const before = await testDb.queue.count();
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), now);
+
+      // No second cycle piled on, and nothing telling the user to lower a
+      // setting that is working.
+      expect(await testDb.queue.count()).toBe(before);
+      const logs = await testDb.scan_logs.toArray();
+      expect(logs.filter((l) => l.jobDetail.includes('skipped'))).toHaveLength(0);
+    });
+
     it('re-arms a missing dailyScan alarm', async () => {
       const { handleQueueWatchdogAlarm, ALARM_DAILY_SCAN } = await import('@/background/scheduler');
 

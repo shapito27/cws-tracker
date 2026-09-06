@@ -447,6 +447,16 @@ export async function purgeExpiredCycleJobs(
   const ids = expired.map((j) => j.id).filter((id): id is number => id !== undefined);
   if (ids.length > 0) await db.queue.bulkDelete(ids);
 
+  // The markers describe a cycle that no longer has any jobs. Left behind, the
+  // drain of whatever else is in the queue (an audit, say) would stamp this
+  // dead cycle's slot key into `lastScanSlotKey` as if it had completed.
+  const survivingCycleJobs = candidates.some(
+    (job) => job.type !== 'translation_audit' && !ids.includes(job.id!)
+  );
+  if (!survivingCycleJobs) {
+    await settings.setMultiple({ scanCycleStartedAt: null, scanCycleSlotKey: null });
+  }
+
   const oldest = expired.reduce(
     (min, j) => (j.scheduledAt.getTime() < min ? j.scheduledAt.getTime() : min),
     expired[0].scheduledAt.getTime()
@@ -495,15 +505,15 @@ export async function handleQueueWatchdogAlarm(
   // 3. A broken processing chain. Only when nothing is actually in flight: a
   //    job that started moments ago means the chain is alive and arming a
   //    second alarm would run two jobs at once.
-  const [pending, stillRunning, processQueueArmed] = await Promise.all([
-    db.getPendingCount(),
+  const [pendingJobs, stillRunning, processQueueArmed] = await Promise.all([
+    db.queue.where('status').equals('pending').toArray(),
     db.getRunningJobs(),
     chrome.alarms.get(ALARM_PROCESS_QUEUE),
   ]);
-  if (pending > 0 && stillRunning.length === 0 && !processQueueArmed) {
+  if (pendingJobs.length > 0 && stillRunning.length === 0 && !processQueueArmed) {
     await logSlotEvent(
       'warn',
-      `Watchdog restarted the queue: ${pending} job(s) pending with no processing alarm armed.`
+      `Watchdog restarted the queue: ${pendingJobs.length} job(s) pending with no processing alarm armed.`
     );
     chrome.alarms.create(ALARM_PROCESS_QUEUE, {
       delayInMinutes: MIN_ALARM_DELAY_MINUTES,
@@ -518,7 +528,21 @@ export async function handleQueueWatchdogAlarm(
   const s = await deps.settings.getWithDefaults();
   if (!s.dailyScanEnabled) return;
 
-  if (await isDailyScanDue(deps, now)) {
+  // Never attempt catch-up while a cycle is actually draining. `isDailyScanDue`
+  // reads `lastScanSlotKey`, which is stamped only when a cycle *finishes*, so
+  // the slot that is running right now still reads as "not run" for its whole
+  // duration. Without this guard every watchdog tick of a perfectly healthy
+  // 45-minute scan re-entered handleDailyScanAlarm, bounced off the in-flight
+  // guard and logged "Scan slot … skipped … Lower scansPerDay or queueDelayMs" —
+  // nine false alarms per scan, telling the user to undo the setting that works.
+  // (`handleBrowserStartup` has always had this check; the watchdog skipped it.)
+  // Translation-audit jobs are excluded for the usual reason: they belong to no
+  // cycle and must not stand in for a scan.
+  const cycleWorkInFlight =
+    pendingJobs.some((j) => j.type !== 'translation_audit') ||
+    stillRunning.some((j) => j.type !== 'translation_audit');
+
+  if (!cycleWorkInFlight && (await isDailyScanDue(deps, now))) {
     await handleDailyScanAlarm(deps, now);
     return;
   }
@@ -608,7 +632,9 @@ export async function handleDailyScanAlarm(
  * - a job completed or failed recently (the queue is draining);
  * - a leftover job is scheduled recently or in the future — freshly enqueued
  *   work (a one-off keyword re-scan appends jobs without a cycle marker at all)
- *   and a job waiting out its retry backoff both look like this.
+ *   and a job waiting out its retry backoff both look like this;
+ * - a job started executing recently — the strongest signal of all, and the one
+ *   that keeps the caller from deleting a job out from under the processor.
  *
  * Only when none of them holds has the queue genuinely stopped moving.
  */
@@ -634,10 +660,16 @@ async function isQueueMakingProgress(
     return at > latest ? at : latest;
   }, 0);
 
+  const newestStartedAt = leftovers.reduce((latest, job) => {
+    const at = job.startedAt ? job.startedAt.getTime() : 0;
+    return at > latest ? at : latest;
+  }, 0);
+
   const lastProgressAt = Math.max(
     Number.isNaN(startedAt) ? 0 : startedAt,
     lastFinishedAt,
-    newestScheduledAt
+    newestScheduledAt,
+    newestStartedAt
   );
   return now.getTime() - lastProgressAt < STALE_CYCLE_PROGRESS_MS;
 }
