@@ -95,6 +95,12 @@ const CATCH_UP_MIN_LEAD_MS = 30 * 60_000;
 const WATCHDOG_PERIOD_MINUTES = 5;
 
 /**
+ * Extra grace beyond one slot interval before a queued cycle job is written off
+ * as stale. Covers a cycle that legitimately runs a little past its own slot.
+ */
+const JOB_EXPIRY_GRACE_MS = 60 * 60_000;
+
+/**
  * How long a job may sit in `running` before it is assumed abandoned.
  *
  * A job is only ever `running` while the worker executes it, and no single CWS
@@ -359,6 +365,10 @@ export async function handleBrowserStartup(
   // belongs to a worker that no longer exists. Put those back before counting.
   await db.resetRunningJobs();
 
+  // Drop anything stranded long enough that running it would record today's
+  // data against a past date — the browser may have been closed for days.
+  await purgeExpiredCycleJobs(deps.settings, now);
+
   // Resume an interrupted scan: if jobs are still queued from a cycle that did
   // not finish (browser closed or extension reloaded mid-scan), kick the
   // processor to continue it.
@@ -392,6 +402,65 @@ export async function handleBrowserStartup(
 }
 
 /**
+ * Drop queued cycle jobs whose slot has been overtaken by a later one.
+ *
+ * Every job carries the `cycleDate` and `slot` its snapshots are recorded
+ * under, so a cycle that crosses midnight still reports as one day. Without an
+ * expiry that same mechanism silently corrupts history: a cycle stranded by a
+ * broken alarm chain drains whenever the queue is next kicked — days later —
+ * and writes *today's* measurements into that old date. What the user sees is a
+ * rank-change event stamped now, a stale day growing a second intraday sample,
+ * and nothing at all in today's column.
+ *
+ * Running such a job is never worth it. Its slot has already been superseded by
+ * a later one that scans the same things at the right time, so the only thing
+ * it can still do is misattribute data. Age is measured from `scheduledAt`,
+ * which retries push forward — a job actively working through its backoff is
+ * not stale.
+ *
+ * `translation_audit` jobs are exempt: they belong to no cycle, they record
+ * their own audit date, and one audit legitimately sits in the queue for hours.
+ *
+ * @returns how many jobs were discarded.
+ */
+export async function purgeExpiredCycleJobs(
+  settings: SettingsManager = defaultSettings,
+  now: Date = new Date()
+): Promise<number> {
+  const s = await settings.getWithDefaults();
+  const slots = Math.min(4, Math.max(1, Math.floor(s.scansPerDay) || 1));
+  const maxAgeMs = (24 / slots) * 60 * 60_000 + JOB_EXPIRY_GRACE_MS;
+  const cutoff = now.getTime() - maxAgeMs;
+
+  const candidates = await db.queue
+    .where('status')
+    .anyOf('pending', 'running')
+    .toArray();
+  const expired = candidates.filter(
+    (job) =>
+      job.type !== 'translation_audit' &&
+      job.scheduledAt instanceof Date &&
+      job.scheduledAt.getTime() < cutoff
+  );
+  if (expired.length === 0) return 0;
+
+  const ids = expired.map((j) => j.id).filter((id): id is number => id !== undefined);
+  if (ids.length > 0) await db.queue.bulkDelete(ids);
+
+  const oldest = expired.reduce(
+    (min, j) => (j.scheduledAt.getTime() < min ? j.scheduledAt.getTime() : min),
+    expired[0].scheduledAt.getTime()
+  );
+  const hours = Math.round((now.getTime() - oldest) / 3_600_000);
+  await logSlotEvent(
+    'warn',
+    `Discarded ${expired.length} stranded scan job(s), the oldest queued ${hours}h ago. ` +
+      `Running them now would have recorded today's data against their original scan date.`
+  );
+  return expired.length;
+}
+
+/**
  * Handle the periodic watchdog alarm: make sure the queue and the schedule are
  * both still moving, and restart them when they are not.
  *
@@ -420,7 +489,10 @@ export async function handleQueueWatchdogAlarm(
     );
   }
 
-  // 2. A broken processing chain. Only when nothing is actually in flight: a
+  // 2. Jobs stranded so long that running them would misattribute the data.
+  await purgeExpiredCycleJobs(deps.settings, now);
+
+  // 3. A broken processing chain. Only when nothing is actually in flight: a
   //    job that started moments ago means the chain is alive and arming a
   //    second alarm would run two jobs at once.
   const [pending, stillRunning, processQueueArmed] = await Promise.all([
@@ -438,7 +510,7 @@ export async function handleQueueWatchdogAlarm(
     });
   }
 
-  // 3. The schedule itself. A slot whose alarm never arrived (worker killed
+  // 4. The schedule itself. A slot whose alarm never arrived (worker killed
   //    between fires, machine asleep past the fire time, alarm lost on an
   //    extension reload) is run now, within one watchdog period of its time —
   //    the catch-up used to happen only on browser startup, so on a machine

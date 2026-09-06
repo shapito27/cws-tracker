@@ -342,6 +342,102 @@ describe('Scheduler', () => {
     });
   });
 
+  describe('purgeExpiredCycleJobs', () => {
+    function jobAt(scheduledAt: Date, overrides: Record<string, unknown> = {}) {
+      return {
+        type: 'keyword_scan' as const,
+        payload: { keywordId: 1, keyword: 'ad blocker' },
+        status: 'pending' as const,
+        priority: 30,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt,
+        startedAt: null,
+        completedAt: null,
+        error: null,
+        slot: 0,
+        cycleDate: '2026-09-04',
+        ...overrides,
+      };
+    }
+
+    it('discards a job stranded past its slot, so today is not written into a past date', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const now = new Date(2026, 8, 6, 13, 0);
+      // Queued for the Sep 4 cycle: two days stale, four slots superseded.
+      const strandedId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 4, 10, 0))
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(1);
+      expect(await testDb.queue.get(strandedId)).toBeUndefined();
+    });
+
+    it('keeps a job from the cycle that is currently draining', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const now = new Date(2026, 8, 6, 13, 0);
+      // Queued at the 10:00 slot three hours ago — well inside the 6h spacing.
+      const liveId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 6, 10, 0), { cycleDate: '2026-09-06' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(0);
+      expect(await testDb.queue.get(liveId)).toBeDefined();
+    });
+
+    it('keeps a cycle that crossed midnight at scansPerDay: 1', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '22:00', scansPerDay: 1 });
+
+      const now = new Date(2026, 8, 6, 2, 0);
+      const liveId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 5, 22, 0), { cycleDate: '2026-09-05' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(0);
+      expect(await testDb.queue.get(liveId)).toBeDefined();
+    });
+
+    it('never discards a translation audit, which belongs to no cycle', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const auditId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 3, 10, 0), {
+          type: 'translation_audit',
+          payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', locale: 'de' },
+          priority: 60,
+        })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, new Date(2026, 8, 6, 13, 0))).toBe(0);
+      expect(await testDb.queue.get(auditId)).toBeDefined();
+    });
+
+    it('the watchdog discards stranded jobs instead of draining them into a past date', async () => {
+      const { handleQueueWatchdogAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+      const strandedId = await testDb.queue.add(jobAt(new Date(2026, 8, 4, 10, 0)));
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), new Date(2026, 8, 6, 13, 0));
+
+      expect(await testDb.queue.get(strandedId)).toBeUndefined();
+      // With the stranded cycle gone, the current slot is free to run.
+      const jobs = await testDb.queue.toArray();
+      expect(jobs.every((j) => j.cycleDate === '2026-09-06')).toBe(true);
+    });
+  });
+
   describe('stalled cycle recovery', () => {
     it('takes the slot when the previous cycle stopped moving', async () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');
