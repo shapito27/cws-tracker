@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import {
   slotScanTime,
   currentSlot,
+  currentSlotOccurrence,
   nextSlotOccurrence,
   slotDateFor,
   slotKey,
@@ -207,5 +208,31 @@ describe('describeNextScan', () => {
     // label to tomorrow while later slots are still to come.
     const now = new Date(2026, 8, 2, 12, 0);
     expect(describeNextScan('10:00', 2, now)).toBe(`Today ~${timeOf(22, 0, now)}`);
+  });
+});
+
+describe('currentSlotOccurrence', () => {
+  it('returns today\'s occurrence of the slot we are inside', () => {
+    // slots at 10:00 / 16:00 / 22:00 / 04:00
+    const now = new Date(2026, 8, 6, 17, 30);
+    expect(new Date(currentSlotOccurrence('10:00', 4, now))).toEqual(
+      new Date(2026, 8, 6, 16, 0)
+    );
+  });
+
+  it('returns the after-midnight slot that fired earlier today', () => {
+    const now = new Date(2026, 8, 6, 5, 0);
+    // The 04:00 slot belongs to the Sep 5 slot-day but happened today.
+    expect(new Date(currentSlotOccurrence('10:00', 4, now))).toEqual(
+      new Date(2026, 8, 6, 4, 0)
+    );
+    expect(slotDateFor('10:00', 4, now)).toBe('2026-09-05');
+  });
+
+  it('reaches back to yesterday when the only slot has not come round yet', () => {
+    const now = new Date(2026, 8, 6, 3, 0);
+    expect(new Date(currentSlotOccurrence('10:00', 1, now))).toEqual(
+      new Date(2026, 8, 5, 10, 0)
+    );
   });
 });

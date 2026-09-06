@@ -114,6 +114,32 @@ export function nextSlotOccurrence(
   return best ?? { when: nextDailyScanTimestamp(baseScanTime, now), slot: 0 };
 }
 
+/**
+ * Epoch ms of the most recent occurrence of the slot we are currently in.
+ *
+ * `currentSlot` says *which* slot; this says *when it was due*. Catch-up logic
+ * needs the timestamp: "the slot has not run yet" is only worth acting on while
+ * the slot is still recent, and the slot's calendar date is not the same thing
+ * as its slot-day (with `dailyScanTime: 10:00` and `scansPerDay: 4`, the 04:00
+ * slot happens today but belongs to yesterday's slot-day).
+ */
+export function currentSlotOccurrence(
+  baseScanTime: string,
+  scansPerDay: number,
+  now: Date
+): number {
+  const slot = currentSlot(baseScanTime, scansPerDay, now);
+  const [h, m] = slotScanTime(baseScanTime, slot, scansPerDay).split(':').map(Number);
+  const occurrence = new Date(now);
+  occurrence.setHours(h, m, 0, 0);
+  // The current slot's time is by definition in the past; if today's instance
+  // of that wall-clock time is still ahead, the occurrence was yesterday's.
+  if (occurrence.getTime() > now.getTime()) {
+    occurrence.setDate(occurrence.getDate() - 1);
+  }
+  return occurrence.getTime();
+}
+
 /** Identity of one scan slot on one day, e.g. `"2026-08-28#1"`. */
 export function slotKey(date: string, slot: number): string {
   return `${date}#${slot}`;

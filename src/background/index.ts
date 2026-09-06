@@ -14,6 +14,7 @@ import {
   setupAlarms,
   handleDailyScanAlarm,
   handleProcessQueueAlarm,
+  handleQueueWatchdogAlarm,
   handleBrowserStartup,
   handleSettingsChange,
   scheduleNextDailyScan,
@@ -24,6 +25,7 @@ import {
   resumeScanning,
   ALARM_DAILY_SCAN,
   ALARM_PROCESS_QUEUE,
+  ALARM_QUEUE_WATCHDOG,
 } from '@/background/scheduler';
 import { runPaginationDiagnostic } from '@/background/pagination-diagnostic';
 import { db } from '@/shared/db/database';
@@ -85,6 +87,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_PROCESS_QUEUE) {
     handleProcessQueueAlarm().catch((err) => {
       console.error('[CWS Tracker] processQueue alarm error:', err);
+    });
+    return;
+  }
+
+  if (alarm.name === ALARM_QUEUE_WATCHDOG) {
+    handleQueueWatchdogAlarm().catch((err) => {
+      console.error('[CWS Tracker] watchdog alarm error:', err);
     });
     return;
   }

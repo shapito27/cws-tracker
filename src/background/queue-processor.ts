@@ -31,6 +31,7 @@ import {
   isLocaleSupported,
 } from '@/shared/utils/translation-checks';
 import { detectChanges } from '@/background/event-detector';
+import { buildReviewScanJobs } from '@/background/queue-builder';
 import { getListingParser, getSearchParser, getAutocompleteParser, getReviewsParser, ParserError } from '@/background/parsers/index';
 import type { ListingData, SearchData, SearchResultEntry, AutocompleteData, AutocompleteSuggestionExtension, ParsedReview } from '@/background/parsers/types';
 import type {
@@ -312,7 +313,18 @@ export async function processNextJob(
   const job = await db.dequeueNext();
 
   if (job === null) {
-    return { hasMore: false, delayMs: 0 };
+    // `dequeueNext` only returns jobs whose `scheduledAt` has arrived, so a null
+    // here does NOT mean the queue is empty — every remaining job may simply be
+    // sitting in its retry backoff (up to 10 minutes). Reporting that as "no
+    // more work" ended the cycle early: the scheduler stamped the slot as done,
+    // stopped re-arming the processing alarm, and the backed-off jobs stayed
+    // pending forever — which then tripped the "previous cycle still running"
+    // guard on every later slot, silently costing every subsequent scan.
+    const nextAt = await db.getNextPendingScheduledAt();
+    if (nextAt === null) {
+      return { hasMore: false, delayMs: 0 };
+    }
+    return { hasMore: true, delayMs: Math.max(0, nextAt.getTime() - Date.now()) };
   }
 
   // Read the scan cycle start so stats only count jobs from the current cycle
@@ -481,6 +493,62 @@ async function processListingScan(
 
   // Update extension metadata
   await updateExtensionMetadata(extensionId, listingData);
+
+  // Fetch the new reviews when the count moved (see queueReviewFollowUp).
+  await queueReviewFollowUp(job, extensionId, previousSnapshot ?? null, snapshot);
+}
+
+/**
+ * Queue a `review_scan` when a listing scan shows the review count has moved.
+ *
+ * Scheduled review scans only run on the day's first slot: they are the most
+ * expensive job type and re-fetching the whole review list every slot would
+ * multiply request volume for nothing. But the listing scan that runs on
+ * *every* slot already reports the review count for free, so a later slot can
+ * check that number and pull the reviews only when there is something new to
+ * pull. Without this, a review left at 11:00 was not captured until the next
+ * day's first slot.
+ *
+ * Deliberately conservative:
+ * - Slot 0 already scans reviews as part of the cycle — skip.
+ * - Needs a previous sample to compare against, and only a *rise* counts.
+ *   A falling count means a review was deleted; there is nothing new to fetch
+ *   and the next scheduled scan reconciles it.
+ * - Never queues a second scan when one is already pending or running for this
+ *   extension, so a run of slots each adding a review cannot pile up.
+ */
+async function queueReviewFollowUp(
+  job: QueueJob,
+  extensionId: string,
+  previousSnapshot: ListingSnapshot | null,
+  snapshot: ListingSnapshot
+): Promise<void> {
+  if (jobSlot(job) === 0) return;
+  if (!previousSnapshot) return;
+  if (snapshot.reviewCount <= previousSnapshot.reviewCount) return;
+
+  try {
+    const queued = await db.queue
+      .where('status')
+      .anyOf('pending', 'running')
+      .toArray();
+    const alreadyQueued = queued.some(
+      (j) =>
+        j.type === 'review_scan' &&
+        (j.payload as ReviewScanPayload).extensionId === extensionId
+    );
+    if (alreadyQueued) return;
+
+    const [followUp] = buildReviewScanJobs([extensionId], {
+      slot: jobSlot(job),
+      cycleDate: jobDate(job),
+    });
+    if (!followUp) return;
+    await db.enqueueJobs([followUp]);
+  } catch (error) {
+    // A follow-up is an optimisation, never a reason to fail the listing scan.
+    console.warn('[CWS Tracker] Failed to queue review follow-up:', error);
+  }
 }
 
 /**
