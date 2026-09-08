@@ -2,6 +2,16 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.40.3] - 2026-09-08
+
+### Fixed
+- **A scan slot whose alarm arrived hours late stole the next slot and filed its data under the previous day.** `chrome.alarms` delivers an overdue alarm the moment the machine wakes, so with `dailyScanTime: 10:00` and `scansPerDay: 4` the 04:00 slot's alarm was delivered at 09:41 — 19 minutes before slot 0. It started a full cycle for the *stale* slot, that cycle was still draining when 10:00 arrived, and the in-flight guard skipped the real slot ("Scan slot 2026-09-08#0 skipped: the previous cycle is still running"). Because the 04:00 slot belongs to the previous slot-day, every snapshot it wrote was stamped `2026-09-07` — so a full day of scanning appeared under yesterday and today's column stayed empty. `isDailyScanDue` has always refused a catch-up this close to the next slot, but that rule guarded only the watchdog and startup paths; a late alarm reached `handleDailyScanAlarm` directly and walked past it. The same lead-time rule now applies there, and the refusal is logged with the slot it declined and why. Only the lead-time rule is reused — not the whole predicate, whose "occurred today" check would permanently drop any slot whose jitter carries its alarm past midnight.
+- **Every service-worker termination cost the queue ~20 minutes, and the job restarted from page 1.** A job is `running` for its whole execution, including the pagination waits between search pages, so the watchdog could not tell a paced multi-page scan from one a dead worker abandoned — it inferred abandonment from age alone, which forced a 15-minute window just to avoid re-queueing a live job. MV3 kills workers freely, and each death then cost that window plus the watchdog's 5-minute period. Observed on 2026-09-08: one cycle drained 2 jobs in 80 minutes, and job #11558 ran twice 20 minutes apart, reaching page 2 the first time and page 3 the second. Jobs now record a `heartbeatAt` — stamped when the job is dequeued and refreshed on every keep-alive tick of a pagination wait — so silence is unambiguous and the window drops from 15 minutes to 3. A termination now costs ~8 minutes, and a legitimately slow paced scan is never disturbed no matter how long it runs. Jobs queued before heartbeats existed fall back to the old age rule.
+
+### Notes
+- `heartbeatAt` is a new unindexed field on queue rows; no schema version bump (Dexie only needs a version for index changes).
+- The staleness window is now bounded by the longest legitimate silence — a single fetch, capped at `FETCH_TIMEOUT_MS` (90s) — rather than by the longest legitimate *job*. The keyword scan's page loop is the only place a job issues more than one CWS request, and it beats throughout every wait between pages.
+
 ## [0.40.2] - 2026-09-06
 
 ### Fixed
