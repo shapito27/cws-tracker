@@ -726,6 +726,82 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
       expect(running[0].status).toBe('running');
     });
 
+    it('requeueStaleRunningJobs spares a long job that is still checking in', async () => {
+      // A keyword scan paces itself between pages, so it legitimately stays
+      // `running` for minutes. Its heartbeat is what says the worker is alive;
+      // startedAt only says when it began. Re-queueing it would run the same
+      // search twice at once.
+      await db.enqueueJobs([
+        makeQueueJob({
+          status: 'running',
+          startedAt: new Date('2026-01-15T10:00:00Z'),
+          heartbeatAt: new Date('2026-01-15T10:09:30Z'),
+        }),
+      ]);
+
+      const requeued = await db.requeueStaleRunningJobs(new Date('2026-01-15T10:07:00Z'));
+
+      expect(requeued).toBe(0);
+      expect(await db.getRunningJobs()).toHaveLength(1);
+    });
+
+    it('requeueStaleRunningJobs recovers a job whose heartbeat stopped', async () => {
+      await db.enqueueJobs([
+        makeQueueJob({
+          status: 'running',
+          startedAt: new Date('2026-01-15T10:00:00Z'),
+          heartbeatAt: new Date('2026-01-15T10:02:00Z'),
+        }),
+      ]);
+
+      const requeued = await db.requeueStaleRunningJobs(new Date('2026-01-15T10:07:00Z'));
+
+      expect(requeued).toBe(1);
+      expect(await db.getRunningJobs()).toHaveLength(0);
+    });
+
+    it('dequeueNext starts the heartbeat with the job', async () => {
+      await db.enqueueJobs([makeQueueJob()]);
+
+      const job = await db.dequeueNext();
+
+      expect(job!.heartbeatAt).toBeInstanceOf(Date);
+      const stored = await db.queue.get(job!.id!);
+      expect(stored!.heartbeatAt).toBeInstanceOf(Date);
+    });
+
+    it('touchJobHeartbeat records that the job is still alive', async () => {
+      await db.enqueueJobs([
+        makeQueueJob({ status: 'running', startedAt: new Date('2026-01-15T10:00:00Z') }),
+      ]);
+      const [job] = await db.getRunningJobs();
+
+      await db.touchJobHeartbeat(job.id!, new Date('2026-01-15T10:05:00Z'));
+
+      const updated = await db.queue.get(job.id!);
+      expect(updated!.heartbeatAt).toEqual(new Date('2026-01-15T10:05:00Z'));
+    });
+
+    it('requeueJobs leaves no execution state on the job it returns to pending', async () => {
+      // The heartbeat means "a worker is executing this right now". A pending
+      // job has no worker, and carrying a stale beat into the next run would
+      // make it look abandoned the moment it is picked up again.
+      await db.enqueueJobs([
+        makeQueueJob({
+          status: 'running',
+          startedAt: new Date('2026-01-15T10:00:00Z'),
+          heartbeatAt: new Date('2026-01-15T10:00:30Z'),
+        }),
+      ]);
+      const [job] = await db.getRunningJobs();
+
+      await db.requeueJobs([job.id!]);
+
+      const updated = await db.queue.get(job.id!);
+      expect(updated!.startedAt).toBeNull();
+      expect(updated!.heartbeatAt).toBeNull();
+    });
+
     it('resetRunningJobs sets all running jobs back to pending', async () => {
       await db.enqueueJobs([
         makeQueueJob({ status: 'running' }),

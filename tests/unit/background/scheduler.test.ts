@@ -229,6 +229,48 @@ describe('Scheduler', () => {
       expect(jobs[0].startedAt).toBeNull();
     });
 
+    it('recovers an abandoned job within minutes, not a quarter of an hour', async () => {
+      // Every worker death costs the queue the whole staleness window, and the
+      // job restarts from scratch afterwards. Now that a live job beats while it
+      // waits, silence is unambiguous and the window no longer has to be long
+      // enough to cover the slowest legitimate job.
+      const { handleQueueWatchdogAlarm } = await import('@/background/scheduler');
+
+      const now = new Date(2026, 8, 6, 12, 0);
+      await testDb.enqueueJobs([
+        pendingJob({
+          status: 'running',
+          startedAt: new Date(now.getTime() - 10 * 60_000),
+          heartbeatAt: new Date(now.getTime() - 4 * 60_000),
+        }),
+      ]);
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), now);
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs[0].status).toBe('pending');
+    });
+
+    it('leaves a paced multi-page job alone while it is still beating', async () => {
+      const { handleQueueWatchdogAlarm } = await import('@/background/scheduler');
+
+      const now = new Date(2026, 8, 6, 12, 0);
+      await testDb.enqueueJobs([
+        pendingJob({
+          status: 'running',
+          // Started long ago — a three-page scan at a slow pace — but the
+          // pagination wait has been checking in throughout.
+          startedAt: new Date(now.getTime() - 20 * 60_000),
+          heartbeatAt: new Date(now.getTime() - 15_000),
+        }),
+      ]);
+
+      await handleQueueWatchdogAlarm(createSchedulerDeps(), now);
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs[0].status).toBe('running');
+    });
+
     it('leaves a job that is genuinely in flight alone', async () => {
       const { handleQueueWatchdogAlarm, ALARM_PROCESS_QUEUE } = await import('@/background/scheduler');
 
@@ -1180,6 +1222,92 @@ describe('Scheduler', () => {
 
       expect(getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN)).toHaveLength(0);
       expect(getCalls('alarms.clear').filter((c) => c.args[0] === ALARM_DAILY_SCAN)).toHaveLength(0);
+    });
+  });
+
+  describe('late-firing dailyScan alarm', () => {
+    // A machine asleep past a slot's time gets the alarm delivered on wake,
+    // hours late. `isDailyScanDue` refuses to catch up a slot that close to the
+    // next one, but the alarm reaches `handleDailyScanAlarm` directly and used
+    // to bypass that rule entirely.
+    it('does not start a stale slot when the next one is minutes away', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+
+      // Slots run 10:00 / 16:00 / 22:00 / 04:00. The 04:00 slot's alarm was
+      // delivered at 09:41 — 19 minutes before slot 0 is due.
+      const now = new Date(2026, 8, 8, 9, 41);
+
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      expect(await testDb.queue.count()).toBe(0);
+    });
+
+    it('records why the late slot was passed over', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+
+      await handleDailyScanAlarm(createSchedulerDeps(), new Date(2026, 8, 8, 9, 41));
+
+      const logs = await testDb.scan_logs.toArray();
+      const skipped = logs.find((l) => l.jobDetail.includes('2026-09-07#3'));
+      expect(skipped?.level).toBe('warn');
+      expect(skipped?.jobDetail).toContain('too late');
+    });
+
+    it('re-arms the next slot after refusing a late one', async () => {
+      const { handleDailyScanAlarm, ALARM_DAILY_SCAN } = await import(
+        '@/background/scheduler'
+      );
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+
+      await handleDailyScanAlarm(createSchedulerDeps(), new Date(2026, 8, 8, 9, 41));
+
+      const calls = getCalls('alarms.create').filter((c) => c.args[0] === ALARM_DAILY_SCAN);
+      expect(calls).toHaveLength(1);
+      const slotStart = new Date(2026, 8, 8, 10, 0, 0, 0).getTime();
+      const when = (calls[0].args[1] as { when?: number }).when!;
+      expect(when).toBeGreaterThanOrEqual(slotStart);
+      expect(when).toBeLessThan(slotStart + 20 * 60_000);
+    });
+
+    it('still runs a slot whose alarm arrives late but well before the next', async () => {
+      const { handleDailyScanAlarm } = await import('@/background/scheduler');
+
+      await seedProject();
+      await settingsManager.setMultiple({
+        dailyScanEnabled: true,
+        dailyScanTime: '10:00',
+        scansPerDay: 4,
+      });
+
+      // Two hours late for the 04:00 slot, but slot 0 is still ~4 hours out —
+      // there is time to drain, so the sample is worth taking.
+      const now = new Date(2026, 8, 8, 6, 0);
+
+      await handleDailyScanAlarm(createSchedulerDeps(), now);
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs.length).toBeGreaterThan(0);
+      expect(jobs.every((j) => j.cycleDate === '2026-09-07')).toBe(true);
     });
   });
 

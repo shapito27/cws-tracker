@@ -327,8 +327,13 @@ export interface ProcessorDeps {
   fetchPage: (url: string) => Promise<Response>;
   sendMessage: (message: unknown) => void;
   settings: SettingsManager;
-  /** Wait inside a running job (pagination pacing). Injectable for tests. */
-  sleep: (ms: number) => Promise<void>;
+  /**
+   * Wait inside a running job (pagination pacing). Injectable for tests.
+   *
+   * `onKeepAlive` fires on each keep-alive tick of the wait, so the caller can
+   * report that the job is still alive without knowing how the wait is chunked.
+   */
+  sleep: (ms: number, onKeepAlive?: () => void) => Promise<void>;
 }
 
 /**
@@ -662,9 +667,14 @@ async function processKeywordScan(
 
   for (let page = 0; page < MAX_SEARCH_PAGES; page++) {
     // Pace pagination like any other CWS request: the configured delay with
-    // jitter, never a flat gap, and never before page 1.
+    // jitter, never a flat gap, and never before page 1. The wait happens while
+    // the job is `running`, so it has to keep reporting in — otherwise the
+    // watchdog reads the silence as a dead worker and re-queues the job on top
+    // of the one still executing it.
     if (page > 0) {
-      await deps.sleep(calculatePaginationDelay(settings));
+      await deps.sleep(calculatePaginationDelay(settings), () => {
+        if (job.id !== undefined) void db.touchJobHeartbeat(job.id);
+      });
     }
 
     const params: { q: string; token?: string } = { q: keyword };
@@ -1637,6 +1647,9 @@ async function handleJobError(
       retryCount: newRetryCount,
       scheduledAt: nextScheduledAt,
       startedAt: null,
+      // Cleared with startedAt: a job waiting out its backoff has no worker,
+      // and the next dequeue supplies a fresh beat.
+      heartbeatAt: null,
       error: errorMessage,
     });
 
@@ -1716,7 +1729,10 @@ export function calculateRetryDelay(retryCount: number): number {
  * wait is split into sub-idle-timeout chunks with a `chrome.*` call between
  * them, which is what resets Chrome's idle timer.
  */
-function paginationDelay(ms: number): Promise<void> {
+export function paginationDelay(
+  ms: number,
+  onKeepAlive?: () => void
+): Promise<void> {
   return new Promise((resolve) => {
     let remaining = ms;
 
@@ -1728,7 +1744,10 @@ function paginationDelay(ms: number): Promise<void> {
       const chunk = Math.min(remaining, KEEP_ALIVE_INTERVAL_MS);
       remaining -= chunk;
       setTimeout(() => {
-        if (remaining > 0) keepWorkerAlive();
+        if (remaining > 0) {
+          keepWorkerAlive();
+          onKeepAlive?.();
+        }
         step();
       }, chunk);
     };

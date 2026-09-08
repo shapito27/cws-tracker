@@ -355,8 +355,19 @@ export class CWSDatabase extends Dexie {
 
       const job = pending[0];
       const startedAt = new Date();
-      await this.queue.update(job.id!, { status: 'running' as QueueJobStatus, startedAt });
-      return { ...job, status: 'running' as QueueJobStatus, startedAt };
+      // The first beat: from here the watchdog judges liveness by the heartbeat,
+      // so a job must never sit `running` without one.
+      await this.queue.update(job.id!, {
+        status: 'running' as QueueJobStatus,
+        startedAt,
+        heartbeatAt: startedAt,
+      });
+      return {
+        ...job,
+        status: 'running' as QueueJobStatus,
+        startedAt,
+        heartbeatAt: startedAt,
+      };
     });
   }
 
@@ -396,7 +407,14 @@ export class CWSDatabase extends Dexie {
     await this.queue
       .where('id')
       .anyOf(ids)
-      .modify({ status: 'pending' as QueueJobStatus, startedAt: null });
+      // A pending job has no worker, so it must carry no execution state. Both
+      // fields are cleared together: a stale beat left on the row would make
+      // the job look abandoned the moment it is picked up again.
+      .modify({
+        status: 'pending' as QueueJobStatus,
+        startedAt: null,
+        heartbeatAt: null,
+      });
     return ids.length;
   }
 
@@ -411,10 +429,29 @@ export class CWSDatabase extends Dexie {
    */
   async requeueStaleRunningJobs(cutoff: Date): Promise<number> {
     const running = await this.queue.where('status').equals('running').toArray();
-    const stale = running.filter(
-      (j) => !j.startedAt || j.startedAt.getTime() <= cutoff.getTime()
-    );
+    // The heartbeat is the liveness signal; `startedAt` only dates the job's
+    // beginning, which a legitimately slow job outgrows. Jobs from before
+    // heartbeats existed have none, so they fall back to the old rule.
+    const stale = running.filter((j) => {
+      const lastSeen = j.heartbeatAt ?? j.startedAt;
+      return !lastSeen || lastSeen.getTime() <= cutoff.getTime();
+    });
     return this.requeueJobs(stale.map((j) => j.id!));
+  }
+
+  /**
+   * Record that the worker executing `id` is still alive.
+   *
+   * Best-effort by design: a failed heartbeat must never fail the job it is
+   * reporting on. The worst case is one missed beat, and the watchdog's window
+   * spans several.
+   */
+  async touchJobHeartbeat(id: number, at: Date = new Date()): Promise<void> {
+    try {
+      await this.queue.update(id, { heartbeatAt: at });
+    } catch {
+      // Diagnostics must never break the job they describe.
+    }
   }
 
   /**

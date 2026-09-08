@@ -383,6 +383,22 @@ export interface QueueJob {
    */
   scheduledAt: Date;
   startedAt: Date | null;
+  /**
+   * Last time the executing worker signalled that it is still alive.
+   *
+   * `startedAt` cannot answer "is this job still running?": a keyword scan
+   * paces itself between pages, so staying `running` for minutes is normal. The
+   * watchdog used to infer abandonment from age alone, which forced a window
+   * (15 min) far longer than any real job just to avoid re-queueing a live one
+   * — and that window was the cost of every service-worker death, paid twice
+   * over because the job then restarted from page 1.
+   *
+   * Refreshed before each CWS request and on every keep-alive tick of a
+   * pagination wait, so the gap between beats is bounded by one fetch timeout.
+   * Absent on jobs queued before this existed, which fall back to `startedAt`.
+   * Not indexed — the watchdog reads the running jobs in full anyway.
+   */
+  heartbeatAt?: Date | null;
   completedAt: Date | null;
   /** Error message if the job failed. */
   error: string | null;

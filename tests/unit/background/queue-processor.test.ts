@@ -1176,6 +1176,32 @@ describe('Queue Processor', () => {
     });
   });
 
+  describe('paginationDelay', () => {
+    it('never leaves a gap long enough for Chrome to reclaim the worker', async () => {
+      // Chrome reclaims an idle MV3 worker after 30s and a pending setTimeout is
+      // not activity. Every stretch of the wait — start to first ping, ping to
+      // ping, last ping to the end — has to stay under that.
+      const { paginationDelay } = await import('@/background/queue-processor');
+      vi.useFakeTimers();
+      try {
+        const start = Date.now();
+        const pings: number[] = [];
+        const done = paginationDelay(45_000, () => {
+          pings.push(Date.now());
+        });
+        await vi.advanceTimersByTimeAsync(45_000);
+        await done;
+
+        const marks = [start, ...pings, start + 45_000];
+        for (let i = 1; i < marks.length; i++) {
+          expect(marks[i] - marks[i - 1]).toBeLessThan(30_000);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   describe('classifyError', () => {
     it('HttpError 429 → retriable', async () => {
       const { classifyError, HttpError } = await import('@/background/queue-processor');
@@ -1482,6 +1508,77 @@ describe('Queue Processor', () => {
 
       // No delay before page 1; exactly one delay, before page 2.
       expect(order).toEqual(['fetch', 'sleep:45000', 'fetch']);
+    });
+
+    it('keyword_scan pagination: the wait refreshes the job heartbeat', async () => {
+      // The watchdog decides a job was abandoned from its heartbeat. A wait
+      // between pages must keep beating, or a healthy multi-page scan looks
+      // dead and gets re-queued underneath the worker still running it.
+      const { processNextJob } = await import('@/background/queue-processor');
+      const { getSearchParser } = await import('@/background/parsers/index');
+      await seedProject();
+      await testDb.enqueueJobs([makeKeywordJob()]);
+
+      let parseCallCount = 0;
+      vi.mocked(getSearchParser).mockReturnValue({
+        version: 'v1',
+        parse: () => {
+          parseCallCount++;
+          return {
+            results: [
+              {
+                extensionId:
+                  parseCallCount === 1
+                    ? 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+                    : 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                name: 'Test Extension',
+                iconUrl: 'https://example.com/icon.png',
+                rating: 4.5,
+                ratingCount: 100,
+                shortDescription: 'A test',
+                userCount: 10000,
+                category: 'productivity',
+                isFeatured: false,
+                position: 1,
+              },
+            ],
+            totalCount: 30,
+            nextPageToken: parseCallCount === 1 ? 'page2-token' : null,
+          };
+        },
+      });
+
+      let heartbeatAfterTick: Date | null | undefined;
+      const sleep = vi
+        .fn()
+        .mockImplementation(async (_ms: number, onKeepAlive?: () => void | Promise<void>) => {
+          // Blank the beat, then let the wait's keep-alive restore it.
+          const [running] = await testDb.getRunningJobs();
+          await testDb.queue.update(running.id!, { heartbeatAt: null });
+          await onKeepAlive?.();
+          const [after] = await testDb.getRunningJobs();
+          heartbeatAfterTick = after?.heartbeatAt ?? null;
+        });
+
+      await processNextJob(createDeps({ sleep }));
+
+      expect(heartbeatAfterTick).toBeInstanceOf(Date);
+    });
+
+    it('a retried job carries no heartbeat from its failed attempt', async () => {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await seedProject();
+      await testDb.enqueueJobs([makeListingJob()]);
+
+      const fetchPage = vi.fn().mockResolvedValue(
+        new Response('', { status: 429, statusText: 'Too Many Requests' })
+      );
+
+      await processNextJob(createDeps({ fetchPage }));
+
+      const jobs = await testDb.queue.toArray();
+      expect(jobs[0].status).toBe('pending');
+      expect(jobs[0].heartbeatAt).toBeNull();
     });
 
     it('HTTP 404 on listing_scan: writes warn-level log (not error)', async () => {

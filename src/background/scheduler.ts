@@ -116,14 +116,28 @@ const WATCHDOG_PERIOD_MINUTES = 5;
 const JOB_EXPIRY_GRACE_MS = 60 * 60_000;
 
 /**
- * How long a job may sit in `running` before it is assumed abandoned.
+ * How long a job may go without a heartbeat before it is assumed abandoned.
  *
- * A job is only ever `running` while the worker executes it, and no single CWS
- * fetch survives anywhere near this long, so anything older than this is the
- * residue of a terminated worker. Comfortably above the longest retry backoff
- * (10 minutes) plus a job, so a live cycle is never disturbed.
+ * Measured from `heartbeatAt` (falling back to `startedAt` for jobs queued
+ * before heartbeats existed), so this is silence, not age. That distinction is
+ * what makes the window short: it used to have to exceed the longest
+ * *legitimate* job — a three-page keyword scan pacing itself at the configured
+ * delay — because age was the only signal, and a live job re-queued underneath
+ * the worker running it means the same search executing twice.
+ *
+ * The window is pure loss when a worker really does die: the job sits idle for
+ * all of it and then restarts from page 1, and MV3 kills workers freely. At 15
+ * minutes plus the watchdog's own 5-minute period, one termination cost ~20
+ * minutes of a cycle that has 6 hours before the next slot — observed
+ * repeatedly on 2026-09-08, where a cycle drained 2 jobs in 80 minutes.
+ *
+ * Now that a job beats when it is dequeued and throughout every pagination
+ * wait, and the keyword scan's page loop is the only place a job issues more
+ * than one request, the longest legitimate silence is a single fetch bounded by
+ * `FETCH_TIMEOUT_MS` (90s). Three minutes leaves a 2x margin and caps a
+ * termination's cost at that plus one watchdog period, ~8 minutes.
  */
-const STALE_RUNNING_JOB_MS = 15 * 60_000;
+const STALE_RUNNING_JOB_MS = 3 * 60_000;
 
 /**
  * How long a scan cycle may go without completing a job before it is written
@@ -614,13 +628,52 @@ export async function handleSettingsChange(
 }
 
 /**
+ * Why this alarm's slot must not run, or `null` when it may.
+ *
+ * `chrome.alarms` delivers an overdue alarm the moment the machine wakes, so
+ * the `dailyScan` alarm armed for an 04:00 slot can arrive at 09:41. Running it
+ * then is strictly worse than skipping it: the cycle is still draining when the
+ * real 10:00 slot fires, the in-flight guard skips *that* slot, and every
+ * snapshot the late cycle writes carries the previous slot-day's `cycleDate` —
+ * so today's measurements are filed under yesterday and today's column stays
+ * empty. One late sample costs the day a real one and misattributes itself.
+ *
+ * {@link isDailyScanDue} has always applied this rule, but it guards only the
+ * watchdog and startup catch-up paths; a late alarm reaches
+ * {@link handleDailyScanAlarm} directly and used to bypass it.
+ *
+ * Only the lead-time rule is reused here, deliberately — not `isDailyScanDue`
+ * wholesale. Its "the slot occurred today" check exists for catch-up and would
+ * permanently drop any slot whose jitter carries its alarm past midnight.
+ */
+async function lateSlotRefusal(
+  settings: SettingsManager,
+  now: Date
+): Promise<string | null> {
+  const s = await settings.getWithDefaults();
+  const next = nextSlotOccurrence(s.dailyScanTime, s.scansPerDay, now);
+  const leadMs = next.when - now.getTime();
+  if (leadMs >= CATCH_UP_MIN_LEAD_MS) return null;
+
+  const key = slotKey(
+    slotDateFor(s.dailyScanTime, s.scansPerDay, now),
+    currentSlot(s.dailyScanTime, s.scansPerDay, now)
+  );
+  return (
+    `Scan slot ${key} arrived too late to run: slot ${next.slot} is due in ` +
+    `${Math.round(leadMs / 60_000)} min. Running it now would have recorded ` +
+    `today's data against ${key.split('#')[0]} and cost that slot its scan.`
+  );
+}
+
+/**
  * Handle the dailyScan alarm. Checks conditions and initiates a scan cycle,
  * then re-arms the next day's alarm.
  *
  * The next alarm is re-armed in a `finally` so the daily schedule survives
  * regardless of whether this run scanned, was skipped (already ran today / no
- * proxy / no projects), or threw — a one-shot `when` alarm does not repeat on
- * its own.
+ * proxy / no projects / delivered too late), or threw — a one-shot `when` alarm
+ * does not repeat on its own.
  */
 export async function handleDailyScanAlarm(
   deps: SchedulerDeps = { settings: defaultSettings },
@@ -640,6 +693,13 @@ export async function handleDailyScanAlarm(
   dailyScanRunning = true;
 
   try {
+    // Inside the try: a refusal must still fall through to the `finally` that
+    // arms the next slot, or one late delivery would end the alarm chain.
+    const refusal = await lateSlotRefusal(settings, now);
+    if (refusal) {
+      await logSlotEvent('warn', refusal);
+      return;
+    }
     await runDailyScanCycle(settings, now);
   } finally {
     dailyScanRunning = false;
