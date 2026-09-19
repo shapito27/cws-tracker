@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.41.0] - 2026-09-19
+
+### Changed
+- **A scan cycle now collects every extension's stats before it searches a single keyword.** The cycle runs in two phases: first each tracked extension's `listing_scan` (users, rating, review count, listing text) immediately followed by its `review_scan`, extension by extension; then all `keyword_scan` and `autocomplete_scan` jobs. Previously the whole cycle was shuffled into one flat sequence, so with 20 keywords a competitor's install count could land hours after the cycle started and behind a run of keyword searches. The headline numbers are now in hand early, and a cycle cut short by a worker death or a re-schedule loses rank positions rather than stats.
+- Each extension's listing and review jobs are adjacent, so its numbers are one measurement rather than two taken hours apart, and an interrupted cycle leaves whole extensions finished instead of every extension half-finished.
+- Randomization is kept where it still applies: the extension order within phase 1 and the keyword/autocomplete interleaving within phase 2 are both shuffled, so no extension or keyword is pinned to the same position in the cycle every day.
+- Review scans remain first-slot-only (and manual-refresh-only-on-request); on later slots phase 1 is just the listing scans.
+
+### Notes
+- Trade-off, accepted deliberately: the shuffle introduced in an earlier version existed because a fixed lag between an extension's metadata sample and its rank sample makes the change log show metadata changes consistently preceding rank changes, which reads as a causal latency the data does not contain. With stats-first ordering that lag is back by design - read lead-lag between a listing change and a rank change as an artifact of scan order, not as a signal.
+- No change to request volume, pacing, or the number of jobs a cycle enqueues - only the order in which they drain.
+
 ## [0.40.3] - 2026-09-08
 
 ### Fixed
