@@ -90,7 +90,8 @@ export interface ScanCycleContext {
  * function):
  *   1. Per-extension stats — each tracked extension's `listing_scan` (user
  *      count, rating, review count, listing text) immediately followed by its
- *      `review_scan`, extension by extension.
+ *      `review_scan`, extension by extension, own extensions before
+ *      competitors.
  *   2. Ranking — every `keyword_scan` and `autocomplete_scan`, interleaved at
  *      random.
  *
@@ -144,8 +145,20 @@ export function buildDailyScanJobs(
   // measurement rather than hours apart, and the extension is finished before
   // the next one starts — an interrupted cycle then leaves whole extensions
   // done instead of every extension half-done.
+  //
+  // Own extensions go ahead of every competitor: they are the ones the user is
+  // actually tracking, so if anything survives a cut-short cycle it should be
+  // those. Order *within* each group is shuffled, so with several projects no
+  // one extension is permanently last among the owns, and no competitor is
+  // permanently last overall.
+  const allExtensionIds = [...seenExtensionIds];
+  const orderedExtensionIds = [
+    ...shuffle(allExtensionIds.filter((id) => ownExtensionIds.has(id))),
+    ...shuffle(allExtensionIds.filter((id) => !ownExtensionIds.has(id))),
+  ];
+
   const statsJobs: QueueJob[] = [];
-  for (const extensionId of shuffle([...seenExtensionIds])) {
+  for (const extensionId of orderedExtensionIds) {
     const priority = ownExtensionIds.has(extensionId)
       ? PRIORITY_OWN_LISTING
       : PRIORITY_COMPETITOR_LISTING;
@@ -180,10 +193,10 @@ export function buildDailyScanJobs(
   // preceding rank changes, which reads as a causal latency the data does not
   // contain. That lag is back — every listing scan now precedes every keyword
   // scan. Read lead-lag between the two as an artifact of scan order, not as a
-  // signal. What randomization is still available is kept: the extension order
-  // within phase 1 and the keyword/autocomplete interleaving within phase 2 are
-  // both shuffled, so no single extension or keyword is pinned to the same
-  // position in the cycle every day.
+  // signal. What randomization is still available is kept: the order within
+  // each phase-1 group (owns, then competitors) and the keyword/autocomplete
+  // interleaving within phase 2 are shuffled, so apart from "owns before
+  // competitors" nothing is pinned to the same position every day.
   return [...statsJobs, ...shuffle(rankingJobs)].map((job, index) => ({
     ...job,
     priority: index,

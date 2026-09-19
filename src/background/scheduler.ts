@@ -112,8 +112,29 @@ const WATCHDOG_PERIOD_MINUTES = 5;
 /**
  * Extra grace beyond one slot interval before a queued cycle job is written off
  * as stale. Covers a cycle that legitimately runs a little past its own slot.
+ *
+ * This is the *backstop* cutoff, not the usual one: see `PURGE_LEAD_MS`.
  */
 const JOB_EXPIRY_GRACE_MS = 60 * 60_000;
+
+/**
+ * How close the next scan slot has to be before the current cycle's leftovers
+ * are written off.
+ *
+ * The queue must be empty when a slot fires. A cycle still holding pending jobs
+ * when the next one starts trips the "previous cycle still running" guard,
+ * which skips that slot outright — so leftovers do not just delay the next
+ * scan, they cost it. Clearing them an hour ahead means every slot starts from
+ * a clean queue, and the jobs discarded were going to be superseded by that
+ * scan anyway.
+ *
+ * A job younger than this is never discarded by the lead-time rule, whatever
+ * the clock says: the shortest slot interval is 6 hours, so nothing queued in
+ * the last hour can be a leftover from a superseded cycle. That is what keeps
+ * a manual refresh started shortly before a scheduled scan from being wiped
+ * out by it.
+ */
+const PURGE_LEAD_MS = 60 * 60_000;
 
 /**
  * How long a job may go without a heartbeat before it is assumed abandoned.
@@ -466,6 +487,22 @@ export async function handleBrowserStartup(
  * which retries push forward — a job actively working through its backoff is
  * not stale.
  *
+ * Two cutoffs, whichever comes first:
+ *
+ *  - **Lead time (the usual one).** Once the next slot is within
+ *    `PURGE_LEAD_MS`, every cycle job older than that same span is discarded,
+ *    so the slot fires into an empty queue instead of being skipped by the
+ *    in-flight guard. This is what bounds a cycle in practice: it gets the
+ *    slot interval minus an hour to finish, and whatever has not drained by
+ *    then loses to the fresher scan about to replace it.
+ *  - **Age (the backstop).** One slot interval plus `JOB_EXPIRY_GRACE_MS`.
+ *    The lead-time rule only fires while the browser happens to be running
+ *    inside that one-hour window; a machine woken at noon with a three-day-old
+ *    cycle in the queue would never see it. The age cutoff has no such hole.
+ *
+ * Both are derived from `scansPerDay`, via the slot spacing and the next slot
+ * occurrence respectively.
+ *
  * `translation_audit` jobs are exempt: they belong to no cycle, they record
  * their own audit date, and one audit legitimately sits in the queue for hours.
  *
@@ -478,18 +515,25 @@ export async function purgeExpiredCycleJobs(
   const s = await settings.getWithDefaults();
   const slots = Math.min(4, Math.max(1, Math.floor(s.scansPerDay) || 1));
   const maxAgeMs = (24 / slots) * 60 * 60_000 + JOB_EXPIRY_GRACE_MS;
-  const cutoff = now.getTime() - maxAgeMs;
+  const ageCutoff = now.getTime() - maxAgeMs;
+
+  // The lead-time cutoff only applies while the next slot is imminent, and
+  // never to a job queued within the same span (a manual refresh, typically).
+  const next = nextSlotOccurrence(s.dailyScanTime, s.scansPerDay, now);
+  const nextScanImminent = next.when - now.getTime() <= PURGE_LEAD_MS;
+  const leadCutoff = now.getTime() - PURGE_LEAD_MS;
 
   const candidates = await db.queue
     .where('status')
     .anyOf('pending', 'running')
     .toArray();
-  const expired = candidates.filter(
-    (job) =>
-      job.type !== 'translation_audit' &&
-      job.scheduledAt instanceof Date &&
-      job.scheduledAt.getTime() < cutoff
-  );
+  const expired = candidates.filter((job) => {
+    if (job.type === 'translation_audit') return false;
+    if (!(job.scheduledAt instanceof Date)) return false;
+    const queuedAt = job.scheduledAt.getTime();
+    if (queuedAt < ageCutoff) return true;
+    return nextScanImminent && queuedAt < leadCutoff;
+  });
   if (expired.length === 0) return 0;
 
   const ids = expired.map((j) => j.id).filter((id): id is number => id !== undefined);
@@ -510,10 +554,12 @@ export async function purgeExpiredCycleJobs(
     expired[0].scheduledAt.getTime()
   );
   const hours = Math.round((now.getTime() - oldest) / 3_600_000);
+  const reason = nextScanImminent
+    ? `The next scan slot is due within the hour and starts from an empty queue.`
+    : `Running them now would have recorded today's data against their original scan date.`;
   await logSlotEvent(
     'warn',
-    `Discarded ${expired.length} stranded scan job(s), the oldest queued ${hours}h ago. ` +
-      `Running them now would have recorded today's data against their original scan date.`
+    `Discarded ${expired.length} stranded scan job(s), the oldest queued ${hours}h ago. ${reason}`
   );
   return expired.length;
 }

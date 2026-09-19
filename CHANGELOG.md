@@ -2,6 +2,17 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.42.0] - 2026-09-19
+
+### Changed
+- **Own extensions are scanned before any competitor.** Phase 1 of the cycle (see 0.41.0) put the tracked extensions in a random order, which meant your own extension could be scanned after three competitors. It is now pinned ahead of them. Order within each group - owns, then competitors - is still shuffled, so with several projects no one extension is permanently last among the owns and no competitor is permanently last overall.
+- **A cycle's leftovers are now cleared an hour before the next scan slot, rather than an hour after it.** `purgeExpiredCycleJobs` judged a job stale purely by age: one slot interval plus an hour. At `scansPerDay: 4` that meant a cycle still holding jobs at 16:00 kept them until 17:00 - but the 16:00 slot had already been skipped by the "previous cycle still running" guard, so the stale jobs cost a scan before being discarded for being stale. The purge now also fires whenever the next slot is within an hour, so every slot starts from an empty queue. In practice a cycle gets its slot interval minus one hour to drain; whatever is left loses to the fresher scan about to replace it.
+
+### Notes
+- A job queued within that same one-hour lead is never discarded by the new rule - the shortest slot interval is 6 hours, so nothing that young can be a leftover from a superseded cycle. This is what keeps a "Refresh Now" started shortly before a scheduled scan from being wiped out by it.
+- The old age cutoff stays as a backstop. The lead-time rule can only fire while the browser is running inside that one-hour window, so on its own it would miss a machine woken at noon with a three-day-old cycle still queued - exactly the history-corrupting case the purge exists to prevent.
+- Combined with the stats-first order in 0.41.0, a cycle that cannot drain within its slot interval minus an hour will now consistently lose its keyword and autocomplete scans rather than a random mix of job types. At the default 60s request delay that needs a very large keyword set; if it happens, lower `scansPerDay` or the request delay.
+
 ## [0.41.0] - 2026-09-19
 
 ### Changed

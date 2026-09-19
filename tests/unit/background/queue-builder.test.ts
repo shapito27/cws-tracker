@@ -335,6 +335,79 @@ describe('buildDailyScanJobs', () => {
     ]);
   });
 
+  it('scans own extensions before any competitor', () => {
+    // Pinned, not shuffled: the user's own extensions are the ones being
+    // tracked, so they are the stats that survive a cut-short cycle.
+    const projects = [
+      makeProject({
+        ownExtensionId: EXT_OWN,
+        competitorIds: [EXT_COMP1, EXT_COMP2, EXT_COMP3],
+        keywordIds: [1],
+      }),
+    ];
+    const extensions = [
+      makeExtension(EXT_OWN),
+      makeExtension(EXT_COMP1),
+      makeExtension(EXT_COMP2),
+      makeExtension(EXT_COMP3),
+    ];
+    const keywords = [makeKeyword(1, 'ad blocker', 1)];
+
+    // Every draw, not just one: the shuffle behind the owns must never reach
+    // in front of them.
+    for (let i = 0; i < 50; i++) {
+      const jobs = buildDailyScanJobs(projects, extensions, keywords).sort(
+        (a, b) => a.priority - b.priority
+      );
+      const own = jobs.find(
+        (j) =>
+          j.type === 'listing_scan' &&
+          (j.payload as { extensionId: string }).extensionId === EXT_OWN
+      )!;
+      const competitorPriorities = jobs
+        .filter(
+          (j) =>
+            j.type === 'listing_scan' &&
+            (j.payload as { extensionId: string }).extensionId !== EXT_OWN
+        )
+        .map((j) => j.priority);
+      expect(own.priority).toBeLessThan(Math.min(...competitorPriorities));
+    }
+  });
+
+  it('keeps an extension that is own in one project ahead of pure competitors', () => {
+    // EXT_COMP1 is a competitor here and the own extension of the second
+    // project — it counts as own, exactly as it does for listing priority.
+    const projects = [
+      makeProject({
+        ownExtensionId: EXT_OWN,
+        competitorIds: [EXT_COMP1, EXT_COMP2],
+        keywordIds: [],
+      }),
+      makeProject({
+        ownExtensionId: EXT_COMP1,
+        competitorIds: [EXT_COMP2],
+        keywordIds: [],
+      }),
+    ];
+    const extensions = [
+      makeExtension(EXT_OWN),
+      makeExtension(EXT_COMP1),
+      makeExtension(EXT_COMP2),
+    ];
+
+    for (let i = 0; i < 20; i++) {
+      const listings = buildDailyScanJobs(projects, extensions, [])
+        .filter((j) => j.type === 'listing_scan')
+        .sort((a, b) => a.priority - b.priority)
+        .map((j) => (j.payload as { extensionId: string }).extensionId);
+
+      expect(listings).toHaveLength(3);
+      expect(listings[2]).toBe(EXT_COMP2);
+      expect(listings.slice(0, 2).sort()).toEqual([EXT_OWN, EXT_COMP1].sort());
+    }
+  });
+
   it('does not always scan the extensions in the same order', () => {
     // Phase order is fixed, but nothing inside it is: no extension is pinned to
     // the front of every cycle, so its sample time still varies day to day.
@@ -358,13 +431,9 @@ describe('buildDailyScanJobs', () => {
         .map((j) => (j.payload as { extensionId: string }).extensionId)
         .join('|');
 
-    const signatures = new Set([
-      signature(),
-      signature(),
-      signature(),
-      signature(),
-      signature(),
-    ]);
+    // Three competitors is only six orderings, so take enough draws that a
+    // run of identical ones is not something this suite will ever hit.
+    const signatures = new Set(Array.from({ length: 12 }, signature));
     expect(signatures.size).toBeGreaterThan(1);
   });
 
