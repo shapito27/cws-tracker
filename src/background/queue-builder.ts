@@ -129,7 +129,8 @@ export function buildDailyScanJobs(
     }
   }
 
-  // Reviews only on the day's first slot. Reviews are the most expensive job
+  // Reviews only on the day's first slot, unless the caller asks for them
+  // explicitly (a manual full refresh does). Reviews are the most expensive job
   // type and gain nothing from intraday resolution: they are already tracked as
   // entities with their own first/last-seen timestamps rather than as daily
   // snapshots, so re-fetching them 4x a day would multiply request volume for
