@@ -561,6 +561,54 @@ describe('Scheduler', () => {
       expect(await testDb.queue.get(liveId)).toBeDefined();
     });
 
+    it('clears the cycle an hour before the next slot, so that slot is not skipped', async () => {
+      // Slots at 10:00 / 16:00 / 22:00 / 04:00. At 15:30 the 16:00 slot is 30
+      // minutes out: a cycle still holding jobs would trip the in-flight guard
+      // and cost that scan entirely. Under the age rule alone (6h + 1h grace)
+      // this job survived until 17:00 — an hour after the slot it ate.
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const now = new Date(2026, 8, 6, 15, 30);
+      const leftoverId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 6, 10, 0), { cycleDate: '2026-09-06' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(1);
+      expect(await testDb.queue.get(leftoverId)).toBeUndefined();
+    });
+
+    it('spares a job queued within the lead time, so a late manual refresh survives', async () => {
+      // Same 30-minutes-to-the-slot moment, but the job was queued 10 minutes
+      // ago — a "Refresh Now" the user just asked for. The shortest slot
+      // interval is 6h, so nothing this young can be a superseded leftover.
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });
+
+      const now = new Date(2026, 8, 6, 15, 30);
+      const freshId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 6, 15, 20), { cycleDate: '2026-09-06' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(0);
+      expect(await testDb.queue.get(freshId)).toBeDefined();
+    });
+
+    it('applies the lead time at scansPerDay: 1 too', async () => {
+      // One slot a day at 22:00: the window is 21:00-22:00, and a cycle from
+      // the previous day's slot is long past due by then.
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '22:00', scansPerDay: 1 });
+
+      const now = new Date(2026, 8, 6, 21, 15);
+      const leftoverId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 6, 18, 0), { cycleDate: '2026-09-05' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, now)).toBe(1);
+      expect(await testDb.queue.get(leftoverId)).toBeUndefined();
+    });
+
     it('keeps a cycle that crossed midnight at scansPerDay: 1', async () => {
       const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
       await settingsManager.setMultiple({ dailyScanTime: '22:00', scansPerDay: 1 });

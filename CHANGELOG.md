@@ -2,6 +2,29 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.42.0] - 2026-09-19
+
+### Changed
+- **Own extensions are scanned before any competitor.** Phase 1 of the cycle (see 0.41.0) put the tracked extensions in a random order, which meant your own extension could be scanned after three competitors. It is now pinned ahead of them. Order within each group - owns, then competitors - is still shuffled, so with several projects no one extension is permanently last among the owns and no competitor is permanently last overall.
+- **A cycle's leftovers are now cleared an hour before the next scan slot, rather than an hour after it.** `purgeExpiredCycleJobs` judged a job stale purely by age: one slot interval plus an hour. At `scansPerDay: 4` that meant a cycle still holding jobs at 16:00 kept them until 17:00 - but the 16:00 slot had already been skipped by the "previous cycle still running" guard, so the stale jobs cost a scan before being discarded for being stale. The purge now also fires whenever the next slot is within an hour, so every slot starts from an empty queue. In practice a cycle gets its slot interval minus one hour to drain; whatever is left loses to the fresher scan about to replace it.
+
+### Notes
+- A job queued within that same one-hour lead is never discarded by the new rule - the shortest slot interval is 6 hours, so nothing that young can be a leftover from a superseded cycle. This is what keeps a "Refresh Now" started shortly before a scheduled scan from being wiped out by it.
+- The old age cutoff stays as a backstop. The lead-time rule can only fire while the browser is running inside that one-hour window, so on its own it would miss a machine woken at noon with a three-day-old cycle still queued - exactly the history-corrupting case the purge exists to prevent.
+- Combined with the stats-first order in 0.41.0, a cycle that cannot drain within its slot interval minus an hour will now consistently lose its keyword and autocomplete scans rather than a random mix of job types. At the default 60s request delay that needs a very large keyword set; if it happens, lower `scansPerDay` or the request delay.
+
+## [0.41.0] - 2026-09-19
+
+### Changed
+- **A scan cycle now collects every extension's stats before it searches a single keyword.** The cycle runs in two phases: first each tracked extension's `listing_scan` (users, rating, review count, listing text) immediately followed by its `review_scan`, extension by extension; then all `keyword_scan` and `autocomplete_scan` jobs. Previously the whole cycle was shuffled into one flat sequence, so with 20 keywords a competitor's install count could land hours after the cycle started and behind a run of keyword searches. The headline numbers are now in hand early, and a cycle cut short by a worker death or a re-schedule loses rank positions rather than stats.
+- Each extension's listing and review jobs are adjacent, so its numbers are one measurement rather than two taken hours apart, and an interrupted cycle leaves whole extensions finished instead of every extension half-finished.
+- Randomization is kept where it still applies: the extension order within phase 1 and the keyword/autocomplete interleaving within phase 2 are both shuffled, so no extension or keyword is pinned to the same position in the cycle every day.
+- Review scans are unchanged in *which* slots they run: the day's first slot, plus any manual full refresh regardless of slot. On later slots phase 1 is just the listing scans, back to back.
+
+### Notes
+- Trade-off, accepted deliberately: the shuffle introduced in an earlier version existed because a fixed lag between an extension's metadata sample and its rank sample makes the change log show metadata changes consistently preceding rank changes, which reads as a causal latency the data does not contain. With stats-first ordering that lag is back by design - read lead-lag between a listing change and a rank change as an artifact of scan order, not as a signal.
+- No change to request volume, pacing, or the number of jobs a cycle enqueues - only the order in which they drain.
+
 ## [0.40.3] - 2026-09-08
 
 ### Fixed

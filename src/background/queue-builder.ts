@@ -5,7 +5,8 @@
  * - Creates `listing_scan` jobs: 1 per unique extension across all projects.
  * - Creates `keyword_scan` jobs: 1 per keyword (NOT deduplicated across projects).
  * - Deduplicates: if the same extension appears in multiple projects, only one listing_scan.
- * - Randomizes execution order within the cycle (see `buildDailyScanJobs`).
+ * - Orders the cycle in two phases: per-extension stats first, then ranking
+ *   (see `buildDailyScanJobs`).
  */
 
 import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
@@ -16,7 +17,7 @@ import type { Project, Extension, Keyword, QueueJob } from '@/shared/types';
 //
 // These still order the *scoped* builders below, each of which emits a single
 // job type. They no longer order a full daily cycle: `buildDailyScanJobs`
-// overwrites priority with a randomized sequence. See the note there.
+// overwrites priority with its own two-phase sequence. See the note there.
 
 /** Priority for listing scans of the user's own extension. */
 export const PRIORITY_OWN_LISTING = 10;
@@ -85,6 +86,15 @@ export interface ScanCycleContext {
 /**
  * Build the list of queue jobs for a daily scan (or manual refresh).
  *
+ * The cycle runs in two phases (see the ordering note at the bottom of this
+ * function):
+ *   1. Per-extension stats — each tracked extension's `listing_scan` (user
+ *      count, rating, review count, listing text) immediately followed by its
+ *      `review_scan`, extension by extension, own extensions before
+ *      competitors.
+ *   2. Ranking — every `keyword_scan` and `autocomplete_scan`, interleaved at
+ *      random.
+ *
  * @param projects  All projects to scan.
  * @param extensions  All known extensions (needed to look up metadata).
  * @param keywords  All keywords across all projects.
@@ -98,7 +108,6 @@ export function buildDailyScanJobs(
   cycle?: ScanCycleContext
 ): QueueJob[] {
   const now = new Date();
-  const jobs: QueueJob[] = [];
 
   // Track which extension IDs already have a listing_scan job (deduplication).
   const seenExtensionIds = new Set<string>();
@@ -109,74 +118,86 @@ export function buildDailyScanJobs(
     ownExtensionIds.add(project.ownExtensionId);
   }
 
-  // --- Listing scan jobs ---
-  // Process projects to create one listing_scan per unique extension.
+  // --- Which extensions get scanned ---
+  // One entry per unique extension; a competitor in one project might be the
+  // own extension in another.
   for (const project of projects) {
-    // Own extension first
-    if (project.ownExtensionId && !seenExtensionIds.has(project.ownExtensionId)) {
+    if (project.ownExtensionId) {
       seenExtensionIds.add(project.ownExtensionId);
-      jobs.push(createListingScanJob(project.ownExtensionId, PRIORITY_OWN_LISTING, now));
     }
-
-    // Competitor extensions
     for (const competitorId of project.competitorIds) {
-      if (!seenExtensionIds.has(competitorId)) {
-        seenExtensionIds.add(competitorId);
-        // A competitor in one project might be the own extension in another
-        const priority = ownExtensionIds.has(competitorId)
-          ? PRIORITY_OWN_LISTING
-          : PRIORITY_COMPETITOR_LISTING;
-        jobs.push(createListingScanJob(competitorId, priority, now));
-      }
+      seenExtensionIds.add(competitorId);
     }
   }
 
-  // --- Keyword scan jobs ---
-  // One job per keyword (not deduplicated across projects per PRD Section 6.5).
-  for (const keyword of keywords) {
-    jobs.push(createKeywordScanJob(keyword, now));
-  }
-
-  // --- Autocomplete scan jobs ---
-  // One job per keyword (runs after keyword scans, lower priority).
-  for (const keyword of keywords) {
-    jobs.push(createAutocompleteScanJob(keyword, now));
-  }
-
-  // --- Review scan jobs ---
-  // One job per unique tracked extension (own + competitors), deduplicated —
-  // reuse the set of extensions that already have a listing_scan.
-  //
-  // Only on the day's first slot. Reviews are the most expensive job type and
-  // gain nothing from intraday resolution: they are already tracked as entities
-  // with their own first/last-seen timestamps rather than as daily snapshots,
-  // so re-fetching them 4x a day would multiply request volume for no new
-  // information.
+  // Reviews only on the day's first slot, unless the caller asks for them
+  // explicitly (a manual full refresh does). Reviews are the most expensive job
+  // type and gain nothing from intraday resolution: they are already tracked as
+  // entities with their own first/last-seen timestamps rather than as daily
+  // snapshots, so re-fetching them 4x a day would multiply request volume for
+  // no new information.
   const includeReviews = cycle?.includeReviews ?? (!cycle || cycle.slot === 0);
-  if (includeReviews) {
-    for (const extensionId of seenExtensionIds) {
-      jobs.push(createReviewScanJob(extensionId, now));
+
+  // --- Phase 1: per-extension stats, one extension at a time ---
+  // The listing scan carries the numbers the user watches day to day (users,
+  // rating, review count); the review scan reads the reviews behind them. They
+  // are queued adjacently so an extension's stats are captured as one
+  // measurement rather than hours apart, and the extension is finished before
+  // the next one starts — an interrupted cycle then leaves whole extensions
+  // done instead of every extension half-done.
+  //
+  // Own extensions go ahead of every competitor: they are the ones the user is
+  // actually tracking, so if anything survives a cut-short cycle it should be
+  // those. Order *within* each group is shuffled, so with several projects no
+  // one extension is permanently last among the owns, and no competitor is
+  // permanently last overall.
+  const allExtensionIds = [...seenExtensionIds];
+  const orderedExtensionIds = [
+    ...shuffle(allExtensionIds.filter((id) => ownExtensionIds.has(id))),
+    ...shuffle(allExtensionIds.filter((id) => !ownExtensionIds.has(id))),
+  ];
+
+  const statsJobs: QueueJob[] = [];
+  for (const extensionId of orderedExtensionIds) {
+    const priority = ownExtensionIds.has(extensionId)
+      ? PRIORITY_OWN_LISTING
+      : PRIORITY_COMPETITOR_LISTING;
+    statsJobs.push(createListingScanJob(extensionId, priority, now));
+    if (includeReviews) {
+      statsJobs.push(createReviewScanJob(extensionId, now));
     }
   }
 
-  // --- Randomize execution order -------------------------------------------
+  // --- Phase 2: ranking ---
+  // One keyword_scan per keyword (not deduplicated across projects per PRD
+  // Section 6.5) plus one autocomplete_scan per keyword.
+  const rankingJobs: QueueJob[] = [];
+  for (const keyword of keywords) {
+    rankingJobs.push(createKeywordScanJob(keyword, now));
+  }
+  for (const keyword of keywords) {
+    rankingJobs.push(createAutocompleteScanJob(keyword, now));
+  }
+
+  // --- Execution order ---------------------------------------------------
   //
-  // Jobs used to run strictly by type: every listing scan, then every keyword
-  // scan. At roughly one job a minute that put a fixed interval between an
-  // extension's metadata sample and its rank sample — the same interval, in the
-  // same direction, every day, for every extension.
+  // Stats before ranking, by request: the per-extension numbers are what the
+  // dashboard leads with, so they should be the part of the cycle that is
+  // already in hand when a long queue is still draining, and a cycle cut short
+  // by a dead worker or a re-schedule should lose keyword positions rather than
+  // install counts.
   //
-  // That is a confound, not a cosmetic detail. It makes the change log show a
-  // metadata change consistently preceding a rank change by a near-constant lag,
-  // which reads as a causal latency that the data does not contain. Shuffling
-  // removes the pattern: across days the offset varies in both size and sign, so
-  // any apparent lead-lag has to come from the store rather than from our
-  // scan order.
-  //
-  // Cost, accepted deliberately: the own extension is no longer guaranteed to be
-  // scanned first, so an interrupted cycle may not have covered it. Snapshots
-  // record when they were taken, so partial cycles stay interpretable.
-  return shuffle(jobs).map((job, index) => ({
+  // Known cost, accepted deliberately: an earlier version shuffled the whole
+  // cycle because a fixed lag between an extension's metadata sample and its
+  // rank sample makes the change log show metadata changes consistently
+  // preceding rank changes, which reads as a causal latency the data does not
+  // contain. That lag is back — every listing scan now precedes every keyword
+  // scan. Read lead-lag between the two as an artifact of scan order, not as a
+  // signal. What randomization is still available is kept: the order within
+  // each phase-1 group (owns, then competitors) and the keyword/autocomplete
+  // interleaving within phase 2 are shuffled, so apart from "owns before
+  // competitors" nothing is pinned to the same position every day.
+  return [...statsJobs, ...shuffle(rankingJobs)].map((job, index) => ({
     ...job,
     priority: index,
     ...(cycle ? { slot: cycle.slot, cycleDate: cycle.cycleDate } : {}),
