@@ -2,6 +2,16 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.43.0] - 2026-09-30
+
+### Added
+- **Date-range selector on the Overview tab and competitor pages.** Users & Reviews, Keyword Positions and Autocomplete Positions were hard-wired to the last 30 days, even though the history behind them goes back much further. A `7d / 30d / 90d / 365d / All` toggle above the charts now drives all three together, so they always show the same date window. The default stays at 30 days. The chart headings follow the selection ("Last 90 Days", "All Time").
+
+### Notes
+- Only the selected range is loaded, not the whole history with a zoomed-in viewport. Each chart plots one point per day (intraday samples are rolled up), so even "All" is a few hundred points per series. ApexCharts' own zoom and pan still work within the loaded range.
+- Switching ranges quickly cannot leave a stale view: a slower, wider query that lands after a narrower one is discarded.
+- The Data Retention setting still does not prune anything, so "All" means everything ever scanned.
+
 ## [0.42.0] - 2026-09-19
 
 ### Changed
