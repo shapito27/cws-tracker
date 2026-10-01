@@ -16,12 +16,19 @@ import { useProxyStatus } from '../../composables/useProxyStatus';
 import { loadExtensionRankHistory } from '../../composables/useRankings';
 import { loadExtensionAutocompleteHistory } from '../../composables/useAutocomplete';
 import { daysAgo, formatRelativeDateTime, today } from '@/shared/utils/dates';
+import {
+  chartRangeStartDate,
+  chartRangeTitle,
+  DEFAULT_CHART_RANGE,
+  type ChartRange,
+} from '@/shared/utils/chart-range';
 import { describeNextScan } from '@/shared/utils/scan-slots';
 import ListingEventItem from '../ListingEventItem.vue';
 import RankChangeItem from '../RankChangeItem.vue';
 import RankChart from '../charts/RankChart.vue';
 import AutocompleteChart from '../charts/AutocompleteChart.vue';
 import UsersReviewsChart from '../charts/UsersReviewsChart.vue';
+import ChartRangeSelector from '../charts/ChartRangeSelector.vue';
 import KeywordPositionTable from '../tables/KeywordPositionTable.vue';
 import AcPositionTable from '../tables/AcPositionTable.vue';
 import ExtensionListingCard from './ExtensionListingCard.vue';
@@ -52,6 +59,9 @@ const loading = ref(true);
 const loadError = ref<string | null>(null);
 /** Distinct scan slots that produced data for the own extension today. */
 const scanSlotsToday = ref<number[]>([]);
+const chartRange = ref<ChartRange>(DEFAULT_CHART_RANGE);
+const chartsLoading = ref(false);
+const chartsError = ref<string | null>(null);
 
 onMounted(async () => {
   if (!props.project.id) {
@@ -67,39 +77,56 @@ onMounted(async () => {
     // Load latest snapshot for own extension
     ownSnapshot.value = await getLatestSnapshot(props.project.ownExtensionId);
 
-    // Load snapshot history for own extension (users/reviews trend chart)
-    snapshotHistory.value = await db.getListingSnapshots(
-      props.project.ownExtensionId,
-      daysAgo(30),
-      today()
-    );
-
-    // Load keyword position history for own extension
     keywords.value = await db.getKeywordsByProject(props.project.id);
-    if (keywords.value.length > 0) {
-      const [rankSeries, acSeries] = await Promise.all([
-        loadExtensionRankHistory(
-          keywords.value,
-          props.project.ownExtensionId,
-          daysAgo(30),
-          today()
-        ),
-        loadExtensionAutocompleteHistory(
-          keywords.value,
-          props.project.ownExtensionId,
-          daysAgo(30),
-          today()
-        ),
-      ]);
-      ownKeywordSeries.value = rankSeries;
-      ownAcSeries.value = acSeries;
-    }
+    await loadCharts();
 
     await Promise.all([loadProjectRankChanges(), loadProjectEvents(), loadScansToday()]);
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : 'Failed to load overview';
   } finally {
     loading.value = false;
+  }
+});
+
+/**
+ * Load the three history charts for the selected range.
+ *
+ * A token guards against out-of-order results: clicking 365d then 7d quickly
+ * must not let the slower 365d query land last and overwrite the 7d view.
+ */
+let chartLoadToken = 0;
+async function loadCharts(): Promise<void> {
+  const token = ++chartLoadToken;
+  const startDate = chartRangeStartDate(chartRange.value);
+  const endDate = today();
+  const ownId = props.project.ownExtensionId;
+
+  const [history, rankSeries, acSeries] = await Promise.all([
+    db.getListingSnapshots(ownId, startDate, endDate),
+    keywords.value.length > 0
+      ? loadExtensionRankHistory(keywords.value, ownId, startDate, endDate)
+      : Promise.resolve<RankChartSeries[]>([]),
+    keywords.value.length > 0
+      ? loadExtensionAutocompleteHistory(keywords.value, ownId, startDate, endDate)
+      : Promise.resolve<AutocompleteChartSeries[]>([]),
+  ]);
+  if (token !== chartLoadToken) return;
+
+  snapshotHistory.value = history;
+  ownKeywordSeries.value = rankSeries;
+  ownAcSeries.value = acSeries;
+}
+
+watch(chartRange, async () => {
+  if (loading.value) return;
+  chartsLoading.value = true;
+  chartsError.value = null;
+  try {
+    await loadCharts();
+  } catch (e) {
+    chartsError.value = e instanceof Error ? e.message : 'Failed to load chart data';
+  } finally {
+    chartsLoading.value = false;
   }
 });
 
@@ -313,9 +340,16 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
       Scan error: {{ scanStatus.lastError }}
     </p>
 
+    <!-- Chart date range (applies to the three history charts below) -->
+    <div class="mb-4 flex items-center justify-end gap-3">
+      <span v-if="chartsLoading" class="text-xs text-gray-500">Loading…</span>
+      <span v-else-if="chartsError" class="text-xs text-red-600">{{ chartsError }}</span>
+      <ChartRangeSelector v-model="chartRange" :disabled="chartsLoading" />
+    </div>
+
     <!-- Users & Reviews chart -->
     <div class="mb-8">
-      <h3 class="text-base font-semibold text-gray-900 mb-3">Users & Reviews (Last 30 Days)</h3>
+      <h3 class="text-base font-semibold text-gray-900 mb-3">Users & Reviews ({{ chartRangeTitle(chartRange) }})</h3>
       <div v-if="snapshotHistory.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
         <p class="text-sm text-gray-500">No listing data yet. Run a scan to track users and reviews.</p>
       </div>
@@ -324,7 +358,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
 
     <!-- Keyword positions chart (own extension only) -->
     <div class="mb-8">
-      <h3 class="text-base font-semibold text-gray-900 mb-3">My Keyword Positions (Last 30 Days)</h3>
+      <h3 class="text-base font-semibold text-gray-900 mb-3">My Keyword Positions ({{ chartRangeTitle(chartRange) }})</h3>
       <div v-if="ownKeywordSeries.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
         <p class="text-sm text-gray-500">No ranking data yet. Run a scan to track keyword positions.</p>
       </div>
@@ -333,7 +367,7 @@ function getUnifiedEventKey(item: UnifiedEvent): string {
 
     <!-- Autocomplete positions chart (own extension only) -->
     <div class="mb-8">
-      <h3 class="text-base font-semibold text-gray-900 mb-3">My Autocomplete Positions (Last 30 Days)</h3>
+      <h3 class="text-base font-semibold text-gray-900 mb-3">My Autocomplete Positions ({{ chartRangeTitle(chartRange) }})</h3>
       <div v-if="ownAcSeries.length === 0" class="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
         <p class="text-sm text-gray-500">No autocomplete data yet. Run a scan to track autocomplete positions.</p>
       </div>
