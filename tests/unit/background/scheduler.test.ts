@@ -547,6 +547,24 @@ describe('Scheduler', () => {
       expect(await testDb.queue.get(strandedId)).toBeUndefined();
     });
 
+    it('expires old jobs using the shorter interval at ten scans per day', async () => {
+      const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
+      await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 10 });
+
+      // At 13:40 the next slot (14:48) is outside the one-hour lead window.
+      // The 10:00 job is older than the 2h24m interval plus one-hour grace.
+      const expiredId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 6, 10, 0), { cycleDate: '2026-09-06' })
+      );
+      const currentId = await testDb.queue.add(
+        jobAt(new Date(2026, 8, 6, 12, 24), { slot: 1, cycleDate: '2026-09-06' })
+      );
+
+      expect(await purgeExpiredCycleJobs(settingsManager, new Date(2026, 8, 6, 13, 40))).toBe(1);
+      expect(await testDb.queue.get(expiredId)).toBeUndefined();
+      expect(await testDb.queue.get(currentId)).toBeDefined();
+    });
+
     it('keeps a job from the cycle that is currently draining', async () => {
       const { purgeExpiredCycleJobs } = await import('@/background/scheduler');
       await settingsManager.setMultiple({ dailyScanTime: '10:00', scansPerDay: 4 });

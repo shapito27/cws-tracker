@@ -180,17 +180,17 @@ describe('Validation', () => {
     await expect(settings.set('reviewFetchLimit', 500)).resolves.toBeUndefined();
   });
 
-  it('rejects scansPerDay outside 1–4', async () => {
+  it('rejects scansPerDay outside 1–10', async () => {
     await expect(settings.set('scansPerDay', 0)).rejects.toThrow(SettingsValidationError);
-    await expect(settings.set('scansPerDay', 5)).rejects.toThrow(
-      'scansPerDay must be an integer between 1 and 4'
+    await expect(settings.set('scansPerDay', 11)).rejects.toThrow(
+      'scansPerDay must be an integer between 1 and 10'
     );
-    // Non-integers would make 24/N a fractional hour offset.
+    // Scan counts must be whole numbers even when intervals contain minutes.
     await expect(settings.set('scansPerDay', 2.5)).rejects.toThrow(SettingsValidationError);
   });
 
   it('accepts scansPerDay within range', async () => {
-    for (const n of [1, 2, 3, 4]) {
+    for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) {
       await expect(settings.set('scansPerDay', n)).resolves.toBeUndefined();
       expect(await settings.get('scansPerDay')).toBe(n);
     }

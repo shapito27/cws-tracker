@@ -37,13 +37,51 @@ describe('slotScanTime', () => {
     expect(slotScanTime('03:45', 2, 4)).toBe('15:45');
   });
 
-  it('yields whole hours for every allowed scansPerDay', () => {
-    // The 1-4 cap exists partly so 24/N is always an integer.
+  it('preserves whole-hour spacing for the original 1–4 range', () => {
     for (const n of [1, 2, 3, 4]) {
       for (let slot = 0; slot < n; slot++) {
         expect(slotScanTime('03:00', slot, n)).toMatch(/^\d{2}:00$/);
       }
     }
+  });
+
+  it('spaces ten scans 2 hours 24 minutes apart, including across midnight', () => {
+    expect(Array.from({ length: 10 }, (_, slot) => slotScanTime('03:45', slot, 10))).toEqual([
+      '03:45', '06:09', '08:33', '10:57', '13:21',
+      '15:45', '18:09', '20:33', '22:57', '01:21',
+    ]);
+  });
+
+  it('rounds seven scans to valid minute boundaries without accumulating drift', () => {
+    expect(Array.from({ length: 7 }, (_, slot) => slotScanTime('23:59', slot, 7))).toEqual([
+      '23:59', '03:25', '06:50', '10:16', '13:42', '17:08', '20:33',
+    ]);
+  });
+});
+
+describe('schedule boundary consistency', () => {
+  it.each([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])('visits every slot exactly once for %i scans per day', (count) => {
+    const start = new Date(2026, 7, 20, 23, 59);
+    let now = new Date(start.getTime() - 60_000);
+
+    for (let slot = 0; slot < count; slot++) {
+      const next = nextSlotOccurrence('23:59', count, now);
+      const boundary = new Date(next.when);
+      const [hour, minute] = slotScanTime('23:59', slot, count).split(':').map(Number);
+
+      expect(next.slot).toBe(slot);
+      expect(boundary.getHours()).toBe(hour);
+      expect(boundary.getMinutes()).toBe(minute);
+      expect(currentSlot('23:59', count, new Date(next.when - 1))).toBe((slot + count - 1) % count);
+      expect(currentSlot('23:59', count, boundary)).toBe(slot);
+      expect(currentSlotOccurrence('23:59', count, boundary)).toBe(next.when);
+      expect(slotDateFor('23:59', count, boundary)).toBe('2026-08-20');
+      now = boundary;
+    }
+
+    const nextDay = nextSlotOccurrence('23:59', count, now);
+    expect(nextDay.slot).toBe(0);
+    expect(new Date(nextDay.when)).toEqual(new Date(2026, 7, 21, 23, 59));
   });
 });
 
@@ -132,7 +170,7 @@ describe('nextSlotOccurrence', () => {
 });
 
 describe('malformed scansPerDay', () => {
-  // Settings validation rejects anything outside an integer 1-4 on every write,
+  // Settings validation rejects anything outside an integer 1-10 on every write,
   // but getWithDefaults merges stored values without re-validating. A 0 or NaN
   // reaching the arithmetic would make 24/N infinite or NaN, propagate through
   // setHours, and yield an alarm time of NaN — scanning would stop permanently

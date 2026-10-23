@@ -13,6 +13,7 @@ import { AUDIT_LOCALE_OPTIONS } from '@/shared/utils/locales';
 import type { AuditPromptVariant } from '@/shared/types/settings';
 import { db } from '@/shared/db/database';
 import { nextSlotOccurrence, slotScanTime } from '@/shared/utils/scan-slots';
+import { MIN_SCANS_PER_DAY, MAX_SCANS_PER_DAY } from '@/shared/utils/settings';
 
 const {
   settings,
@@ -453,7 +454,7 @@ onUnmounted(() => {
               Scans Per Day
             </label>
             <p class="text-xs text-gray-500">
-              How often to sample each day (1&ndash;4). More samples narrow when a change
+              How often to sample each day ({{ MIN_SCANS_PER_DAY }}&ndash;{{ MAX_SCANS_PER_DAY }}). More samples narrow when a change
               is known to have happened &mdash; 3 scans bound it to about 8 hours instead
               of 24 &mdash; but each one costs a full round of requests. Charts still show
               one point per day either way.
@@ -462,8 +463,8 @@ onUnmounted(() => {
               id="scansPerDay"
               v-model.number="localScansPerDay"
               type="number"
-              min="1"
-              max="4"
+              :min="MIN_SCANS_PER_DAY"
+              :max="MAX_SCANS_PER_DAY"
               step="1"
               class="mt-1 block w-32 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />

@@ -2,6 +2,11 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.43.1] - 2026-10-20
+
+### Changed
+- Raised Scans Per Day from 4 to 10 in Settings, validation, and scheduling. Scan times support intervals rounded to the nearest minute, and stale queue cleanup follows the configured cadence.
+
 ## [0.43.0] - 2026-09-30
 
 ### Added

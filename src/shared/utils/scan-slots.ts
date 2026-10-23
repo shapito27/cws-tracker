@@ -11,20 +11,26 @@
  */
 
 import { toDateString } from './dates';
+import { MIN_SCANS_PER_DAY, MAX_SCANS_PER_DAY } from './settings';
 
 /**
  * Coerce `scansPerDay` to a usable slot count.
  *
- * Settings validation already restricts this to an integer 1-4 on every write,
+ * Settings validation already restricts this to an integer 1-10 on every write,
  * but `getWithDefaults` merges whatever is in `chrome.storage.local` without
  * re-validating. A value of 0 or NaN slipping through would make `24/N`
  * infinite or NaN, which propagates into `setHours` and yields an alarm time of
  * NaN — scanning would stop permanently and silently. Clamping here costs
  * nothing and keeps that failure mode impossible.
  */
-function slotCount(scansPerDay: number): number {
+export function slotCount(scansPerDay: number): number {
   if (!Number.isFinite(scansPerDay)) return 1;
-  return Math.min(4, Math.max(1, Math.floor(scansPerDay)));
+  return Math.min(MAX_SCANS_PER_DAY, Math.max(MIN_SCANS_PER_DAY, Math.floor(scansPerDay)));
+}
+
+/** Round each offset independently so minute rounding never accumulates drift. */
+function slotOffsetMinutes(slot: number, count: number): number {
+  return Math.round(slot * 1440 / count);
 }
 
 /**
@@ -52,14 +58,15 @@ export function nextDailyScanTimestamp(scanTime: string, now: Date): number {
  *
  * Deliberately returns a wall-clock time rather than an offset in milliseconds:
  * adding `k * 8h` of real time would shift every later slot by an hour across a
- * DST boundary, whereas a fixed local time stays put. `scansPerDay` is capped at
- * 4 so `24/N` is always a whole number of hours.
+ * DST boundary, whereas a fixed local time stays put. Fractional intervals are
+ * rounded to the nearest minute, so every slot has a valid HH:MM time.
  */
 export function slotScanTime(baseScanTime: string, slot: number, scansPerDay: number): string {
   const [hours, minutes] = baseScanTime.split(':').map(Number);
-  const spacingHours = 24 / slotCount(scansPerDay);
-  const slotHour = (hours + slot * spacingHours) % 24;
-  return `${String(slotHour).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+  const totalMinutes = (hours * 60 + minutes + slotOffsetMinutes(slot, slotCount(scansPerDay))) % 1440;
+  const slotHour = Math.floor(totalMinutes / 60);
+  const slotMinute = totalMinutes % 60;
+  return `${String(slotHour).padStart(2, '0')}:${String(slotMinute).padStart(2, '0')}`;
 }
 
 /**
@@ -72,13 +79,16 @@ export function slotScanTime(baseScanTime: string, slot: number, scansPerDay: nu
  */
 export function currentSlot(baseScanTime: string, scansPerDay: number, now: Date): number {
   const [hours, minutes] = baseScanTime.split(':').map(Number);
-  const spacingHours = 24 / slotCount(scansPerDay);
+  const count = slotCount(scansPerDay);
 
   const minutesNow = now.getHours() * 60 + now.getMinutes();
   const minutesBase = hours * 60 + minutes;
   // Minutes since slot 0, wrapped into [0, 1440).
   const elapsed = (minutesNow - minutesBase + 1440) % 1440;
-  return Math.floor(elapsed / (spacingHours * 60));
+  for (let slot = count - 1; slot > 0; slot--) {
+    if (elapsed >= slotOffsetMinutes(slot, count)) return slot;
+  }
+  return 0;
 }
 
 /**
