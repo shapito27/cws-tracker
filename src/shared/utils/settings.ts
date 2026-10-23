@@ -53,15 +53,9 @@ const MIN_DATA_RETENTION_DAYS = 7;
 /** Allowed range for reviewFetchLimit. */
 const MIN_REVIEW_FETCH_LIMIT = 10;
 const MAX_REVIEW_FETCH_LIMIT = 500;
-/**
- * Allowed range for scansPerDay.
- *
- * Capped at 4 for two reasons: each scan is a full cycle of CWS requests, and
- * 24/N stays a whole number of hours for every allowed value (24/12/8/6), so
- * slot times never land on a fractional hour.
- */
+/** Allowed range for scansPerDay. Each scan costs a full cycle of CWS requests. */
 export const MIN_SCANS_PER_DAY = 1;
-export const MAX_SCANS_PER_DAY = 4;
+export const MAX_SCANS_PER_DAY = 10;
 /** Pattern for HH:MM 24-hour time. */
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 /** Valid audit prompt variants. */

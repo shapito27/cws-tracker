@@ -23,7 +23,7 @@ export interface Settings {
   /** Whether automatic daily scanning is enabled. */
   dailyScanEnabled: boolean;
   /**
-   * How many scan cycles to run per day. Range: 1–4. Default 1.
+   * How many scan cycles to run per day. Range: 1–10. Default 1.
    *
    * Slot 0 fires at `dailyScanTime`; each later slot follows `24/N` hours after
    * the previous one, with per-slot jitter. Above 1, a change's observation
@@ -31,8 +31,7 @@ export interface Settings {
    * instead of ~24h.
    *
    * Costs one full cycle of CWS requests per scan, so raising it multiplies
-   * request volume. Capped at 4 to keep `24/N` a whole number of hours and to
-   * bound that volume.
+   * request volume. Slot times are rounded to the nearest minute.
    */
   scansPerDay: number;
   /**

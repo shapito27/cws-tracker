@@ -20,6 +20,7 @@ import {
   nextSlotOccurrence,
   slotDateFor,
   slotKey,
+  slotCount,
 } from '@/shared/utils/scan-slots';
 
 // Re-exported: slot arithmetic moved to shared/utils so the dashboard can use
@@ -92,8 +93,8 @@ const FAILED_RETENTION_DAYS = 30;
  * Maximum randomized delay applied to a slot's fire time, in minutes.
  *
  * Keeps the sampling times from being perfectly regular. Small enough that a
- * slot cannot drift into the next one (the tightest spacing, at scansPerDay: 4,
- * is 6 hours).
+ * slot cannot drift into the next one (the tightest spacing, at scansPerDay: 10,
+ * is 2 hours 24 minutes).
  */
 const SLOT_JITTER_MINUTES = 20;
 
@@ -129,7 +130,7 @@ const JOB_EXPIRY_GRACE_MS = 60 * 60_000;
  * scan anyway.
  *
  * A job younger than this is never discarded by the lead-time rule, whatever
- * the clock says: the shortest slot interval is 6 hours, so nothing queued in
+ * the clock says: the shortest slot interval is 2h24m, so nothing queued in
  * the last hour can be a leftover from a superseded cycle. That is what keeps
  * a manual refresh started shortly before a scheduled scan from being wiped
  * out by it.
@@ -513,7 +514,7 @@ export async function purgeExpiredCycleJobs(
   now: Date = new Date()
 ): Promise<number> {
   const s = await settings.getWithDefaults();
-  const slots = Math.min(4, Math.max(1, Math.floor(s.scansPerDay) || 1));
+  const slots = slotCount(s.scansPerDay);
   const maxAgeMs = (24 / slots) * 60 * 60_000 + JOB_EXPIRY_GRACE_MS;
   const ageCutoff = now.getTime() - maxAgeMs;
 
