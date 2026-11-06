@@ -27,6 +27,8 @@ const mockScheduleNextDailyScan = vi.fn().mockResolvedValue(undefined);
 const mockTriggerManualRefresh = vi.fn().mockResolvedValue(undefined);
 const mockTriggerKeywordRescan = vi.fn().mockResolvedValue(undefined);
 const mockPauseScanning = vi.fn().mockResolvedValue(undefined);
+const mockReorderQueueJob = vi.fn().mockResolvedValue({ ok: true });
+const mockRemoveQueueJob = vi.fn().mockResolvedValue({ ok: true });
 const mockResumeScanning = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@/background/scheduler', () => ({
@@ -40,6 +42,8 @@ vi.mock('@/background/scheduler', () => ({
   triggerManualRefresh: (...args: unknown[]) => mockTriggerManualRefresh(...args),
   triggerKeywordRescan: (...args: unknown[]) => mockTriggerKeywordRescan(...args),
   pauseScanning: (...args: unknown[]) => mockPauseScanning(...args),
+  reorderQueueJob: (...args: unknown[]) => mockReorderQueueJob(...args),
+  removeQueueJob: (...args: unknown[]) => mockRemoveQueueJob(...args),
   resumeScanning: (...args: unknown[]) => mockResumeScanning(...args),
   ALARM_DAILY_SCAN: 'dailyScan',
   ALARM_PROCESS_QUEUE: 'processQueue',
@@ -90,6 +94,8 @@ describe('Service Worker Entry Point', () => {
       triggerManualRefresh: (...args: unknown[]) => mockTriggerManualRefresh(...args),
       triggerKeywordRescan: (...args: unknown[]) => mockTriggerKeywordRescan(...args),
       pauseScanning: (...args: unknown[]) => mockPauseScanning(...args),
+      reorderQueueJob: (...args: unknown[]) => mockReorderQueueJob(...args),
+      removeQueueJob: (...args: unknown[]) => mockRemoveQueueJob(...args),
       resumeScanning: (...args: unknown[]) => mockResumeScanning(...args),
       ALARM_DAILY_SCAN: 'dailyScan',
       ALARM_PROCESS_QUEUE: 'processQueue',
@@ -327,6 +333,46 @@ describe('Service Worker Entry Point', () => {
         expect(clearCalls.some((c) => c.args[0] === 'processQueue')).toBe(true);
       });
       expect(response).toEqual({ ok: true });
+    });
+
+    it('routes REORDER_QUEUE_JOB to the scheduler', async () => {
+      await loadServiceWorker();
+      const response = await chromeMock.runtime.sendMessage({
+        type: 'REORDER_QUEUE_JOB',
+        jobId: 7,
+        direction: 'top',
+      });
+      expect(mockReorderQueueJob).toHaveBeenCalledWith(7, 'top');
+      expect(response).toEqual({ ok: true });
+    });
+
+    it('rejects REORDER_QUEUE_JOB with an invalid direction', async () => {
+      await loadServiceWorker();
+      mockReorderQueueJob.mockClear();
+      const response = await chromeMock.runtime.sendMessage({
+        type: 'REORDER_QUEUE_JOB',
+        jobId: 7,
+        direction: 'sideways',
+      });
+      expect(mockReorderQueueJob).not.toHaveBeenCalled();
+      expect(response).toMatchObject({ ok: false });
+    });
+
+    it('routes REMOVE_QUEUE_JOB and rejects a non-numeric id', async () => {
+      await loadServiceWorker();
+      mockRemoveQueueJob.mockClear();
+      expect(
+        await chromeMock.runtime.sendMessage({ type: 'REMOVE_QUEUE_JOB', jobId: 3 })
+      ).toEqual({ ok: true });
+      expect(mockRemoveQueueJob).toHaveBeenCalledWith(3);
+
+      mockRemoveQueueJob.mockClear();
+      const bad = await chromeMock.runtime.sendMessage({
+        type: 'REMOVE_QUEUE_JOB',
+        jobId: 'x',
+      });
+      expect(bad).toMatchObject({ ok: false });
+      expect(mockRemoveQueueJob).not.toHaveBeenCalled();
     });
 
     it('ignores unknown message types gracefully', async () => {

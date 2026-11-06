@@ -2075,6 +2075,73 @@ describe('Scheduler', () => {
     });
   });
 
+  describe('reorderQueueJob / removeQueueJob', () => {
+    function job(overrides: Record<string, unknown> = {}) {
+      return {
+        type: 'listing_scan' as const,
+        payload: { extensionId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' },
+        status: 'pending' as const,
+        priority: 1,
+        retryCount: 0,
+        maxRetries: 3,
+        scheduledAt: new Date('2025-01-01'),
+        startedAt: null,
+        completedAt: null,
+        error: null,
+        ...overrides,
+      };
+    }
+
+    it('reorderQueueJob reports a vanished job as a readable error', async () => {
+      const { reorderQueueJob } = await import('@/background/scheduler');
+      const res = await reorderQueueJob(9999, 'top');
+      expect(res).toEqual({ ok: false, error: 'Job is no longer pending' });
+    });
+
+    it('removing the last job of a cycle clears the alarm and stamps the slot', async () => {
+      const { removeQueueJob } = await import('@/background/scheduler');
+      await testDb.enqueueJobs([job()]);
+      const id = (await testDb.queue.toArray())[0].id!;
+      await settingsManager.setMultiple({
+        scanCycleStartedAt: new Date().toISOString(),
+        scanCycleSlotKey: '2026-11-06#0',
+      });
+
+      const res = await removeQueueJob(id, createSchedulerDeps());
+
+      expect(res).toEqual({ ok: true });
+      expect(getCalls('alarms.clear').some((c) => c.args[0] === 'processQueue')).toBe(true);
+      expect(await settingsManager.get('lastScanSlotKey')).toBe('2026-11-06#0');
+      expect(await settingsManager.get('scanCycleStartedAt')).toBeNull();
+    });
+
+    it('does not finalize while another job is still pending or running', async () => {
+      const { removeQueueJob } = await import('@/background/scheduler');
+      await testDb.enqueueJobs([job(), job({ status: 'running' })]);
+      const pendingId = (await testDb.queue.where('status').equals('pending').first())!.id!;
+      await settingsManager.setMultiple({
+        scanCycleStartedAt: new Date().toISOString(),
+        scanCycleSlotKey: '2026-11-06#0',
+      });
+
+      await removeQueueJob(pendingId, createSchedulerDeps());
+
+      expect(await settingsManager.get('lastScanSlotKey')).not.toBe('2026-11-06#0');
+      expect(await settingsManager.get('scanCycleSlotKey')).toBe('2026-11-06#0');
+    });
+
+    it('removing an out-of-cycle job (e.g. a lone audit) stamps no slot', async () => {
+      const { removeQueueJob } = await import('@/background/scheduler');
+      await testDb.enqueueJobs([job({ type: 'translation_audit' })]);
+      const id = (await testDb.queue.toArray())[0].id!;
+      const before = await settingsManager.get('lastScanSlotKey');
+
+      await removeQueueJob(id, createSchedulerDeps());
+
+      expect(await settingsManager.get('lastScanSlotKey')).toBe(before);
+    });
+  });
+
   describe('edge cases', () => {
     it('alarm fires but DB has no projects → scan completes immediately', async () => {
       const { handleDailyScanAlarm } = await import('@/background/scheduler');

@@ -647,6 +647,104 @@ describe('CWSDatabase - Domain Query Methods (Phase 1.2.3)', () => {
   // -------------------------------------------------------------------------
 
   describe('queue methods', () => {
+    describe('reorder / remove', () => {
+      const PAST = new Date('2025-01-01');
+
+      async function seed(n: number, overrides: Partial<QueueJob> = {}): Promise<number[]> {
+        await db.enqueueJobs(
+          Array.from({ length: n }, (_, i) =>
+            makeQueueJob({ priority: 30, scheduledAt: new Date(PAST.getTime() + i), ...overrides })
+          )
+        );
+        const rows = await db.queue.toArray();
+        return rows.map((r) => r.id!);
+      }
+
+      async function order(): Promise<number[]> {
+        return (await db.getActiveQueueJobs()).pending.map((j) => j.id!);
+      }
+
+      it('moves a job to the top, renumbering tied priorities densely', async () => {
+        const [a, b, c] = await seed(3); // all priority 30 — ties
+        expect(await db.reorderPendingJob(c, 'top')).toBe('ok');
+        expect(await order()).toEqual([c, a, b]);
+        expect((await db.queue.toArray()).map((j) => j.priority).sort()).toEqual([0, 1, 2]);
+      });
+
+      it('moves up one step and to the bottom', async () => {
+        const [a, b, c] = await seed(3);
+        await db.reorderPendingJob(c, 'up');
+        expect(await order()).toEqual([a, c, b]);
+        await db.reorderPendingJob(a, 'bottom');
+        expect(await order()).toEqual([c, b, a]);
+      });
+
+      it('is a noop at the ends and never touches scheduledAt', async () => {
+        const [a, , c] = await seed(3);
+        const before = (await db.queue.toArray()).map((j) => [j.id, j.scheduledAt.getTime()]);
+        expect(await db.reorderPendingJob(a, 'top')).toBe('noop');
+        expect(await db.reorderPendingJob(c, 'bottom')).toBe('noop');
+        await db.reorderPendingJob(c, 'top');
+        const after = (await db.queue.toArray()).map((j) => [j.id, j.scheduledAt.getTime()]);
+        expect(after).toEqual(before);
+      });
+
+      it('refuses a running job and leaves it untouched', async () => {
+        const [a, b] = await seed(2);
+        await db.queue.update(a, { status: 'running' });
+        expect(await db.reorderPendingJob(a, 'bottom')).toBe('not_pending');
+        expect(await db.removePendingJob(a)).toBe(false);
+        expect(await db.queue.get(a)).toBeDefined();
+        expect(await order()).toEqual([b]);
+      });
+
+      it('a backoff job moved to the top is still skipped by dequeueNext', async () => {
+        const [a, b] = await seed(2);
+        await db.queue.update(b, { scheduledAt: new Date(Date.now() + 3_600_000) });
+        await db.reorderPendingJob(b, 'top');
+        const next = await db.dequeueNext();
+        expect(next!.id).toBe(a);
+      });
+
+      it('dequeueNext follows a user reorder', async () => {
+        const [, , c] = await seed(3);
+        await db.reorderPendingJob(c, 'top');
+        expect((await db.dequeueNext())!.id).toBe(c);
+      });
+
+      it('reordering cycle jobs never renumbers audits into the cycle range', async () => {
+        const [a, b] = await seed(2);
+        await db.enqueueJobs([
+          makeQueueJob({ type: 'translation_audit', payload: { extensionId: EXT_ID_A, locale: 'de' }, priority: 60 }),
+          makeQueueJob({ type: 'translation_audit', payload: { extensionId: EXT_ID_A, locale: 'fr' }, priority: 61 }),
+        ]);
+        await db.reorderPendingJob(b, 'top');
+        const audits = (await db.queue.toArray()).filter((j) => j.type === 'translation_audit');
+        expect(audits.map((j) => j.priority).sort()).toEqual([60, 61]);
+        expect((await order()).slice(0, 2)).toEqual([b, a]);
+      });
+
+      it('an audit moves only among audits and stays behind cycle jobs', async () => {
+        const [a] = await seed(1);
+        await db.enqueueJobs([
+          makeQueueJob({ type: 'translation_audit', payload: { extensionId: EXT_ID_A, locale: 'de' }, priority: 60 }),
+          makeQueueJob({ type: 'translation_audit', payload: { extensionId: EXT_ID_A, locale: 'fr' }, priority: 61 }),
+        ]);
+        const fr = (await db.queue.toArray()).find((j) => j.priority === 61)!.id!;
+        await db.reorderPendingJob(fr, 'top');
+        const o = await order();
+        expect(o[0]).toBe(a);
+        expect(o[1]).toBe(fr);
+      });
+
+      it('removePendingJob deletes a pending job once', async () => {
+        const [a] = await seed(1);
+        expect(await db.removePendingJob(a)).toBe(true);
+        expect(await db.removePendingJob(a)).toBe(false);
+        expect(await db.queue.count()).toBe(0);
+      });
+    });
+
     it('enqueueJobs adds multiple jobs', async () => {
       await db.enqueueJobs([
         makeQueueJob({ priority: 10 }),

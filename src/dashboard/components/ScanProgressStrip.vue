@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { RouterLink, useRoute } from 'vue-router';
 import { useServiceWorker } from '@/dashboard/composables/useServiceWorker';
 import { phaseLabel, progressPercent } from '@/shared/utils/scan-phase';
 
 const { scanStatus } = useServiceWorker();
+const route = useRoute();
 
 const scanPhaseLabel = computed(() => phaseLabel(scanStatus.value.phase));
 
@@ -108,6 +110,15 @@ const countdownSeconds = computed<number | null>(() => {
       >
         · next in {{ countdownSeconds }}s
       </span>
+
+      <RouterLink
+        v-if="route.name !== 'queue'"
+        to="/queue"
+        data-testid="scan-details-link"
+        class="font-medium text-blue-700 hover:underline"
+      >
+        See details
+      </RouterLink>
     </div>
   </div>
 </template>

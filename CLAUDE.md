@@ -48,7 +48,7 @@ src/
     index.html            # Dashboard SPA entry
     main.ts               # Vue app init
     App.vue               # Root component with layout
-    router.ts             # Hash routes: /, /project/:id, /project/:id/extension/:extId, /logs, /settings, /rank-changes
+    router.ts             # Hash routes: /, /project/:id, /project/:id/extension/:extId, /queue, /logs, /settings, /rank-changes
     composables/          # State management (replaces Pinia)
       useProjects.ts      # Project CRUD
       useExtensions.ts    # Extension management
@@ -59,6 +59,7 @@ src/
       useReviews.ts       # Review queries and review-signal aggregation
       useTranslationAudit.ts  # Translation audit report building, loaders, JSON export
       useScanLogs.ts      # Scan log queries
+      useQueueJobs.ts     # Queue details page: reads queue from Dexie, mutates via SW messages
       useProxyStatus.ts   # Reactive proxy-configured state (gates scan UI)
       useDataTransfer.ts  # Export/import all data (backup/restore)
       useServiceWorker.ts # SW message communication
@@ -70,7 +71,7 @@ src/
       translation/        # AuditReport (score + per-trick breakdown), LocaleComparisonTable
       tables/             # Data tables (ExtensionsOverviewTable, KeywordPositionTable, etc.)
       ai/                 # AuditTool.vue - OpenAI integration
-    pages/                # HomePage, ProjectPage, SettingsPage, LogsPage, RankChangesPage, CompetitorExtensionPage
+    pages/                # HomePage, ProjectPage, SettingsPage, LogsPage, QueuePage, RankChangesPage, CompetitorExtensionPage
   popup/                  # Lightweight Vue mini-app - quick status view
     composables/
       usePopupState.ts
@@ -94,6 +95,8 @@ src/
       event-colors.ts     # Color mapping for event types
       snapshot-dedup.ts   # Dedup logic for snapshots
       settings.ts         # Settings retrieval helpers (incl. isProxyConfigured)
+      queue-order.ts      # Run-order comparator shared by dequeueNext and the queue page; reorderJobs
+      queue-job-label.ts  # Human-readable job type/target labels for the dashboard
       rank-history.ts     # Drop debounce (classifyDrop) + findEffectivePrevious across gap days
       scan-phase.ts       # Scan lifecycle phase labels (queued/running/waiting/completing)
       scan-slots.ts       # Slot math for scansPerDay (currentSlot, nextSlotOccurrence, slotKey)
@@ -140,6 +143,7 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 - Queue lives in IndexedDB (`queue` table), NOT memory. Service workers die anytime.
 - Alarm AFTER processing completes, never before.
 - On SW startup: reset `status='running'` jobs to `'pending'` via `db.resetRunningJobs()`.
+- User reordering (queue page) rewrites `priority` only (dense renumber within the moved job's group: cycle jobs from 0, `translation_audit` jobs kept behind them — the in-flight guard relies on audits sorting after cycle jobs); never `scheduledAt`, which retry backoff and `purgeExpiredCycleJobs` depend on. Mutations go through `REORDER_QUEUE_JOB` / `REMOVE_QUEUE_JOB` to the SW, never direct Dexie writes from the UI. Removing the last job finalizes the cycle but must NOT clear `scanCycleSlotKey` (that is the `cancelScan` hazard).
 - Job types: `listing_scan`, `keyword_scan`, `translation_audit`, `autocomplete_scan`, `review_scan`.
 - Keyword scan = 1 request per keyword (not per keyword-per-extension). One search returns positions for ALL extensions.
 - Delay includes randomized jitter. Never flat delays. Base delay and jitter configured in Settings.

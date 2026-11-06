@@ -8,6 +8,7 @@
  */
 
 import type { EventRecord } from './index';
+import type { QueueReorderDirection } from '../utils/queue-order';
 
 // ---------------------------------------------------------------------------
 // Service Worker → Dashboard / Popup
@@ -159,6 +160,26 @@ export interface TriggerTranslationAuditMessage {
   locales: string[];
 }
 
+/** Move one pending queue job within the run order (rewrites `priority` only). */
+export interface ReorderQueueJobMessage {
+  type: 'REORDER_QUEUE_JOB';
+  jobId: number;
+  direction: QueueReorderDirection;
+}
+
+/** Delete one pending queue job. Running jobs cannot be removed. */
+export interface RemoveQueueJobMessage {
+  type: 'REMOVE_QUEUE_JOB';
+  jobId: number;
+}
+
+/** Response to REORDER_QUEUE_JOB / REMOVE_QUEUE_JOB. */
+export interface QueueMutationResponse {
+  ok: boolean;
+  /** Human-readable reason when `ok` is false. */
+  error?: string;
+}
+
 /** Union of all messages the Dashboard/Popup can send to the Service Worker. */
 export type DashboardMessage =
   | TriggerRefreshMessage
@@ -168,4 +189,6 @@ export type DashboardMessage =
   | TestPaginationMessage
   | RescanKeywordMessage
   | RescheduleDailyScanMessage
-  | TriggerTranslationAuditMessage;
+  | TriggerTranslationAuditMessage
+  | ReorderQueueJobMessage
+  | RemoveQueueJobMessage;

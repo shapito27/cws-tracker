@@ -373,7 +373,13 @@ export interface QueueJob {
   type: QueueJobType;
   payload: QueueJobPayload;
   status: QueueJobStatus;
-  /** Lower number = higher priority. */
+  /**
+   * Lower number = higher priority. Not indexed.
+   *
+   * Only relative order matters: builders assign dense or fixed values, and a
+   * user reorder renumbers the pending jobs densely (0..N-1). Never compare it
+   * to a constant. See `shared/utils/queue-order.ts`.
+   */
   priority: number;
   retryCount: number;
   maxRetries: number;
