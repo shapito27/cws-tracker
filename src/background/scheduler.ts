@@ -44,7 +44,8 @@ import {
 import { processNextJob, type ProcessorDeps } from '@/background/queue-processor';
 import type { ScanType, QueueJob, ScanLogLevel } from '@/shared/types';
 import type { Settings } from '@/shared/types/settings';
-import type { ScanErrorMessage } from '@/shared/types/messages';
+import type { ScanErrorMessage, QueueMutationResponse } from '@/shared/types/messages';
+import type { QueueReorderDirection } from '@/shared/utils/queue-order';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -969,33 +970,87 @@ export async function handleProcessQueueAlarm(
       delayInMinutes: delayMinutes,
     });
   } else {
-    // All jobs done - record the completed slot and send the completion message.
-    // The slot key comes from the cycle marker rather than being recomputed from
-    // the clock: a long cycle can outlive its own slot boundary, and recomputing
-    // would then credit the run to a slot that never actually ran.
-    const completedSlotKey = await settings.get('scanCycleSlotKey');
-    await settings.setMultiple({
-      lastDailyScanDate: today(),
-      ...(completedSlotKey ? { lastScanSlotKey: completedSlotKey } : {}),
-    });
-
-    const cycleStartedAtIso = await settings.get('scanCycleStartedAt');
-    const cycleStartedAt = cycleStartedAtIso ? new Date(cycleStartedAtIso) : null;
-    const stats = await db.getQueueStats(cycleStartedAt);
-    try {
-      chrome.runtime.sendMessage({
-        type: 'SCAN_COMPLETE',
-        date: today(),
-        jobsCompleted: stats.completed,
-        jobsFailed: stats.failed,
-      });
-    } catch {
-      // Dashboard may not be open
-    }
-
-    // Clear the scan cycle markers so any stray stats query returns global counts.
-    await settings.setMultiple({ scanCycleStartedAt: null, scanCycleSlotKey: null });
+    await finalizeCycle(settings);
   }
+}
+
+/**
+ * Close out a drained cycle: record the completed slot, tell the UI, and clear
+ * the cycle markers.
+ *
+ * The slot key comes from the cycle marker rather than being recomputed from
+ * the clock: a long cycle can outlive its own slot boundary, and recomputing
+ * would then credit the run to a slot that never actually ran.
+ */
+async function finalizeCycle(settings: SettingsManager): Promise<void> {
+  const completedSlotKey = await settings.get('scanCycleSlotKey');
+  await settings.setMultiple({
+    lastDailyScanDate: today(),
+    ...(completedSlotKey ? { lastScanSlotKey: completedSlotKey } : {}),
+  });
+
+  const cycleStartedAtIso = await settings.get('scanCycleStartedAt');
+  const cycleStartedAt = cycleStartedAtIso ? new Date(cycleStartedAtIso) : null;
+  const stats = await db.getQueueStats(cycleStartedAt);
+  try {
+    chrome.runtime.sendMessage({
+      type: 'SCAN_COMPLETE',
+      date: today(),
+      jobsCompleted: stats.completed,
+      jobsFailed: stats.failed,
+    });
+  } catch {
+    // Dashboard may not be open
+  }
+
+  // Clear the scan cycle markers so any stray stats query returns global counts.
+  await settings.setMultiple({ scanCycleStartedAt: null, scanCycleSlotKey: null });
+}
+
+/**
+ * Move one pending job in the run order (user action from the queue page).
+ * Rewrites `priority` only; see `db.reorderPendingJob`.
+ */
+export async function reorderQueueJob(
+  jobId: number,
+  direction: QueueReorderDirection
+): Promise<QueueMutationResponse> {
+  const result = await db.reorderPendingJob(jobId, direction);
+  if (result === 'not_pending') {
+    return { ok: false, error: 'Job is no longer pending' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Delete one pending job (user action from the queue page).
+ *
+ * If that was the last job of the cycle and nothing is running, nobody is left
+ * to drain the queue, so finish the cycle here: stop the alarm and stamp the
+ * slot. Deliberately does NOT clear `scanCycleSlotKey` early (as `cancelScan`
+ * does) — a trimmed cycle still ran, and clearing it would let the watchdog
+ * catch-up re-run the slot.
+ */
+export async function removeQueueJob(
+  jobId: number,
+  deps: SchedulerDeps = { settings: defaultSettings }
+): Promise<QueueMutationResponse> {
+  const removed = await db.removePendingJob(jobId);
+  if (!removed) {
+    return { ok: false, error: 'Job is no longer pending' };
+  }
+
+  const { running, pending } = await db.getActiveQueueJobs();
+  if (running.length === 0 && pending.length === 0) {
+    await chrome.alarms.clear(ALARM_PROCESS_QUEUE);
+    // Only a cycle in progress has anything to finalize; a lone removed
+    // translation audit, say, must not stamp a scan slot.
+    const cycleStartedAt = await deps.settings.get('scanCycleStartedAt');
+    if (cycleStartedAt) {
+      await finalizeCycle(deps.settings);
+    }
+  }
+  return { ok: true };
 }
 
 /**

@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.44.0] - 2026-11-06
+
+### Added
+- **Queue details page (`#/queue`).** Lists every job in the queue: what is running now (with heartbeat age), the pending jobs in the exact order the processor will pick them (type, target, scheduled time or "retrying in Xm", attempts, last error, cycle/slot), and a collapsible list of jobs finished this cycle. Reachable from a "See details" link in the scan progress strip and from a new "Queue" entry in the sidebar. Refreshes on scan messages and every 5 seconds.
+- **Reorder and remove pending jobs.** Per-job Move up, Top, Bottom and Remove. The running job is read-only.
+
+### Notes
+- Reordering rewrites `priority` only (pending jobs are renumbered 0..N-1); `scheduledAt` is never touched, so retry backoff and the stale-cycle purge behave as before. A job waiting to retry keeps its wait even when moved to the top.
+- "Refresh Now" rebuilds the queue and discards manual ordering.
+- Removing the last job of a cycle (with nothing running) finishes the cycle: the alarm is cleared, the slot is stamped and the scan-complete message is sent. Unlike Cancel, the slot key is kept, so the watchdog does not re-run the slot.
+- `dequeueNext` and the page share one comparator (`shared/utils/queue-order.ts`: priority, then `scheduledAt`, then id). No schema change.
+
 ## [0.43.1] - 2026-10-20
 
 ### Changed

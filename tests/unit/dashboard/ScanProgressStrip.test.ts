@@ -13,7 +13,7 @@ import { nextTick } from 'vue';
 
 const { state } = vi.hoisted(() => {
   // Lazily created inside the mock factory so vue's `ref` is available.
-  return { state: { scanStatus: null as any } };
+  return { state: { scanStatus: null as any, route: { name: 'home' } as { name: string } } };
 });
 
 vi.mock('@/dashboard/composables/useServiceWorker', async () => {
@@ -32,6 +32,18 @@ vi.mock('@/dashboard/composables/useServiceWorker', async () => {
   });
   return {
     useServiceWorker: () => ({ scanStatus: state.scanStatus }),
+  };
+});
+
+vi.mock('vue-router', async () => {
+  const { h, defineComponent } = await import('vue');
+  return {
+    useRoute: () => state.route,
+    RouterLink: defineComponent({
+      name: 'RouterLink',
+      props: { to: { type: String, default: '' } },
+      setup: (props, { slots }) => () => h('a', { href: props.to }, slots.default?.()),
+    }),
   };
 });
 
@@ -60,6 +72,7 @@ describe('ScanProgressStrip', () => {
 
   beforeEach(() => {
     resetState();
+    state.route = { name: 'home' };
     vi.useFakeTimers();
   });
 
@@ -128,5 +141,20 @@ describe('ScanProgressStrip', () => {
     state.scanStatus.value = { ...state.scanStatus.value, phase: 'running' };
     await nextTick();
     expect(wrapper.find('[data-testid="scan-countdown"]').exists()).toBe(false);
+  });
+
+  it('links to the queue page while a scan runs, but not on the queue page itself', async () => {
+    state.scanStatus.value = { ...state.scanStatus.value, isRunning: true };
+    wrapper = mount(ScanProgressStrip);
+    await nextTick();
+    const link = wrapper.find('[data-testid="scan-details-link"]');
+    expect(link.exists()).toBe(true);
+    expect(link.attributes('href')).toBe('/queue');
+    wrapper.unmount();
+
+    state.route = { name: 'queue' };
+    wrapper = mount(ScanProgressStrip);
+    await nextTick();
+    expect(wrapper.find('[data-testid="scan-details-link"]').exists()).toBe(false);
   });
 });

@@ -30,6 +30,11 @@ import type {
 } from '../types';
 import type { CachedAuditResult } from '../utils/keyword-audit';
 import { contentHashForReview } from '../utils/review-hash';
+import {
+  compareQueueJobs,
+  reorderJobs,
+  type QueueReorderDirection,
+} from '../utils/queue-order';
 
 // ---------------------------------------------------------------------------
 // Slot helpers
@@ -347,11 +352,9 @@ export class CWSDatabase extends Dexie {
 
       if (pending.length === 0) return null;
 
-      // Sort by priority (lowest number = highest priority), then by scheduledAt
-      pending.sort((a, b) => {
-        if (a.priority !== b.priority) return a.priority - b.priority;
-        return a.scheduledAt.getTime() - b.scheduledAt.getTime();
-      });
+      // Lowest priority number first, then scheduledAt, then id — the same
+      // comparator the queue details page uses to show the run order.
+      pending.sort(compareQueueJobs);
 
       const job = pending[0];
       const startedAt = new Date();
@@ -368,6 +371,89 @@ export class CWSDatabase extends Dexie {
         startedAt,
         heartbeatAt: startedAt,
       };
+    });
+  }
+
+  /** Pending and running jobs, in the order the processor will pick them. */
+  async getActiveQueueJobs(): Promise<{ running: QueueJob[]; pending: QueueJob[] }> {
+    const active = await this.queue
+      .where('status')
+      .anyOf('pending', 'running')
+      .toArray();
+    return {
+      running: active.filter((j) => j.status === 'running').sort(compareQueueJobs),
+      pending: active.filter((j) => j.status === 'pending').sort(compareQueueJobs),
+    };
+  }
+
+  /** Completed/failed jobs finished at or after `since` (all when null). */
+  async getFinishedJobsSince(since: Date | null): Promise<QueueJob[]> {
+    const finished = await this.queue
+      .where('status')
+      .anyOf('completed', 'failed')
+      .toArray();
+    return finished
+      .filter((j) => !since || (j.completedAt !== null && j.completedAt >= since))
+      .sort(
+        (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0)
+      );
+  }
+
+  /**
+   * Move a pending job within its group (cycle jobs, or translation audits).
+   * Rewrites `priority` only — densely renumbering that group and writing just
+   * the rows that changed.
+   * `scheduledAt` is never touched (retry backoff depends on it).
+   *
+   * 'not_pending': the job is gone or already running/finished.
+   * 'noop': it is already at the requested end.
+   */
+  async reorderPendingJob(
+    id: number,
+    direction: QueueReorderDirection
+  ): Promise<'ok' | 'noop' | 'not_pending'> {
+    return this.transaction('rw', this.queue, async () => {
+      const pending = (
+        await this.queue.where('status').equals('pending').toArray()
+      ).sort(compareQueueJobs);
+
+      if (!pending.some((j) => j.id === id)) return 'not_pending';
+
+      // Cycle jobs and translation audits are separate groups. The scheduler's
+      // in-flight guard ignores audits because "the cycle's jobs sort ahead of
+      // audit jobs (priority 60+)", so a move never crosses the boundary and
+      // audits are never renumbered into the cycle's range.
+      const isAudit = (j: QueueJob): boolean => j.type === 'translation_audit';
+      const moved = pending.find((j) => j.id === id)!;
+      const group = pending.filter((j) => isAudit(j) === isAudit(moved));
+      const others = pending.filter((j) => isAudit(j) !== isAudit(moved));
+
+      const reordered = reorderJobs(group, id, direction);
+      if (!reordered) return 'noop';
+
+      // Cycle jobs: dense 0..N-1. Audits keep their own base, never below the
+      // number of cycle jobs.
+      const cycleCount = isAudit(moved) ? others.length : reordered.length;
+      const base = isAudit(moved)
+        ? Math.max(Math.min(...group.map((j) => j.priority)), cycleCount)
+        : 0;
+
+      const changed: QueueJob[] = [];
+      reordered.forEach((job, index) => {
+        if (job.priority !== base + index) changed.push({ ...job, priority: base + index });
+      });
+      if (changed.length > 0) await this.queue.bulkPut(changed);
+      return 'ok';
+    });
+  }
+
+  /** Delete a job only if it is still pending. Returns whether it was deleted. */
+  async removePendingJob(id: number): Promise<boolean> {
+    return this.transaction('rw', this.queue, async () => {
+      const job = await this.queue.get(id);
+      if (!job || job.status !== 'pending') return false;
+      await this.queue.delete(id);
+      return true;
     });
   }
 

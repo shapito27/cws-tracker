@@ -21,6 +21,8 @@ import {
   triggerManualRefresh,
   triggerKeywordRescan,
   triggerTranslationAudit,
+  reorderQueueJob,
+  removeQueueJob,
   pauseScanning,
   resumeScanning,
   ALARM_DAILY_SCAN,
@@ -171,6 +173,24 @@ async function handleMessage(
     case 'CANCEL_SCAN':
       await cancelScan();
       return { ok: true };
+
+    case 'REORDER_QUEUE_JOB': {
+      const directions = ['up', 'top', 'bottom'];
+      if (
+        typeof message.jobId !== 'number' ||
+        !directions.includes(message.direction)
+      ) {
+        return { ok: false, error: 'Invalid reorder request' };
+      }
+      return { ...(await reorderQueueJob(message.jobId, message.direction)) };
+    }
+
+    case 'REMOVE_QUEUE_JOB': {
+      if (typeof message.jobId !== 'number') {
+        return { ok: false, error: 'Invalid remove request' };
+      }
+      return { ...(await removeQueueJob(message.jobId)) };
+    }
 
     case 'TEST_PAGINATION': {
       if (!message.keyword || message.keyword.trim().length === 0) {
