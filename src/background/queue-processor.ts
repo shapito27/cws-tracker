@@ -23,6 +23,7 @@ import { SettingsManager } from '@/shared/utils/settings';
 import { calculatePermissionRiskScore } from '@/shared/utils/permissions';
 import { today, epochToDateString } from '@/shared/utils/dates';
 import { findEffectivePrevious, classifyDrop, RANK_NULL_LOOKBACK_DAYS } from '@/shared/utils/rank-history';
+import { findRemovedReviews } from '@/shared/utils/review-removal';
 import {
   analyzeLocaleSet,
   baseLanguage,
@@ -1230,7 +1231,26 @@ async function processReviewScan(
   // This is the lower bound of the window for any event emitted below.
   const previousScanAt = await db.getLastReviewScanAt(extensionId);
 
+  // Read before saveReviews so "stored but not in this scan" is unambiguous.
+  const storedBefore = await db.getReviews(extensionId);
+
   const changes = await db.saveReviews(rows);
+
+  // Stored reviews that this scan should have seen but did not were removed
+  // from CWS (the reviewer deleted them, or CWS moderated them). Keep the rows;
+  // mark them so the UI can show what disappeared. Never fails the scan.
+  let removed: Review[] = [];
+  try {
+    removed = findRemovedReviews({
+      stored: storedBefore,
+      fetched: rows,
+      limit: settings.reviewFetchLimit,
+      moreAvailable: parsed.nextToken !== null,
+    });
+    await db.markReviewsRemoved(removed.map((r) => r.reviewId), now);
+  } catch {
+    removed = [];
+  }
 
   // Persist the CWS-reported text-review count so the UI can compute the exact
   // text-vs-empty split even when the captured corpus is capped. Best-effort.
@@ -1247,7 +1267,7 @@ async function processReviewScan(
 
   // Emit events for detected changes. Must never fail the scan pipeline.
   try {
-    await emitReviewEvents(rows, changes, deps, job, previousScanAt);
+    await emitReviewEvents(rows, changes, deps, job, previousScanAt, removed, now);
   } catch {
     // Event creation is supplementary — swallow.
   }
@@ -1436,7 +1456,9 @@ async function emitReviewEvents(
   changes: { new: string[]; edited: string[]; replied: string[] },
   deps: ProcessorDeps,
   job: QueueJob,
-  previousScanAt?: Date
+  previousScanAt?: Date,
+  removed: Review[] = [],
+  scannedAt: Date = new Date()
 ): Promise<void> {
   const byId = new Map(rows.map((r) => [r.reviewId, r]));
   const dateStr = jobDate(job);
@@ -1489,6 +1511,31 @@ async function emitReviewEvents(
     const r = byId.get(id);
     if (!r) continue;
     await emit(id, 'review_reply', 'devReply', `Developer replied to ${r.reviewerName || 'a'}'s review`);
+  }
+
+  // Removed reviews are not in `rows`, so they are built from the stored copy,
+  // which keeps the reviewer, rating and text for the event note. The change
+  // happened between the last scan that saw the review and this one.
+  for (const r of removed) {
+    const name = r.reviewerName || 'Anonymous';
+    const note = r.hasText
+      ? `Review removed: ★${r.rating} from "${name}": "${excerpt(r.text)}"`
+      : `Rating removed: ★${r.rating} from "${name}"`;
+    const event: EventRecord = {
+      extensionId: r.extensionId,
+      date: dateStr,
+      type: 'review_removed',
+      field: 'removed',
+      oldValue: r.reviewId,
+      newValue: null,
+      note,
+      detectedAt: new Date(),
+      slot,
+      lastSeenOldAt: r.lastSeenAt,
+      firstSeenNewAt: scannedAt,
+    };
+    const savedId = await db.saveEvent(event);
+    deps.sendMessage({ type: 'NEW_EVENT', event: { ...event, id: savedId } });
   }
 }
 

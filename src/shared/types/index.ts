@@ -47,7 +47,8 @@ export type EventType =
   | 'size_change'
   | 'review_new'
   | 'review_edited'
-  | 'review_reply';
+  | 'review_reply'
+  | 'review_removed';
 
 /** Queue job variants. */
 export type QueueJobType = 'listing_scan' | 'keyword_scan' | 'translation_audit' | 'autocomplete_scan' | 'review_scan';
@@ -699,8 +700,15 @@ export interface Review {
   lastSeenAt: Date;
   /** When a content change was last detected, or null if never changed. */
   lastChangedAt: Date | null;
-  /** Reserved for deletion detection; always false in the current version. */
+  /** Reserved; never set. Removal is recorded in `removedAt`. */
   isDeleted: boolean;
+  /**
+   * When a review scan first noticed this review was gone from CWS (deleted by
+   * the reviewer, or moderated — indistinguishable from outside). The row is
+   * kept with its full content. Cleared again if the review reappears. Not
+   * indexed; absent on rows that were never removed.
+   */
+  removedAt?: Date | null;
 }
 
 /** Payload for a review_scan job. */

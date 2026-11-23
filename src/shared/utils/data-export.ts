@@ -125,6 +125,7 @@ const DATE_FIELDS = new Set([
   'startedAt',
   'completedAt',
   // Review timestamps (schema v5)
+  'removedAt',
   'firstSeenAt',
   'lastSeenAt',
   'lastChangedAt',
