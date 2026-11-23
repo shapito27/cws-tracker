@@ -42,11 +42,14 @@ export interface ReviewKeyword {
  * Compute the summary card metrics for an extension's reviews.
  */
 export async function loadReviewSummary(extensionId: string): Promise<ReviewSummary> {
-  const [reviews, listing, ext] = await Promise.all([
+  const [allReviews, listing, ext] = await Promise.all([
     db.getReviews(extensionId),
     db.getLatestListingSnapshot(extensionId),
     db.getExtension(extensionId),
   ]);
+
+  // Removed reviews no longer count on CWS, so they stay out of the stats.
+  const reviews = allReviews.filter((r) => !r.removedAt);
 
   const ratingDistribution = [0, 0, 0, 0, 0];
   let sum = 0;
@@ -119,7 +122,7 @@ export async function loadReviewKeywords(
   extensionId: string,
   opts: { minRating?: number; maxRating?: number; limit?: number } = {}
 ): Promise<ReviewKeyword[]> {
-  let reviews = await db.getReviews(extensionId);
+  let reviews = (await db.getReviews(extensionId)).filter((r) => !r.removedAt);
   if (typeof opts.minRating === 'number') {
     reviews = reviews.filter((r) => r.rating >= opts.minRating!);
   }

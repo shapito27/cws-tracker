@@ -2,6 +2,18 @@
 
 All notable changes to CWS Tracker will be documented in this file.
 
+## [0.45.0] - 2026-11-23
+
+### Added
+- **Removed reviews are detected.** When a review that we stored earlier disappears from the Chrome Web Store (the reviewer deleted it, or CWS moderated it), the next review scan now notices. A new **Review Removed** event shows who left it, the star rating and the start of the text, and the Reviews tab keeps the review in the list with a red "Removed <date>" badge and its full original text. Previously a deleted review was silently kept as if it were still live.
+
+### Notes
+- Removed reviews are left out of the average rating, rating distribution, keyword analysis and the AI audit's review signals, since they no longer count on CWS. They are never deleted from the database.
+- Absence only counts as removal when the scan could have seen the review. A scan fetches the newest `reviewFetchLimit` reviews, so an older stored review outside that window is not flagged. The list counts as complete (any unseen stored review is removed) only when CWS returned fewer reviews than the limit and no continuation token, i.e. CWS itself says there are no more. Both of a review's timestamps must be inside the window, because it is not known whether CWS orders by posted or updated time.
+- Safeguards against false alarms: an empty fetch flags nothing (an upstream failure also returns empty), a windowed fetch containing a review with an unreadable timestamp flags nothing, and a scan that would flag most of the in-window reviews at once is treated as a fetch anomaly and flags nothing.
+- The event's time window runs from the last scan that saw the review to the scan that noticed it was gone. A review that reappears loses its removed mark. No schema change; the next review scan after updating also catches deletions that happened earlier, as long as they are inside the fetched window.
+- CWS does not say why a review disappeared, so a reviewer deleting it and a moderation removal look identical.
+
 ## [0.44.0] - 2026-11-06
 
 ### Added

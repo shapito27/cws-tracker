@@ -557,6 +557,18 @@ describe('reviews round-trip (schema v5)', () => {
     expect(byIndex).toHaveLength(1);
   });
 
+  it('restores removedAt as a Date (the Reviews tab formats it)', async () => {
+    await testDb.reviews.add({ ...makeReview(), removedAt: new Date('2026-11-23T10:00:00Z') });
+
+    const json = serializeExportData(await buildExportData(testDb, {}, '0.45.0'));
+    await testDb.reviews.clear();
+    await importData(testDb, deserializeExportData(json));
+
+    const [restored] = await testDb.reviews.toArray();
+    expect(restored.removedAt).toBeInstanceOf(Date);
+    expect(restored.removedAt!.toISOString()).toBe('2026-11-23T10:00:00.000Z');
+  });
+
   it('imports a legacy file with no reviews table without aborting', async () => {
     await testDb.projects.add(makeProject());
     const json = serializeExportData(await buildExportData(testDb, {}, '0.37.1'));

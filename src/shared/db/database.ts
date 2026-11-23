@@ -843,8 +843,9 @@ export class CWSDatabase extends Dexie {
         }
 
         if (existing.contentHash === contentHash) {
-          // No user-visible change — just refresh lastSeenAt.
-          await this.reviews.update(existing.id!, { lastSeenAt: now });
+          // No user-visible change — just refresh lastSeenAt. A review that was
+          // marked removed and is back is live again.
+          await this.reviews.update(existing.id!, { lastSeenAt: now, removedAt: null });
           continue;
         }
 
@@ -856,6 +857,7 @@ export class CWSDatabase extends Dexie {
           firstSeenAt: existing.firstSeenAt,
           lastSeenAt: now,
           lastChangedAt: now,
+          removedAt: null,
         });
         result.edited.push(incoming.reviewId);
         if (!existing.devReplyText && incoming.devReplyText) {
@@ -865,6 +867,23 @@ export class CWSDatabase extends Dexie {
     });
 
     return result;
+  }
+
+  /**
+   * Record that reviews are gone from CWS. The rows (and their content) are
+   * kept; only `removedAt` is set. Already-removed rows are left untouched so
+   * the original detection time survives repeated scans.
+   */
+  async markReviewsRemoved(reviewIds: readonly string[], removedAt: Date): Promise<void> {
+    if (reviewIds.length === 0) return;
+    await this.transaction('rw', this.reviews, async () => {
+      for (const reviewId of reviewIds) {
+        const row = await this.reviews.where('reviewId').equals(reviewId).first();
+        if (row && !row.removedAt) {
+          await this.reviews.update(row.id!, { removedAt });
+        }
+      }
+    });
   }
 
   async getReviews(extensionId: string): Promise<Review[]> {

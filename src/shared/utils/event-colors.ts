@@ -27,6 +27,7 @@ export const EVENT_TYPE_COLORS: Record<EventType, string> = {
   review_new: '#16A34A',          // green-600 (a new review arrived)
   review_edited: '#D97706',       // amber-600 (an existing review changed)
   review_reply: '#2563EB',        // blue-600 (developer replied)
+  review_removed: '#DC2626',      // red-600 (a review disappeared from CWS)
 };
 
 /** Human-readable label for each event type. */
@@ -45,6 +46,7 @@ export const EVENT_TYPE_LABELS: Record<EventType, string> = {
   review_new: 'New Review',
   review_edited: 'Review Edited',
   review_reply: 'Developer Reply',
+  review_removed: 'Review Removed',
 };
 
 /** All event types in display order. */
@@ -63,6 +65,7 @@ export const ALL_EVENT_TYPES: EventType[] = [
   'review_new',
   'review_edited',
   'review_reply',
+  'review_removed',
 ];
 
 /** Tailwind badge class mapping consistent with EVENT_TYPE_COLORS hex values. */

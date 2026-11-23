@@ -12,7 +12,7 @@ import { db } from '@/shared/db/database';
 import { SettingsManager } from '@/shared/utils/settings';
 import { extractCallbackData } from '@/background/parsers/extract';
 import { resetChromeMock } from '../../mocks/chrome';
-import type { QueueJob } from '@/shared/types';
+import type { QueueJob, Review } from '@/shared/types';
 
 // Build the proxy-style { data } payload from the saved reviews fixture.
 const html = readFileSync(
@@ -150,5 +150,89 @@ describe('processReviewScan', () => {
     expect(fetchPage).not.toHaveBeenCalled();
     const jobs = await db.queue.toArray();
     expect(jobs[0].status).not.toBe('completed');
+  });
+
+  describe('removed reviews', () => {
+    function extraStored(overrides: Partial<Review> = {}): Review {
+      const seen = new Date('2026-01-01T00:00:00Z');
+      return {
+        reviewId: 'deleted-by-reviewer', extensionId: EXT, reviewerName: 'Jane Doe',
+        reviewerAvatar: null, rating: 2, text: 'This stopped working after the update',
+        postedDate: '2026-01-01', updatedDate: '2026-01-01',
+        postedAtEpoch: 1767225600, updatedAtEpoch: 1767225600, helpfulCount: 0,
+        devReplyAuthor: null, devReplyText: null, devReplyDate: null, hasText: true,
+        versionReviewed: null, language: 'en', contentHash: 'x',
+        firstSeenAt: seen, lastSeenAt: seen, lastChangedAt: null, isDeleted: false,
+        ...overrides,
+      };
+    }
+
+    async function scanOnce(): Promise<ReturnType<typeof makeDeps>> {
+      const { processNextJob } = await import('@/background/queue-processor');
+      await db.enqueueJobs([makeReviewJob()]);
+      const deps = makeDeps(reviewsFetch());
+      await processNextJob(deps);
+      return deps;
+    }
+
+    it('marks a stored review that vanished and emits a review_removed event with its content', async () => {
+      await scanOnce(); // stores the 10 fixture reviews
+      await db.reviews.put(extraStored());
+      await db.events.clear();
+
+      const deps = await scanOnce();
+
+      const gone = (await db.getReviews(EXT)).find((r) => r.reviewId === 'deleted-by-reviewer')!;
+      expect(gone.removedAt).toBeInstanceOf(Date);
+      expect(gone.text).toBe('This stopped working after the update'); // content kept
+
+      const events = (await db.events.toArray()).filter((e) => e.type === 'review_removed');
+      expect(events).toHaveLength(1);
+      expect(events[0].oldValue).toBe('deleted-by-reviewer');
+      expect(events[0].note).toContain('Jane Doe');
+      expect(events[0].note).toContain('This stopped working');
+      expect(events[0].lastSeenOldAt).toEqual(new Date('2026-01-01T00:00:00Z'));
+      expect(events[0].firstSeenNewAt).toBeInstanceOf(Date);
+      expect(
+        deps.sendMessage.mock.calls.some((c) => (c[0] as { type?: string }).type === 'NEW_EVENT')
+      ).toBe(true);
+    });
+
+    it('does not re-emit on later scans and keeps the first detection time', async () => {
+      await scanOnce();
+      await db.reviews.put(extraStored());
+      await scanOnce();
+      const first = (await db.reviews.where('reviewId').equals('deleted-by-reviewer').first())!.removedAt;
+      await db.events.clear();
+
+      await scanOnce();
+
+      expect((await db.events.toArray()).filter((e) => e.type === 'review_removed')).toHaveLength(0);
+      const again = (await db.reviews.where('reviewId').equals('deleted-by-reviewer').first())!.removedAt;
+      expect(again).toEqual(first);
+    });
+
+    it('clears the removed mark when a review comes back', async () => {
+      await scanOnce();
+      const live = (await db.getReviews(EXT))[0];
+      await db.reviews.update(live.id!, { removedAt: new Date() });
+
+      await scanOnce();
+
+      expect((await db.reviews.get(live.id!))!.removedAt ?? null).toBeNull();
+    });
+
+    it('flags nothing when the fetch returns no reviews', async () => {
+      await scanOnce();
+      const { processNextJob } = await import('@/background/queue-processor');
+      await db.enqueueJobs([makeReviewJob()]);
+      const empty = vi.fn(async () =>
+        new Response(JSON.stringify({ data: JSON.stringify([[null], [], null]) }), { status: 200 })
+      );
+      await processNextJob(makeDeps(empty));
+
+      const rows = await db.getReviews(EXT);
+      expect(rows.every((r) => !r.removedAt)).toBe(true);
+    });
   });
 });

@@ -87,6 +87,28 @@ describe('ReviewsTab', () => {
     expect(text).toContain('Rating-only (empty)');
   });
 
+  it('marks a removed review in the list and leaves it out of the stats', async () => {
+    await db.saveReviews([
+      makeReview({ reviewId: 'r1', reviewerName: 'Jane Doe', rating: 5, text: 'love this extension' }),
+      makeReview({ reviewId: 'r2', reviewerName: 'Gone Guy', rating: 1, text: 'it broke my browser' }),
+    ]);
+    await db.markReviewsRemoved(['r2'], new Date('2026-11-23T10:00:00Z'));
+    await db.saveListingSnapshot(makeListing());
+
+    const wrapper = mount(ReviewsTab, { props: { project: makeProject() } });
+    await settle();
+
+    // Still listed, with its content, but flagged.
+    const removed = wrapper.find('[data-testid="review-removed"]');
+    expect(removed.exists()).toBe(true);
+    expect(removed.text()).toContain('Gone Guy');
+    expect(removed.text()).toContain('it broke my browser');
+    expect(removed.text()).toContain('Removed');
+    expect(wrapper.findAll('[data-testid="review"]')).toHaveLength(1);
+    // Average uses live reviews only: 5.00, not (5+1)/2.
+    expect(wrapper.text()).toContain('5.00');
+  });
+
   it('triggers a reviews scan when Refresh is clicked', async () => {
     await db.saveReviews([makeReview({ reviewId: 'r1' })]);
     await db.saveListingSnapshot(makeListing());

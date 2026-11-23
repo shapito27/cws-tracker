@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import type { Project, Extension, Review } from '@/shared/types';
+import { toDateString } from '@/shared/utils/dates';
 import { useExtensions } from '../../composables/useExtensions';
 import { useServiceWorker } from '../../composables/useServiceWorker';
 import {
@@ -244,7 +245,9 @@ function chipClass(count: number): string {
         <article
           v-for="r in reviews"
           :key="r.reviewId"
-          class="rounded-lg border border-gray-200 bg-white p-4"
+          class="rounded-lg border p-4"
+          :class="r.removedAt ? 'border-red-200 bg-red-50/40' : 'border-gray-200 bg-white'"
+          :data-testid="r.removedAt ? 'review-removed' : 'review'"
         >
           <div class="flex items-start gap-3">
             <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
@@ -257,6 +260,13 @@ function chipClass(count: number): string {
                 <span class="text-xs text-gray-400">{{ formatDate(r.postedDate) }}</span>
                 <span v-if="r.helpfulCount > 0" class="text-xs text-gray-400">· {{ r.helpfulCount }} found helpful</span>
                 <span v-if="r.versionReviewed" class="text-xs text-gray-400">· v{{ r.versionReviewed }}</span>
+                <span
+                  v-if="r.removedAt"
+                  class="rounded bg-red-100 px-1.5 py-0.5 text-xs font-medium text-red-700"
+                  title="No longer on the Chrome Web Store: the reviewer deleted it, or it was moderated"
+                >
+                  Removed {{ formatDate(toDateString(r.removedAt)) }}
+                </span>
               </div>
               <p v-if="r.text" class="mt-1 whitespace-pre-line text-sm text-gray-700">{{ r.text }}</p>
               <p v-else class="mt-1 text-sm italic text-gray-400">(rating only, no text)</p>

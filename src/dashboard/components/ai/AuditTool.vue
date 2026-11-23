@@ -115,9 +115,9 @@ async function loadPairReviews(): Promise<void> {
   const ownExtId = props.project.ownExtensionId;
   const compExtId = selectedCompetitorId.value;
   const next = new Map<string, Review[]>();
-  next.set(ownExtId, await db.getReviews(ownExtId));
+  next.set(ownExtId, (await db.getReviews(ownExtId)).filter((r) => !r.removedAt));
   if (compExtId && compExtId !== ownExtId) {
-    next.set(compExtId, await db.getReviews(compExtId));
+    next.set(compExtId, (await db.getReviews(compExtId)).filter((r) => !r.removedAt));
   }
   reviewsByExt.value = next;
 }

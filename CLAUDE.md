@@ -104,6 +104,7 @@ src/
       event-window.ts     # Render an EventRecord's lastSeenOld..firstSeenNew interval
       review-analysis.ts  # Review sentiment / signal extraction
       review-hash.ts      # Stable hash for review change detection
+      review-removal.ts   # Detects stored reviews that vanished from CWS (window-aware, conservative)
       website.ts          # Sanitize untrusted CWS developer-website values for display/href
       translation-checks.ts  # Translation manipulation detectors (8 tricks), scoring, analyzeLocaleSet
       locales.ts          # CWS audit locale list + display names (Settings and Translations tab)
@@ -144,6 +145,7 @@ Communication: `chrome.runtime.sendMessage` between contexts. Message types defi
 - Alarm AFTER processing completes, never before.
 - On SW startup: reset `status='running'` jobs to `'pending'` via `db.resetRunningJobs()`.
 - User reordering (queue page) rewrites `priority` only (dense renumber within the moved job's group: cycle jobs from 0, `translation_audit` jobs kept behind them — the in-flight guard relies on audits sorting after cycle jobs); never `scheduledAt`, which retry backoff and `purgeExpiredCycleJobs` depend on. Mutations go through `REORDER_QUEUE_JOB` / `REMOVE_QUEUE_JOB` to the SW, never direct Dexie writes from the UI. Removing the last job finalizes the cycle but must NOT clear `scanCycleSlotKey` (that is the `cancelScan` hazard).
+- **Removed reviews are marked, never deleted.** `findRemovedReviews` (`review-removal.ts`) flags a stored review only when the scan could have seen it: a fetch is the complete list only when shorter than `reviewFetchLimit` AND CWS returned no continuation token (`moreAvailable`); a full fetch is a window, so both timestamps must be newer than its oldest. An empty fetch, a windowed fetch with an unreadable (0) timestamp, and a mass disappearance flag nothing. The row stays with `removedAt` set and a `review_removed` event is emitted; a reappearing review clears the mark. Stats/keywords/AI-audit inputs exclude removed rows.
 - Job types: `listing_scan`, `keyword_scan`, `translation_audit`, `autocomplete_scan`, `review_scan`.
 - Keyword scan = 1 request per keyword (not per keyword-per-extension). One search returns positions for ALL extensions.
 - Delay includes randomized jitter. Never flat delays. Base delay and jitter configured in Settings.
